@@ -17,8 +17,11 @@ does not support partition reassignment.
   reassignments, log dirs, leader election).
 - Implement KRaft operations in `internal/kafka` as thin wrappers over `kmsg` requests.
   Requests are sent to brokers, which forward controller-bound requests to the active
-  controller. Direct controller connections (KIP-919 `bootstrap.controllers`) are not
-  supported by franz-go and are a separate spike.
+  controller.
+- Direct controller connections (KIP-919 `bootstrap.controllers`) are not a franz-go mode.
+  `kafka.ControllerClient` sends requests straight to seed connections and searches for the
+  quorum leader; it is the fallback when no broker answers (amended 2026-10-15 after the
+  spike in [docs/research/franz-go-controller-access.md](../research/franz-go-controller-access.md)).
 
 ## Consequences
 

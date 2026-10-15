@@ -240,6 +240,7 @@ func StatusJSON(st *agentv1.NodeStatus) json.RawMessage {
 		"running": st.GetRunning(), "activeVersion": st.GetActiveVersion(), "installedVersions": st.GetInstalledVersions(),
 		"dataBytes": st.GetDataBytes(), "diskFreeBytes": st.GetDiskFreeBytes(), "hostname": st.GetHostname(),
 		"pid": st.GetPid(), "lastExit": st.GetLastExit(), "processRoles": st.GetProcessRoles(),
+		"javaVersion": st.GetJavaVersion(),
 	}
 	if meta := st.GetMeta(); meta != nil {
 		m["meta"] = map[string]any{"clusterId": meta.GetClusterId(), "nodeId": meta.GetNodeId(),

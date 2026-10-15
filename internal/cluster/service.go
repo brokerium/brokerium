@@ -67,6 +67,45 @@ func (s *Service) Profile(c *store.Cluster) (kafka.Profile, error) {
 	return p, nil
 }
 
+// ControllerServers returns the optional controller listener addresses of a cluster
+// (settings.controllerBootstrapServers).
+func ControllerServers(c *store.Cluster) []string {
+	raw, _ := c.Settings["controllerBootstrapServers"].([]any)
+	var out []string
+	for _, v := range raw {
+		if s, ok := v.(string); ok && s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// controllerQuorum reads the quorum straight from the controllers when they are configured.
+func (s *Service) controllerQuorum(ctx context.Context, c *store.Cluster) *kafka.Quorum {
+	servers := ControllerServers(c)
+	if len(servers) == 0 {
+		return nil
+	}
+	p, err := s.Profile(c)
+	if err != nil {
+		return nil
+	}
+	p.BootstrapServers = servers
+	cc, err := kafka.NewControllerClient(p)
+	if err != nil {
+		return nil
+	}
+	defer cc.Close()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	q, err := cc.DescribeQuorum(ctx)
+	if err != nil {
+		s.log.Debug("reading the quorum from the controllers", "cluster", c.Name, "error", err)
+		return nil
+	}
+	return q
+}
+
 // Client returns a cached Kafka client for the cluster.
 func (s *Service) Client(ctx context.Context, id string) (*kafka.Client, *store.Cluster, error) {
 	c, err := s.store.GetCluster(ctx, id)
@@ -135,6 +174,13 @@ func (s *Service) Refresh(ctx context.Context, id string) (*View, error) {
 		v.Health = Health{Status: HealthUnreachable, Issues: []Issue{{Severity: HealthCritical, Code: "unreachable", Message: err.Error()}}}
 		v.Error = err.Error()
 		v.Capabilities = CapabilitiesFor(c, false)
+		if q := s.controllerQuorum(ctx, c); q != nil {
+			v.Snapshot = &kafka.Snapshot{CollectedAt: time.Now(), ClusterID: c.KafkaClusterID, Quorum: q, Errors: []string{err.Error()}}
+			v.Health = Evaluate(v.Snapshot, time.Now())
+			v.Health.Status = HealthCritical
+			v.Health.Issues = append([]Issue{{Severity: HealthCritical, Code: "brokers_unreachable",
+				Message: "no broker answers; the quorum was read from the controllers: " + err.Error()}}, v.Health.Issues...)
+		}
 	} else {
 		v.Snapshot = snap
 		v.Health = Evaluate(snap, time.Now())

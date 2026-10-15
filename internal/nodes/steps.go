@@ -204,9 +204,11 @@ func (m *Manager) stepProvision(ctx context.Context, x *ops.Exec, raw json.RawMe
 			a.Name + "-kafka": "/opt/brokerium/kafka"},
 		Labels: map[string]string{"brokerium.cluster": x.Cluster.Name, "brokerium.node": a.Name, "brokerium.role": a.Role},
 	}
+	port := s.PortBase + int(a.NodeID)
 	if a.Role == RoleBroker {
-		port := s.PortBase + int(a.NodeID)
 		spec.Ports = map[int]int{port: port}
+	} else {
+		spec.Ports = map[int]int{9093: port}
 	}
 	id, err := m.Docker.Run(ctx, spec)
 	if err != nil {
@@ -380,7 +382,7 @@ func (m *Manager) stepRemoveNode(ctx context.Context, x *ops.Exec, raw json.RawM
 			_ = m.Store.AssignNode(ctx, n.ID, nil, "", nil)
 		}
 	}
-	if a.Role == RoleBroker && x.Cluster.Provider == store.ProviderDocker {
+	if x.Cluster.Provider == store.ProviderDocker {
 		if _, err := m.stepSyncBootstrap(ctx, x, nil); err != nil {
 			return nil, fmt.Errorf("updating bootstrap servers: %w", err)
 		}
@@ -554,6 +556,9 @@ func (m *Manager) stepUpgrade(ctx context.Context, x *ops.Exec, raw json.RawMess
 }
 
 func (m *Manager) stepSyncBootstrap(ctx context.Context, x *ops.Exec, raw json.RawMessage) (any, error) {
+	if x.Cluster.Provider != store.ProviderDocker {
+		return map[string]any{"skipped": "bootstrap servers of agent clusters are managed by the operator"}, nil
+	}
 	mn, err := m.managedNodes(ctx, x.Cluster.ID)
 	if err != nil {
 		return nil, err
@@ -566,7 +571,13 @@ func (m *Manager) stepSyncBootstrap(ctx context.Context, x *ops.Exec, raw json.R
 	if len(servers) == 0 {
 		return map[string]any{"skipped": "no managed brokers"}, nil
 	}
-	return m.stepSetSettings(ctx, x, mustJSON(NodeArgs{BootstrapServers: servers}))
+	s.ControllerBootstrapServers = nil
+	for _, c := range mn.controllers {
+		if c.KafkaNodeID != nil {
+			s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, fmt.Sprintf("localhost:%d", s.PortBase+int(*c.KafkaNodeID)))
+		}
+	}
+	return m.stepSetSettings(ctx, x, mustJSON(NodeArgs{BootstrapServers: servers, Settings: &s}))
 }
 
 func (m *Manager) stepRebalance(ctx context.Context, x *ops.Exec, raw json.RawMessage) (any, error) {

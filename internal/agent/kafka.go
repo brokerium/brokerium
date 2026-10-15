@@ -43,6 +43,9 @@ type Kafka struct {
 	state    nodeState
 	sizeAt   time.Time
 	size     int64
+
+	javaOnce sync.Once
+	java     string
 }
 
 type nodeState struct {
@@ -490,7 +493,34 @@ func (k *Kafka) Status() *agentv1.NodeStatus {
 		st.DiskFreeBytes = int64(uint64(fs.Bavail) * uint64(fs.Bsize)) //nolint:unconvert // field types differ between Linux and macOS
 	}
 	st.DataBytes = k.dataBytes()
+	st.JavaVersion = k.javaVersion()
 	return st
+}
+
+var javaVersionRe = regexp.MustCompile(`version "([^"]+)"`)
+
+// javaVersion reports the runtime the Kafka scripts pick (JAVA_HOME first, then PATH).
+func (k *Kafka) javaVersion() string {
+	k.javaOnce.Do(func() {
+		bin := "java"
+		if home := os.Getenv("JAVA_HOME"); home != "" {
+			bin = filepath.Join(home, "bin", "java")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, bin, "-version").CombinedOutput()
+		if err == nil {
+			k.java = parseJavaVersion(string(out))
+		}
+	})
+	return k.java
+}
+
+func parseJavaVersion(out string) string {
+	if m := javaVersionRe.FindStringSubmatch(out); m != nil {
+		return m[1]
+	}
+	return ""
 }
 
 func (k *Kafka) dataBytes() int64 {

@@ -135,4 +135,6 @@ message NodeStatus {
   int64 pid = 8;
   string last_exit = 9;
   string process_roles = 10;
+  // Version of the Java runtime that runs Kafka, for example "21.0.8".
+  string java_version = 11;
 }
