@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# kind cluster for the Strimzi lab: Kafka node ports 32100-32105 are published on localhost.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: brokerium
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - { containerPort: 32100, hostPort: 32100 }
+      - { containerPort: 32101, hostPort: 32101 }
+      - { containerPort: 32102, hostPort: 32102 }
+      - { containerPort: 32103, hostPort: 32103 }
+      - { containerPort: 32104, hostPort: 32104 }
+      - { containerPort: 32105, hostPort: 32105 }

@@ -40,6 +40,7 @@ import { diskUsageColor } from '../../lib/status';
 import { BrokerConfigsDrawer } from './BrokerConfigsDrawer';
 import { useClusterContext } from './clusterContext';
 import { NoSnapshot, ParamsModal } from './common';
+import { NodePoolsSection } from './NodePoolsSection';
 
 type BrokerDialog =
   | { kind: 'add' }
@@ -90,7 +91,7 @@ function DiskUsage({ broker }: { broker: Broker }) {
 }
 
 export default function BrokersTab() {
-  const { snapshot } = useClusterContext();
+  const { snapshot, cluster } = useClusterContext();
   const planner = usePlanner();
   const [configBroker, setConfigBroker] = useState<number | null>(null);
   const [dialog, setDialog] = useState<BrokerDialog | null>(null);
@@ -266,6 +267,8 @@ export default function BrokersTab() {
           </Table>
         </Table.ScrollContainer>
       </Paper>
+
+      {cluster.provider === 'strimzi' && <NodePoolsSection />}
 
       <BrokerConfigsDrawer brokerId={configBroker} onClose={() => setConfigBroker(null)} />
 

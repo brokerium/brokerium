@@ -49,6 +49,7 @@ export const OPERATION_REQUIREMENTS: Record<OperationTypeName, CapabilityKey[]> 
   'finalize-upgrade': ['finalizeFeatures'],
   'bootstrap-cluster': ['provisionNodes'],
   'destroy-cluster': ['provisionNodes'],
+  'scale-node-pool': ['scaleNodePools'],
 };
 
 export interface Availability {

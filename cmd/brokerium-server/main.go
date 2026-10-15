@@ -94,8 +94,9 @@ func run(log *slog.Logger) error {
 		log.Info("docker provider disabled", "reason", err)
 		dockerClient = nil
 	}
-	engine.Extend(&nodes.Manager{Store: st, Gateway: gateway, Docker: dockerClient, Clusters: clusters, Log: log,
-		Cfg: nodes.Config{AgentEndpoint: cfg.AgentEndpoint, AgentImage: cfg.AgentImage, LabNetwork: cfg.LabNetwork}})
+	nodeManager := &nodes.Manager{Store: st, Gateway: gateway, Docker: dockerClient, Clusters: clusters, Log: log,
+		Cfg: nodes.Config{AgentEndpoint: cfg.AgentEndpoint, AgentImage: cfg.AgentImage, LabNetwork: cfg.LabNetwork}}
+	engine.Extend(nodeManager)
 
 	go clusters.Run(ctx, cfg.SnapshotInterval)
 	go engine.Run(ctx, cfg.WorkerInterval)
@@ -107,7 +108,7 @@ func run(log *slog.Logger) error {
 		Addr: cfg.HTTPAddr,
 		Handler: srv.Handler(
 			&api.OperationsAPI{Engine: engine, Sampler: sampler},
-			&api.NodesAPI{Gateway: gateway, PublicURL: cfg.PublicURL, AgentEndpoint: cfg.AgentEndpoint},
+			&api.NodesAPI{Gateway: gateway, Pools: nodeManager, PublicURL: cfg.PublicURL, AgentEndpoint: cfg.AgentEndpoint},
 		),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

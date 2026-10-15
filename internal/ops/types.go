@@ -179,6 +179,35 @@ func ReassignSteps(moves []balancer.Move, throttle int64, batch int, allowURP bo
 	return reassignStepsURP(moves, throttle, batch, allowURP)
 }
 
+// EvacuateSteps plans moving every replica off the given brokers: throttled, batched
+// reassignment steps followed by a check that each broker is empty.
+func EvacuateSteps(p *Planner, brokers []int32) ([]StepSpec, *balancer.Plan, error) {
+	exclude := map[int32]bool{}
+	for _, b := range brokers {
+		exclude[b] = true
+	}
+	plan, err := balancer.Compute(modelFrom(p, exclude), balancer.Options{
+		Mode: balancer.ModeEvacuate, Evacuate: brokers, RackAware: racksKnown(p.View)})
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, w := range plan.Warnings {
+		if strings.HasPrefix(w, "cannot move") {
+			return nil, nil, fmt.Errorf("brokers %v cannot be emptied: %s", brokers, w)
+		}
+	}
+	steps := reassignStepsURP(plan.Moves, 0, 0, false)
+	for _, b := range brokers {
+		steps = append(steps, StepSpec{Name: fmt.Sprintf("Verify broker %d is empty", b), Kind: KindVerifyEmpty, Args: BrokerArgs{BrokerID: b}})
+	}
+	return steps, plan, nil
+}
+
+// PlanFinalize is the built-in finalize-upgrade planner, raising features through the Admin API.
+func PlanFinalize(ctx context.Context, p *Planner, raw json.RawMessage) (*Planned, error) {
+	return planFinalize(ctx, p, raw)
+}
+
 func planRebalance(_ context.Context, p *Planner, raw json.RawMessage) (*Planned, error) {
 	params, err := parse[rebalanceParams](raw)
 	if err != nil {

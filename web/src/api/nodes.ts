@@ -19,7 +19,28 @@ export interface JoinTokenRequest {
 export const nodeKeys = {
   all: ['nodes'] as const,
   list: (clusterId?: string) => ['nodes', clusterId ?? 'all'] as const,
+  pools: (clusterId: string) => ['node-pools', clusterId] as const,
 };
+
+/** A Strimzi KafkaNodePool. */
+export interface NodePool {
+  name: string;
+  roles: string[];
+  replicas: number;
+  readyReplicas: number;
+  nodeIds: number[] | null;
+  settled: boolean;
+}
+
+export function useNodePools(clusterId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: nodeKeys.pools(clusterId),
+    queryFn: async () =>
+      (await api.get<{ pools: NodePool[] }>(`/clusters/${encodeURIComponent(clusterId)}/node-pools`)).pools,
+    enabled,
+    refetchInterval: 10_000,
+  });
+}
 
 export function useNodes(clusterId?: string) {
   return useQuery({

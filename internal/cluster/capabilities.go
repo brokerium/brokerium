@@ -58,7 +58,7 @@ func CapabilitiesFor(c *store.Cluster, staticQuorum bool) Capabilities {
 		caps.AddControllers = !staticQuorum
 		caps.RestartNodes, caps.UpgradeVersion, caps.MigrateQuorum = true, true, staticQuorum
 	case store.ProviderStrimzi:
-		caps.ScaleNodePools, caps.UpgradeVersion = true, true
+		caps.ScaleNodePools, caps.UpgradeVersion, caps.RestartNodes = true, true, true
 		caps.ManageSCRAM = false
 		caps.Notes = append(caps.Notes, "Strimzi manages pods and users; controller quorum changes wait for dynamic quorum support in Strimzi.")
 	default:
@@ -66,7 +66,7 @@ func CapabilitiesFor(c *store.Cluster, staticQuorum bool) Capabilities {
 			caps.Notes = append(caps.Notes, "Install brokerium-agent on the nodes to manage brokers, controllers and upgrades.")
 		}
 	}
-	if staticQuorum && c.Provider != store.ProviderAgent && c.Provider != store.ProviderDocker && c.Flavor == store.FlavorApache {
+	if staticQuorum && c.Provider == store.ProviderExternal && c.Flavor == store.FlavorApache {
 		caps.Notes = append(caps.Notes, "Static controller quorum: controllers cannot be added or removed until it is migrated (Kafka 4.1+).")
 	}
 	return caps

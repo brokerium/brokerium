@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# Kafka cluster "lab" for the Strimzi provider: one controller, three brokers (ids 100+),
+# Kafka 4.2.2 so an upgrade to 4.3.1 can be tested. The external listener is reachable from
+# the host at localhost:32100.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: controllers
+  namespace: kafka
+  labels: { strimzi.io/cluster: lab }
+  annotations: { strimzi.io/next-node-ids: "[0-9]" }
+spec:
+  replicas: 1
+  roles: [controller]
+  storage: { type: persistent-claim, size: 1Gi, deleteClaim: true }
+  resources: { requests: { memory: 512Mi, cpu: 100m }, limits: { memory: 768Mi } }
+  jvmOptions: { "-Xms": 256m, "-Xmx": 256m }
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: brokers
+  namespace: kafka
+  labels: { strimzi.io/cluster: lab }
+  annotations: { strimzi.io/next-node-ids: "[100-199]" }
+spec:
+  replicas: 3
+  roles: [broker]
+  storage: { type: persistent-claim, size: 2Gi, deleteClaim: true }
+  resources: { requests: { memory: 768Mi, cpu: 100m }, limits: { memory: 1Gi } }
+  jvmOptions: { "-Xms": 384m, "-Xmx": 384m }
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: lab
+  namespace: kafka
+spec:
+  kafka:
+    version: 4.2.2
+    listeners:
+      - { name: plain, port: 9092, type: internal, tls: false }
+      - name: external
+        port: 9094
+        type: nodeport
+        tls: false
+        configuration:
+          bootstrap: { nodePort: 32100 }
+          brokers:
+            - { broker: 100, advertisedHost: localhost, nodePort: 32101 }
+            - { broker: 101, advertisedHost: localhost, nodePort: 32102 }
+            - { broker: 102, advertisedHost: localhost, nodePort: 32103 }
+            - { broker: 103, advertisedHost: localhost, nodePort: 32104 }
+            - { broker: 104, advertisedHost: localhost, nodePort: 32105 }
+    config:
+      default.replication.factor: 3
+      min.insync.replicas: 2
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2

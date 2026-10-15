@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -10,14 +11,21 @@ import (
 	"time"
 
 	"github.com/bvaliev/brokerium/internal/agentgw"
+	"github.com/bvaliev/brokerium/internal/provider/strimzi"
 	"github.com/bvaliev/brokerium/internal/store"
 )
 
 var nodeNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,62}$`)
 
-// NodesAPI exposes agent nodes and join tokens.
+// NodePooler lists the node pools of Strimzi clusters.
+type NodePooler interface {
+	NodePools(ctx context.Context, c *store.Cluster) ([]strimzi.NodePool, error)
+}
+
+// NodesAPI exposes agent nodes, join tokens and Strimzi node pools.
 type NodesAPI struct {
 	Gateway       *agentgw.Gateway
+	Pools         NodePooler
 	PublicURL     string
 	AgentEndpoint string
 	srv           *Server
@@ -26,6 +34,7 @@ type NodesAPI struct {
 // Register adds the routes.
 func (a *NodesAPI) Register(s *Server) {
 	a.srv = s
+	s.Route("GET /api/v1/clusters/{id}/node-pools", store.RoleViewer, a.handleNodePools)
 	s.Route("GET /api/v1/nodes", store.RoleViewer, a.handleList)
 	s.Route("POST /api/v1/join-tokens", store.RoleOperator, a.handleJoinToken)
 	s.Route("DELETE /api/v1/nodes/{id}", store.RoleOperator, a.handleDelete)
@@ -36,6 +45,41 @@ func (a *NodesAPI) Register(s *Server) {
 type NodeView struct {
 	*store.Node
 	Connected bool `json:"connected"`
+}
+
+// NodePoolView is a Strimzi node pool as the dashboard shows it.
+type NodePoolView struct {
+	Name     string   `json:"name"`
+	Roles    []string `json:"roles"`
+	Replicas int32    `json:"replicas"`
+	Ready    int32    `json:"readyReplicas"`
+	NodeIDs  []int32  `json:"nodeIds"`
+	Settled  bool     `json:"settled"`
+}
+
+func (a *NodesAPI) handleNodePools(w http.ResponseWriter, r *http.Request) {
+	c, err := a.srv.Store.GetCluster(r.Context(), r.PathValue("id"))
+	if err != nil {
+		WriteStoreError(w, err)
+		return
+	}
+	if c.Provider != store.ProviderStrimzi || a.Pools == nil {
+		WriteJSON(w, http.StatusOK, map[string]any{"pools": []NodePoolView{}})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	pools, err := a.Pools.NodePools(ctx, c)
+	if err != nil {
+		WriteError(w, http.StatusBadGateway, "kubernetes_error", err.Error())
+		return
+	}
+	out := make([]NodePoolView, 0, len(pools))
+	for _, p := range pools {
+		out = append(out, NodePoolView{Name: p.Metadata.Name, Roles: p.Spec.Roles, Replicas: p.Spec.Replicas,
+			Ready: p.Status.Replicas, NodeIDs: p.Status.NodeIDs, Settled: p.Settled()})
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"pools": out})
 }
 
 func (a *NodesAPI) handleList(w http.ResponseWriter, r *http.Request) {

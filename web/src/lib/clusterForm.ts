@@ -31,6 +31,12 @@ export interface ClusterFormValues {
   awsAccessKeyId: string;
   awsSecretAccessKey: string;
   awsSessionToken: string;
+  /** Strimzi provider: where the Kafka resource lives and how to reach the Kubernetes API. */
+  k8sNamespace: string;
+  k8sKafka: string;
+  k8sContext: string;
+  k8sInCluster: boolean;
+  kubeconfig: string;
 }
 
 export const EMPTY_CLUSTER_FORM: ClusterFormValues = {
@@ -52,7 +58,17 @@ export const EMPTY_CLUSTER_FORM: ClusterFormValues = {
   awsAccessKeyId: '',
   awsSecretAccessKey: '',
   awsSessionToken: '',
+  k8sNamespace: '',
+  k8sKafka: '',
+  k8sContext: '',
+  k8sInCluster: false,
+  kubeconfig: '',
 };
+
+function settingString(settings: Record<string, unknown>, key: string): string {
+  const value = settings[key];
+  return typeof value === 'string' ? value : '';
+}
 
 export const CLUSTER_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
@@ -84,6 +100,10 @@ export function clusterFormFromCluster(cluster: Cluster): ClusterFormValues {
     tlsInsecureSkipVerify: s.tlsInsecureSkipVerify ?? false,
     tlsCaCertPem: s.tlsCaCertPem ?? '',
     awsRegion: s.awsRegion ?? '',
+    k8sNamespace: settingString(cluster.settings, 'namespace'),
+    k8sKafka: settingString(cluster.settings, 'kafka'),
+    k8sContext: settingString(cluster.settings, 'kubeContext'),
+    k8sInCluster: cluster.settings.inCluster === true,
   };
 }
 
@@ -101,6 +121,10 @@ export function validateClusterForm(v: ClusterFormValues): Partial<Record<keyof 
   }
   if (usesSasl(v.protocol) && usesPassword(v.saslMechanism) && !v.username.trim()) {
     errors.username = 'Username is required';
+  }
+  if (v.provider === 'strimzi') {
+    if (!v.k8sNamespace.trim()) errors.k8sNamespace = 'The namespace of the Kafka resource';
+    if (!v.k8sKafka.trim()) errors.k8sKafka = 'The name of the Kafka resource';
   }
   return errors;
 }
@@ -137,6 +161,8 @@ export function clusterRequestFromForm(v: ClusterFormValues): ClusterRequest {
     if (v.tlsClientKeyPem.trim()) secrets.tlsClientKeyPem = v.tlsClientKeyPem.trim();
   }
 
+  if (v.provider === 'strimzi' && !v.k8sInCluster && v.kubeconfig.trim()) secrets.kubeconfig = v.kubeconfig;
+
   const request: ClusterRequest = {
     name: v.name.trim(),
     provider: v.provider,
@@ -144,6 +170,15 @@ export function clusterRequestFromForm(v: ClusterFormValues): ClusterRequest {
     bootstrapServers: splitList(v.bootstrapServers),
     security,
   };
+  // Settings of other providers (Docker port base, versions) are owned by the server.
+  if (v.provider === 'strimzi') {
+    request.settings = {
+      namespace: v.k8sNamespace.trim(),
+      kafka: v.k8sKafka.trim(),
+      kubeContext: v.k8sContext.trim(),
+      inCluster: v.k8sInCluster,
+    };
+  }
   if (Object.keys(secrets).length > 0) request.secrets = secrets;
   return request;
 }

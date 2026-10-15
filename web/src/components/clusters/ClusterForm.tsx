@@ -144,6 +144,54 @@ export function ClusterForm({ initial, mode, submitting, onSubmit, onCancel, rea
             error={errors.bootstrapServers}
           />
 
+          {v.provider === 'strimzi' && (
+            <>
+              <Divider label="Kubernetes" labelPosition="left" mt="xs" />
+              <SimpleGrid cols={{ base: 1, sm: 3 }}>
+                <TextInput
+                  label="Namespace"
+                  required
+                  value={v.k8sNamespace}
+                  onChange={(e) => set('k8sNamespace', e.currentTarget.value)}
+                  error={errors.k8sNamespace}
+                />
+                <TextInput
+                  label="Kafka resource"
+                  description="metadata.name of the Kafka custom resource"
+                  required
+                  value={v.k8sKafka}
+                  onChange={(e) => set('k8sKafka', e.currentTarget.value)}
+                  error={errors.k8sKafka}
+                />
+                <TextInput
+                  label="Kubeconfig context"
+                  description="Empty: the current context"
+                  value={v.k8sContext}
+                  disabled={v.k8sInCluster}
+                  onChange={(e) => set('k8sContext', e.currentTarget.value)}
+                />
+              </SimpleGrid>
+              <Checkbox
+                label="Brokerium runs in this Kubernetes cluster (use its service account)"
+                checked={v.k8sInCluster}
+                onChange={(e) => set('k8sInCluster', e.currentTarget.checked)}
+              />
+              {!v.k8sInCluster && (
+                <Textarea
+                  label="Kubeconfig"
+                  description="Embedded token or client certificate; stored encrypted. Exec plugins are not supported."
+                  placeholder={secretPlaceholder ?? 'apiVersion: v1\nkind: Config\n...'}
+                  autosize
+                  minRows={3}
+                  maxRows={10}
+                  value={v.kubeconfig}
+                  onChange={(e) => set('kubeconfig', e.currentTarget.value)}
+                  styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }}
+                />
+              )}
+            </>
+          )}
+
           <Divider label="Security" labelPosition="left" mt="xs" />
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
             <Select

@@ -65,6 +65,11 @@ func (m *Manager) Types() []ops.OpType {
 		{Type: "destroy-cluster", Title: "Delete cluster nodes", Scope: "cluster", Requires: []string{"provisionNodes"},
 			Irreversible: true, AllowUnreachable: true, Plan: m.planDestroy,
 			Description: "Stop every node and delete its container and volumes, data included. The cluster record stays until you remove it."},
+		{Type: "scale-node-pool", Title: "Scale node pool", Scope: "cluster", Requires: []string{"scaleNodePools"}, Plan: m.planScalePool,
+			Description: "Change the replicas of a Strimzi broker node pool: rebalance onto new brokers, or empty brokers before they are removed."},
+		{Type: "finalize-upgrade", Title: "Finalize upgrade", Scope: "cluster", Requires: []string{"finalizeFeatures"},
+			Irreversible: true, Plan: m.planFinalize,
+			Description: "Raise metadata.version and other features to the highest level all nodes support."},
 	}
 }
 
@@ -558,6 +563,9 @@ func (m *Manager) planRestart(ctx context.Context, p *ops.Planner, raw json.RawM
 	if err != nil {
 		return nil, err
 	}
+	if p.Cluster.Provider == store.ProviderStrimzi {
+		return m.planStrimziRestart(ctx, p)
+	}
 	mn, err := m.managedNodes(ctx, p.Cluster.ID)
 	if err != nil {
 		return nil, err
@@ -656,6 +664,9 @@ func (m *Manager) planUpgrade(ctx context.Context, p *ops.Planner, raw json.RawM
 	}
 	if !versionRe.MatchString(params.Version) {
 		return nil, fmt.Errorf("invalid version %q", params.Version)
+	}
+	if p.Cluster.Provider == store.ProviderStrimzi {
+		return m.planStrimziUpgrade(ctx, p, params.Version)
 	}
 	s := settingsOf(p.Cluster)
 	if compareVersions(params.Version, s.KafkaVersion) <= 0 {

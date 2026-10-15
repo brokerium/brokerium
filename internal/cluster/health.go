@@ -170,7 +170,7 @@ func Evaluate(s *kafka.Snapshot, now time.Time) Health {
 		if len(stale) > 0 {
 			add("info", "stale_observers", "node(s) %s stopped fetching metadata (removed controllers or stopped nodes)", strings.Join(stale, ", "))
 		}
-	} else {
+	} else if s.Has(kafka.PartQuorum) {
 		add(HealthWarning, "quorum_unknown", "the controller quorum could not be described")
 	}
 

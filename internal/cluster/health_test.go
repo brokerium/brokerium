@@ -85,6 +85,9 @@ func TestEvaluate(t *testing.T) {
 		{"quorum unknown", func(s *kafka.Snapshot) {
 			s.Quorum = nil
 		}, HealthWarning, []string{"quorum_unknown"}},
+		{"quorum not offered by a managed service", func(s *kafka.Snapshot) {
+			s.Quorum, s.Skipped = nil, []string{kafka.PartQuorum}
+		}, HealthOK, []string{}},
 		{"stale observer", func(s *kafka.Snapshot) {
 			s.Quorum.Observers = []kafka.QuorumReplica{{NodeID: 5, Role: "observer", LastFetchTimestamp: now.Add(-time.Hour).UnixMilli()}}
 		}, HealthOK, []string{"stale_observers"}},

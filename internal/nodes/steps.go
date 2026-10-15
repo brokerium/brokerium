@@ -77,6 +77,12 @@ func (m *Manager) StepKinds() map[string]ops.StepFunc {
 		KindUpgrade:       m.stepUpgrade,
 		KindSyncBootstrap: m.stepSyncBootstrap,
 		KindRebalance:     m.stepRebalance,
+
+		KindStrimziScale:    m.stepStrimziScale,
+		KindStrimziWaitPool: m.stepStrimziWaitPool,
+		KindStrimziRoll:     m.stepStrimziRoll,
+		KindStrimziVersion:  m.stepStrimziVersion,
+		KindStrimziMetadata: m.stepStrimziMetadata,
 	}
 }
 

@@ -44,6 +44,8 @@ type Secrets struct {
 	AWSSecretAccessKey string `json:"awsSecretAccessKey,omitempty"`
 	AWSSessionToken    string `json:"awsSessionToken,omitempty"`
 	OAuthToken         string `json:"oauthToken,omitempty"`
+	// Kubeconfig gives the Strimzi provider access to the Kubernetes API.
+	Kubeconfig string `json:"kubeconfig,omitempty"`
 }
 
 // Cluster is a registered Kafka cluster.

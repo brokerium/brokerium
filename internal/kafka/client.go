@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl"
@@ -128,13 +129,29 @@ func saslMechanism(p Profile) (sasl.Mechanism, error) {
 	case "SCRAM-SHA-512":
 		return scram.Auth{User: user, Pass: pass}.AsSha512Mechanism(), nil
 	case "AWS_MSK_IAM":
-		auth := aws.Auth{
-			AccessKey:    p.Secrets.AWSAccessKeyID,
-			SecretKey:    p.Secrets.AWSSecretAccessKey,
-			SessionToken: p.Secrets.AWSSessionToken,
-			UserAgent:    "brokerium",
+		if p.Secrets.AWSAccessKeyID != "" {
+			auth := aws.Auth{
+				AccessKey:    p.Secrets.AWSAccessKeyID,
+				SecretKey:    p.Secrets.AWSSecretAccessKey,
+				SessionToken: p.Secrets.AWSSessionToken,
+				UserAgent:    "brokerium",
+			}
+			return aws.ManagedStreamingIAM(func(context.Context) (aws.Auth, error) { return auth, nil }), nil
 		}
-		return aws.ManagedStreamingIAM(func(context.Context) (aws.Auth, error) { return auth, nil }), nil
+		// No keys: the AWS default chain (environment, web identity for EKS, ECS task role,
+		// instance profile); the SDK caches and refreshes the credentials.
+		cfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithRegion(p.Security.AWSRegion))
+		if err != nil {
+			return nil, fmt.Errorf("loading the AWS configuration: %w", err)
+		}
+		return aws.ManagedStreamingIAM(func(ctx context.Context) (aws.Auth, error) {
+			creds, err := cfg.Credentials.Retrieve(ctx)
+			if err != nil {
+				return aws.Auth{}, fmt.Errorf("AWS credentials: %w", err)
+			}
+			return aws.Auth{AccessKey: creds.AccessKeyID, SecretKey: creds.SecretAccessKey, SessionToken: creds.SessionToken,
+				UserAgent: "brokerium"}, nil
+		}), nil
 	case "OAUTHBEARER":
 		return oauth.Auth{Token: p.Secrets.OAuthToken}.AsMechanism(), nil
 	default:
