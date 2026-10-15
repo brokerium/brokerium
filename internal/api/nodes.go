@@ -158,39 +158,62 @@ func deref(s *string) string {
 // installScript installs brokerium-agent as a systemd service on a Linux host.
 const installScript = `#!/bin/sh
 # SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
-# Installs brokerium-agent as a systemd service. Requires BROKERIUM_AGENT_SERVER and BROKERIUM_AGENT_TOKEN.
+# Installs brokerium-agent as a systemd service. Kafka runs as its own unit
+# (brokerium-kafka.service) under the kafka account, so restarting the agent never stops Kafka.
+#
+#   BROKERIUM_AGENT_SERVER, BROKERIUM_AGENT_TOKEN  required (Nodes page of the dashboard)
+#   BROKERIUM_AGENT_VERSION                        release tag, default: latest
+#   BROKERIUM_AGENT_URL                            download URL of the binary (air-gapped installs)
+#   BROKERIUM_AGENT_KAFKA_DATA_DIR                 log.dirs of new nodes, default /var/lib/kafka/data
+#   BROKERIUM_AGENT_KAFKA_CONFIG                   adopt a running node: its server.properties
+#   BROKERIUM_AGENT_PREINSTALLED                   and its Kafka installation directory
 set -eu
 : "${BROKERIUM_AGENT_SERVER:?set BROKERIUM_AGENT_SERVER}"
 : "${BROKERIUM_AGENT_TOKEN:?set BROKERIUM_AGENT_TOKEN}"
+[ "$(id -u)" -eq 0 ] || { echo "run as root (sudo)" >&2; exit 1; }
 VERSION="${BROKERIUM_AGENT_VERSION:-latest}"
+DATA_DIR="${BROKERIUM_AGENT_KAFKA_DATA_DIR:-/var/lib/kafka/data}"
 case "$(uname -m)" in
   x86_64|amd64) ARCH=amd64 ;;
   aarch64|arm64) ARCH=arm64 ;;
   *) echo "unsupported architecture $(uname -m)" >&2; exit 1 ;;
 esac
-if [ "$VERSION" = latest ]; then
+if [ -n "${BROKERIUM_AGENT_URL:-}" ]; then
+  URL="$BROKERIUM_AGENT_URL"
+elif [ "$VERSION" = latest ]; then
   URL="https://github.com/bvaliev/brokerium/releases/latest/download/brokerium-agent-linux-${ARCH}"
 else
   URL="https://github.com/bvaliev/brokerium/releases/download/${VERSION}/brokerium-agent-linux-${ARCH}"
 fi
-id kafka >/dev/null 2>&1 || useradd --system --home-dir /var/lib/brokerium-agent --shell /usr/sbin/nologin kafka
-install -d -o kafka -g kafka /var/lib/brokerium-agent /opt/brokerium/kafka /var/lib/kafka/data
-curl -fsSL "$URL" -o /usr/local/bin/brokerium-agent
-chmod 0755 /usr/local/bin/brokerium-agent
-cat > /etc/systemd/system/brokerium-agent.service <<EOF
+id kafka >/dev/null 2>&1 || useradd --system --home-dir /var/lib/kafka --shell /usr/sbin/nologin kafka
+# The agent state holds its private key; kafka may only traverse it to read server.properties.
+install -d -m 0711 /var/lib/brokerium-agent
+install -d -m 0755 /opt/brokerium/kafka
+install -d -o kafka -g kafka "$DATA_DIR"
+curl -fsSL "$URL" -o /usr/local/bin/brokerium-agent.new
+chmod 0755 /usr/local/bin/brokerium-agent.new
+mv /usr/local/bin/brokerium-agent.new /usr/local/bin/brokerium-agent
+umask 077
+{
+  echo "BROKERIUM_AGENT_SERVER=${BROKERIUM_AGENT_SERVER}"
+  echo "BROKERIUM_AGENT_TOKEN=${BROKERIUM_AGENT_TOKEN}"
+  echo "BROKERIUM_AGENT_PROCESS=systemd"
+  echo "BROKERIUM_AGENT_KAFKA_DATA_DIR=${DATA_DIR}"
+  [ -z "${BROKERIUM_AGENT_KAFKA_CONFIG:-}" ] || echo "BROKERIUM_AGENT_KAFKA_CONFIG=${BROKERIUM_AGENT_KAFKA_CONFIG}"
+  [ -z "${BROKERIUM_AGENT_PREINSTALLED:-}" ] || echo "BROKERIUM_AGENT_PREINSTALLED=${BROKERIUM_AGENT_PREINSTALLED}"
+} > /etc/brokerium-agent.env
+umask 022
+cat > /etc/systemd/system/brokerium-agent.service <<'EOF'
 [Unit]
 Description=Brokerium agent for Apache Kafka
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=kafka
-Environment=BROKERIUM_AGENT_SERVER=${BROKERIUM_AGENT_SERVER}
-Environment=BROKERIUM_AGENT_TOKEN=${BROKERIUM_AGENT_TOKEN}
+EnvironmentFile=/etc/brokerium-agent.env
 ExecStart=/usr/local/bin/brokerium-agent run
 Restart=always
 RestartSec=5
-LimitNOFILE=1000000
 
 [Install]
 WantedBy=multi-user.target

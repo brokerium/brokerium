@@ -47,7 +47,7 @@ export const OPERATION_REQUIREMENTS: Record<OperationTypeName, CapabilityKey[]> 
   'rolling-restart': ['restartNodes'],
   'rolling-upgrade': ['upgradeVersion'],
   'finalize-upgrade': ['finalizeFeatures'],
-  'bootstrap-cluster': ['provisionNodes'],
+  'bootstrap-cluster': ['restartNodes'],
   'destroy-cluster': ['provisionNodes'],
   'scale-node-pool': ['scaleNodePools'],
 };

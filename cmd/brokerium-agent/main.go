@@ -64,6 +64,9 @@ func flags() (*flag.FlagSet, *agent.Config) {
 	fs.StringVar(&cfg.KafkaDataDir, "kafka-data-dir", env("BROKERIUM_AGENT_KAFKA_DATA_DIR", "/var/lib/kafka/data"), "Kafka log.dirs")
 	fs.StringVar(&cfg.Preinstalled, "preinstalled", env("BROKERIUM_AGENT_PREINSTALLED", ""), "existing Kafka installation to adopt")
 	fs.StringVar(&cfg.Process, "process", env("BROKERIUM_AGENT_PROCESS", "child"), "process manager: child or systemd")
+	fs.StringVar(&cfg.KafkaConfig, "kafka-config", env("BROKERIUM_AGENT_KAFKA_CONFIG", ""),
+		"adopt an existing node: its server.properties, never rewritten (storage is never formatted)")
+	fs.StringVar(&cfg.KafkaUser, "kafka-user", env("BROKERIUM_AGENT_KAFKA_USER", "kafka"), "account that runs Kafka under systemd")
 	return fs, cfg
 }
 

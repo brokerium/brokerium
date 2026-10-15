@@ -110,7 +110,8 @@ func (req *ClusterRequest) apply(c *store.Cluster) error {
 	switch {
 	case !clusterNameRe.MatchString(c.Name):
 		return fmt.Errorf("name must be lowercase letters, digits and dashes (max 63)")
-	case len(c.BootstrapServers) == 0 && c.Provider != store.ProviderDocker:
+	case len(c.BootstrapServers) == 0 && c.Provider != store.ProviderDocker && c.Provider != store.ProviderAgent:
+		// Docker and agent clusters can start empty; bootstrap-cluster fills in the addresses.
 		return fmt.Errorf("at least one bootstrap server is required")
 	}
 	switch c.Provider {

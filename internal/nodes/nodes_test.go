@@ -13,7 +13,7 @@ import (
 func TestRenderController(t *testing.T) {
 	t.Parallel()
 	s := settingsOf(&store.Cluster{Settings: map[string]any{"portBase": 21000}})
-	p := renderProperties(s, RoleController, "delta-c1", 1, "", "dynamic", quorumBootstrap([]string{"delta-c1", "delta-c2"}))
+	p := renderProperties(s, true, RoleController, "delta-c1", 1, "", "dynamic", quorumBootstrap([]string{"delta-c1", "delta-c2"}))
 	want := map[string]string{
 		"node.id":                             "1",
 		"process.roles":                       "controller",
@@ -35,7 +35,7 @@ func TestRenderController(t *testing.T) {
 func TestRenderBroker(t *testing.T) {
 	t.Parallel()
 	s := settingsOf(&store.Cluster{Settings: map[string]any{"portBase": 21000, "replicationFactor": 1}})
-	p := renderProperties(s, RoleBroker, "delta-b101", 101, "rack-a", "static", "1@delta-c1:9093")
+	p := renderProperties(s, true, RoleBroker, "delta-b101", 101, "rack-a", "static", "1@delta-c1:9093")
 	want := map[string]string{
 		"process.roles":                    "broker",
 		"advertised.listeners":             "INTERNAL://delta-b101:9092,EXTERNAL://localhost:21101",
@@ -49,6 +49,26 @@ func TestRenderBroker(t *testing.T) {
 		if p[k] != v {
 			t.Errorf("%s = %q, want %q", k, p[k], v)
 		}
+	}
+}
+
+func TestRenderAgentNodes(t *testing.T) {
+	t.Parallel()
+	s := settingsOf(&store.Cluster{Settings: map[string]any{"portBase": 21000}})
+	broker := renderProperties(s, false, RoleBroker, "kafka-1.example.net", 101, "", "dynamic", "kafka-c1.example.net:9093")
+	if broker["listeners"] != "PLAINTEXT://0.0.0.0:9092" || broker["advertised.listeners"] != "PLAINTEXT://kafka-1.example.net:9092" ||
+		broker["inter.broker.listener.name"] != "PLAINTEXT" {
+		t.Errorf("agent broker listeners: %v / %v", broker["listeners"], broker["advertised.listeners"])
+	}
+	ctrl := renderProperties(s, false, RoleController, "kafka-c1.example.net", 1, "", "dynamic", "kafka-c1.example.net:9093")
+	if ctrl["listeners"] != "CONTROLLER://0.0.0.0:9093" || ctrl["advertised.listeners"] != "CONTROLLER://kafka-c1.example.net:9093" {
+		t.Errorf("agent controller listeners: %v / %v", ctrl["listeners"], ctrl["advertised.listeners"])
+	}
+	if got := brokerAddress(s, false, "kafka-1.example.net", 101); got != "kafka-1.example.net:9092" {
+		t.Errorf("agent broker address %s", got)
+	}
+	if got := brokerAddress(s, true, "lab-b101", 101); got != "localhost:21101" {
+		t.Errorf("docker broker address %s", got)
 	}
 }
 

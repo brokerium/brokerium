@@ -86,7 +86,8 @@ func run(log *slog.Logger) error {
 
 	ca, err := agentgw.LoadOrCreateCA(ctx, st, box)
 	if err != nil {
-		return fmt.Errorf("loading agent CA: %w", err)
+		return fmt.Errorf("loading agent CA: %w (if the database was created by a server with another secret key, "+
+			"set BROKERIUM_SECRET_KEY to that key or keep BROKERIUM_DATA_DIR on a persistent volume)", err)
 	}
 	gateway := agentgw.New(st, ca, log)
 	dockerClient, err := docker.New(cfg.DockerHost)

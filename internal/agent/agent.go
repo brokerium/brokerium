@@ -43,6 +43,11 @@ type Config struct {
 	KafkaDataDir string
 	Preinstalled string
 	Process      string
+	// KafkaConfig adopts an existing node: Kafka runs with this server.properties, which the
+	// agent never rewrites, and storage is never formatted.
+	KafkaConfig string
+	// KafkaUser runs Kafka under this account when the agent manages a systemd unit.
+	KafkaUser string
 }
 
 // Agent is a running brokerium-agent.

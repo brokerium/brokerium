@@ -240,7 +240,7 @@ func StatusJSON(st *agentv1.NodeStatus) json.RawMessage {
 		"running": st.GetRunning(), "activeVersion": st.GetActiveVersion(), "installedVersions": st.GetInstalledVersions(),
 		"dataBytes": st.GetDataBytes(), "diskFreeBytes": st.GetDiskFreeBytes(), "hostname": st.GetHostname(),
 		"pid": st.GetPid(), "lastExit": st.GetLastExit(), "processRoles": st.GetProcessRoles(),
-		"javaVersion": st.GetJavaVersion(),
+		"javaVersion": st.GetJavaVersion(), "adopted": st.GetAdopted(),
 	}
 	if meta := st.GetMeta(); meta != nil {
 		m["meta"] = map[string]any{"clusterId": meta.GetClusterId(), "nodeId": meta.GetNodeId(),
@@ -255,9 +255,46 @@ func (g *Gateway) saveStatus(ctx context.Context, nodeID string, st *agentv1.Nod
 		return
 	}
 	raw := StatusJSON(st)
-	if err := g.Store.UpdateNodeStatus(context.WithoutCancel(ctx), nodeID, raw); err != nil {
+	ctx = context.WithoutCancel(ctx)
+	if err := g.Store.UpdateNodeStatus(ctx, nodeID, raw); err != nil {
 		g.Log.Warn("saving node status", "node", nodeID, "error", err)
 	}
+	g.adopt(ctx, nodeID, st)
+}
+
+// adopt binds an adopted node, joined with a cluster's token, to its Kafka node id and role
+// as soon as it reports its meta.properties.
+func (g *Gateway) adopt(ctx context.Context, nodeID string, st *agentv1.NodeStatus) {
+	meta := st.GetMeta()
+	if !st.GetAdopted() || meta == nil || !meta.GetFormatted() {
+		return
+	}
+	role, ok := AdoptedRole(st.GetProcessRoles())
+	if !ok {
+		return
+	}
+	n, err := g.Store.GetNode(ctx, nodeID)
+	if err != nil || n.ClusterID == nil || n.KafkaNodeID != nil {
+		return
+	}
+	id := meta.GetNodeId()
+	if err := g.Store.AssignNode(ctx, nodeID, n.ClusterID, role, &id); err != nil {
+		g.Log.Warn("adopting node", "node", n.Name, "error", err)
+		return
+	}
+	g.Log.Info("adopted node", "node", n.Name, "kafkaNodeId", id, "role", role)
+}
+
+// AdoptedRole maps process.roles of an adopted node to a Brokerium role; combined
+// broker+controller nodes are not managed.
+func AdoptedRole(processRoles string) (string, bool) {
+	switch strings.ReplaceAll(processRoles, " ", "") {
+	case "broker":
+		return "broker", true
+	case "controller":
+		return "controller", true
+	}
+	return "", false
 }
 
 // Connected reports whether a node has an open stream.
