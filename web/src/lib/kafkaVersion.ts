@@ -31,6 +31,6 @@ export function affectedByKafka20979(text: string): boolean {
 }
 
 export const KAFKA_20979_WARNING =
-  'Apache Kafka 4.1.0 and 4.3.0 are affected by KAFKA-20979: on clean shutdown the time index truncation is not ' +
+  'Apache Kafka 4.1.0 through 4.3.1 is affected by KAFKA-20979: on clean shutdown the time index truncation is not ' +
   'flushed to disk, so after a rolling restart retention can delete fresh segments. There is no fix in 4.2.x; ' +
   'use 4.3.2 or later, or 4.4.0.';

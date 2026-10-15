@@ -17,6 +17,9 @@
 #   RACK                 broker.rack (optional)
 #   REPLICATION_FACTOR   default and internal topic replication factor (brokers, default 3)
 #   MIN_ISR              min.insync.replicas (brokers, default 2)
+#   SASL_PORT            optional SASL_PLAINTEXT listener with SCRAM-SHA-256/512 (brokers)
+#   SSL_PORT             optional SSL listener that requires client certificates (brokers);
+#                        needs /certs/broker-keystore.pem and /certs/ca.pem (make lab-certs)
 set -euo pipefail
 
 : "${CLUSTER_ID:?}" "${NODE_ID:?}" "${NODE_HOST:?}" "${ROLE:?}" "${QUORUM_BOOTSTRAP:?}"
@@ -70,6 +73,35 @@ EOF
     if [[ -n "${RACK:-}" ]]; then
       echo "broker.rack=${RACK}" >> "$CONF"
     fi
+    listeners="INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:${EXTERNAL_PORT}"
+    advertised="INTERNAL://${NODE_HOST}:9092,EXTERNAL://localhost:${EXTERNAL_PORT}"
+    protocols="CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
+    if [[ -n "${SASL_PORT:-}" ]]; then
+      listeners+=",SASL://0.0.0.0:${SASL_PORT}"
+      advertised+=",SASL://localhost:${SASL_PORT}"
+      protocols+=",SASL:SASL_PLAINTEXT"
+      cat >> "$CONF" <<EOF
+sasl.enabled.mechanisms=SCRAM-SHA-256,SCRAM-SHA-512
+listener.name.sasl.scram-sha-256.sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required;
+listener.name.sasl.scram-sha-512.sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required;
+EOF
+    fi
+    if [[ -n "${SSL_PORT:-}" && -f /certs/broker-keystore.pem ]]; then
+      listeners+=",SSL://0.0.0.0:${SSL_PORT}"
+      advertised+=",SSL://localhost:${SSL_PORT}"
+      protocols+=",SSL:SSL"
+      cat >> "$CONF" <<EOF
+listener.name.ssl.ssl.keystore.type=PEM
+listener.name.ssl.ssl.keystore.location=/certs/broker-keystore.pem
+listener.name.ssl.ssl.truststore.type=PEM
+listener.name.ssl.ssl.truststore.location=/certs/ca.pem
+listener.name.ssl.ssl.client.auth=required
+EOF
+    elif [[ -n "${SSL_PORT:-}" ]]; then
+      echo "SSL_PORT is set but /certs/broker-keystore.pem is missing; run make lab-certs" >&2
+    fi
+    sed -i -e "s|^listeners=.*|listeners=${listeners}|" -e "s|^advertised.listeners=.*|advertised.listeners=${advertised}|" \
+      -e "s|^listener.security.protocol.map=.*|listener.security.protocol.map=${protocols}|" "$CONF"
     ;;
   *)
     echo "unknown ROLE: $ROLE" >&2

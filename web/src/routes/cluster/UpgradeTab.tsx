@@ -12,7 +12,7 @@ import { PageLoader, QueryError } from '../../components/QueryState';
 import { RelativeTime } from '../../components/RelativeTime';
 import { StatCard } from '../../components/StatCard';
 import { affectedByKafka20979, KAFKA_20979_WARNING, parseKafkaVersion } from '../../lib/kafkaVersion';
-import { isDynamicQuorum } from '../../lib/quorum';
+import { kraftVersionOf, quorumKindLabel } from '../../lib/quorum';
 import { useClusterContext } from './clusterContext';
 import { Section, TabNotAvailable } from './common';
 
@@ -115,7 +115,11 @@ export default function UpgradeTab() {
     <Stack gap="md">
       <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
         <StatCard label="metadata.version" value={h.metadataVersion || '—'} hint={metadataFeature ? `level ${metadataFeature.finalized}` : undefined} />
-        <StatCard label="kraft.version" value={h.kraftVersion} hint={isDynamicQuorum(h.kraftVersion) ? 'dynamic quorum' : 'static quorum'} />
+        <StatCard
+          label="kraft.version"
+          value={kraftVersionOf(snapshot?.features) ?? '—'}
+          hint={quorumKindLabel(kraftVersionOf(snapshot?.features))}
+        />
         <StatCard label="Brokers" value={`${h.brokersAlive}/${h.brokers}`} />
         <StatCard label="Controllers" value={h.voters || '—'} />
       </SimpleGrid>

@@ -62,6 +62,9 @@ func (m *Manager) Types() []ops.OpType {
 			Description: "Restart nodes one at a time with health checks: controllers first (leader last), then brokers."},
 		{Type: "rolling-upgrade", Title: "Rolling upgrade", Scope: "cluster", Requires: []string{"upgradeVersion"}, Plan: m.planUpgrade,
 			Description: "Install a new Kafka version and restart nodes on it one at a time; finalize separately."},
+		{Type: "destroy-cluster", Title: "Delete cluster nodes", Scope: "cluster", Requires: []string{"provisionNodes"},
+			Irreversible: true, AllowUnreachable: true, Plan: m.planDestroy,
+			Description: "Stop every node and delete its container and volumes, data included. The cluster record stays until you remove it."},
 	}
 }
 
@@ -165,6 +168,9 @@ func (m *Manager) planBootstrap(ctx context.Context, p *ops.Planner, raw json.Ra
 		return nil, errors.New("brokers must be between 1 and 9")
 	case params.Quorum != "dynamic" && params.Quorum != "static":
 		return nil, errors.New("quorum must be dynamic or static")
+	}
+	if p.Cluster.Provider == store.ProviderDocker && m.Docker == nil {
+		return nil, errors.New("the Docker provider is not available on this server (no Docker socket)")
 	}
 	if mn, err := m.managedNodes(ctx, p.Cluster.ID); err == nil && len(mn.nodes) > 0 {
 		return nil, errors.New("the cluster already has nodes")
@@ -452,6 +458,37 @@ func (m *Manager) planAddController(ctx context.Context, p *ops.Planner, raw jso
 		doc.Warnings = append(doc.Warnings, fmt.Sprintf("%d voters tolerate as many failures as %d; add one more for an odd quorum",
 			len(q.Voters)+1, len(q.Voters)))
 	}
+	return &ops.Planned{Doc: doc, Steps: steps}, nil
+}
+
+func (m *Manager) planDestroy(ctx context.Context, p *ops.Planner, raw json.RawMessage) (*ops.Planned, error) {
+	if _, err := parse[struct{}](raw); err != nil {
+		return nil, err
+	}
+	if p.Cluster.Provider != store.ProviderDocker {
+		return nil, errors.New("only Docker clusters can be deleted by Brokerium; decommission agent nodes one by one")
+	}
+	mn, err := m.managedNodes(ctx, p.Cluster.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(mn.nodes) == 0 {
+		return nil, errors.New("the cluster has no nodes")
+	}
+	var steps []ops.StepSpec
+	var names []string
+	for _, n := range append(append([]*store.Node(nil), mn.brokers...), mn.controllers...) {
+		names = append(names, n.Name)
+		var id int32
+		if n.KafkaNodeID != nil {
+			id = *n.KafkaNodeID
+		}
+		steps = append(steps, ops.StepSpec{Name: "Delete node " + n.Name, Kind: KindRemoveNode,
+			Args: NodeArgs{Name: n.Name, Role: n.Role, NodeID: id}})
+	}
+	doc := ops.PlanDoc{Irreversible: true,
+		Summary:  fmt.Sprintf("Delete %d node(s) of %s with their data: %s", len(names), p.Cluster.Name, strings.Join(names, ", ")),
+		Warnings: []string{"all topics and messages of this cluster are lost"}}
 	return &ops.Planned{Doc: doc, Steps: steps}, nil
 }
 

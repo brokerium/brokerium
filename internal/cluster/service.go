@@ -120,11 +120,11 @@ func (s *Service) Client(ctx context.Context, id string) (*kafka.Client, *store.
 	}
 	p, err := s.Profile(c)
 	if err != nil {
-		return nil, nil, err
+		return nil, c, err
 	}
 	cl, err := kafka.NewClient(p)
 	if err != nil {
-		return nil, nil, err
+		return nil, c, err
 	}
 	s.mu.Lock()
 	if old, ok := s.clients[id]; ok {
@@ -163,7 +163,14 @@ func (s *Service) Refresh(ctx context.Context, id string) (*View, error) {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, err
 		}
-		v := &View{Cluster: c, Health: Health{Status: HealthUnreachable, Issues: []Issue{}}, Error: err.Error(), UpdatedAt: time.Now()}
+		v := &View{Cluster: c, Health: Health{Status: HealthUnreachable, QuorumLeader: -1,
+			Issues: []Issue{{Severity: HealthCritical, Code: "unreachable", Message: err.Error()}}}, Error: err.Error(), UpdatedAt: time.Now()}
+		if c != nil {
+			v.Capabilities = CapabilitiesFor(c, false)
+		}
+		s.mu.Lock()
+		s.views[id] = v
+		s.mu.Unlock()
 		return v, nil
 	}
 	snapCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -175,7 +182,8 @@ func (s *Service) Refresh(ctx context.Context, id string) (*View, error) {
 		v.Error = err.Error()
 		v.Capabilities = CapabilitiesFor(c, false)
 		if q := s.controllerQuorum(ctx, c); q != nil {
-			v.Snapshot = &kafka.Snapshot{CollectedAt: time.Now(), ClusterID: c.KafkaClusterID, Quorum: q, Errors: []string{err.Error()}}
+			v.Snapshot = &kafka.Snapshot{CollectedAt: time.Now(), ClusterID: c.KafkaClusterID, Quorum: q}
+			v.Snapshot.FillEmpty()
 			v.Health = Evaluate(v.Snapshot, time.Now())
 			v.Health.Status = HealthCritical
 			v.Health.Issues = append([]Issue{{Severity: HealthCritical, Code: "brokers_unreachable",

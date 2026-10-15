@@ -13,7 +13,7 @@ LDFLAGS := -s -w -X github.com/bvaliev/brokerium/internal/version.Version=$(VERS
 IMAGE_REPO ?= bvaliev
 
 .PHONY: help build build-go web-build web-dev dev test test-go test-web lint proto e2e images \
-	lab-up lab-down lab-reset lab-ps lab-quorum lab-load licenses
+	lab-up lab-down lab-reset lab-certs lab-ps lab-quorum lab-load licenses
 
 help: ## Show targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -73,6 +73,9 @@ lab-down: ## Stop the lab, keep volumes
 
 lab-reset: ## Stop the lab and delete all volumes
 	$(LAB) reset
+
+lab-certs: ## Generate the throwaway CA and certificates for the TLS listeners of beta
+	$(MISE) go run ./deploy/lab/gencerts -out deploy/lab/.certs
 
 lab-ps:
 	$(LAB) ps

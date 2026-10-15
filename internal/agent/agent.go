@@ -88,13 +88,13 @@ func (a *Agent) Run(ctx context.Context) error {
 	for {
 		err := a.session(ctx)
 		if ctx.Err() != nil {
-			_ = a.kafka.Stop(2 * time.Minute)
+			_ = a.kafka.Shutdown(2 * time.Minute)
 			return nil
 		}
 		a.log.Warn("connection to server lost", "error", err, "retryIn", backoff)
 		select {
 		case <-ctx.Done():
-			_ = a.kafka.Stop(2 * time.Minute)
+			_ = a.kafka.Shutdown(2 * time.Minute)
 			return nil
 		case <-time.After(backoff):
 		}

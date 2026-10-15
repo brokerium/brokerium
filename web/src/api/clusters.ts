@@ -9,6 +9,8 @@ import type {
   ClusterView,
   ConfigEntry,
   GroupDetail,
+  Operation,
+  OperationParams,
   Rates,
   TestResult,
 } from './types';
@@ -123,6 +125,41 @@ export function useCreateCluster() {
       void qc.invalidateQueries({ queryKey: clusterKeys.overview });
     },
     meta: { errorTitle: 'Could not add the cluster' },
+  });
+}
+
+export interface DockerClusterRequest {
+  name: string;
+  params: OperationParams['bootstrap-cluster'];
+}
+
+export interface PlannedDockerCluster {
+  view: ClusterView;
+  operation: Operation;
+}
+
+/**
+ * Registers a Docker cluster without nodes and plans bootstrap-cluster for it. When planning
+ * fails the empty registration is removed again.
+ */
+export function useCreateDockerCluster() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ name, params }: DockerClusterRequest): Promise<PlannedDockerCluster> => {
+      const view = await api.post<ClusterView>('/clusters', { name, provider: 'docker', skipTest: true, bootstrapServers: [] });
+      try {
+        const operation = await api.post<Operation>(clusterPath(view.cluster.id, '/operations'), {
+          type: 'bootstrap-cluster',
+          params,
+        });
+        return { view, operation };
+      } catch (err) {
+        await api.del<void>(clusterPath(view.cluster.id)).catch(() => undefined);
+        throw err;
+      }
+    },
+    onSettled: () => void qc.invalidateQueries({ queryKey: clusterKeys.overview }),
+    meta: { errorTitle: 'Could not create the cluster' },
   });
 }
 

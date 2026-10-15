@@ -80,8 +80,8 @@ func (req *ClusterRequest) apply(c *store.Cluster) error {
 	if req.Flavor != nil {
 		c.Flavor = *req.Flavor
 	}
-	if req.BootstrapServers != nil {
-		c.BootstrapServers = nil
+	if req.BootstrapServers != nil || c.BootstrapServers == nil {
+		c.BootstrapServers = []string{}
 		for _, b := range req.BootstrapServers {
 			if b = strings.TrimSpace(b); b != "" {
 				c.BootstrapServers = append(c.BootstrapServers, b)
@@ -110,7 +110,7 @@ func (req *ClusterRequest) apply(c *store.Cluster) error {
 	switch {
 	case !clusterNameRe.MatchString(c.Name):
 		return fmt.Errorf("name must be lowercase letters, digits and dashes (max 63)")
-	case len(c.BootstrapServers) == 0:
+	case len(c.BootstrapServers) == 0 && c.Provider != store.ProviderDocker:
 		return fmt.Errorf("at least one bootstrap server is required")
 	}
 	switch c.Provider {
@@ -272,6 +272,13 @@ func (s *Server) handleDeleteCluster(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		WriteStoreError(w, err)
 		return
+	}
+	if c.Provider == store.ProviderDocker {
+		if nodes, err := s.Store.ListNodes(r.Context(), c.ID); err == nil && len(nodes) > 0 {
+			WriteError(w, http.StatusConflict, "cluster_has_nodes",
+				fmt.Sprintf("%s still has %d node container(s); run the destroy-cluster operation first", c.Name, len(nodes)))
+			return
+		}
 	}
 	err = s.Store.DeleteCluster(r.Context(), c.ID)
 	s.Audit(r, "cluster.delete", c.ID, c.Name, nil, err)
