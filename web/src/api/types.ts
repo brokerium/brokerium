@@ -222,8 +222,12 @@ export interface Reassignment {
   removing: number[] | null;
 }
 
+/** Consumer groups (classic and KIP-848) or share groups (KIP-932). */
+export type GroupType = 'consumer' | 'share';
+
 export interface Group {
   id: string;
+  type: GroupType;
   state: string;
   protocolType: string;
   members: number;
@@ -290,6 +294,7 @@ export interface GroupPartitionLag {
 /** GET /clusters/{id}/groups/{group} */
 export interface GroupDetail {
   group: string;
+  type: GroupType;
   state: string;
   protocolType: string;
   members: number;

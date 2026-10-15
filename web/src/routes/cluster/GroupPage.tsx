@@ -231,7 +231,11 @@ export default function GroupPage() {
         <StatCard label="Members" value={formatNumber(g.members)} />
         <StatCard label="Total lag" value={formatNumber(g.totalLag)} color={g.totalLag > 0 ? 'orange.7' : undefined} />
         <StatCard label="Partitions" value={formatNumber(rows.length)} />
-        <StatCard label="Protocol type" value={g.protocolType || '—'} />
+        <StatCard
+          label="Type"
+          value={g.type === 'share' ? 'share group' : g.protocolType || 'consumer'}
+          hint={g.type === 'share' ? 'KIP-932 queue semantics' : undefined}
+        />
       </SimpleGrid>
 
       <Paper withBorder radius="md">
@@ -241,7 +245,7 @@ export default function GroupPage() {
               <Table.Tr>
                 <Table.Th>Topic</Table.Th>
                 <Table.Th>Partition</Table.Th>
-                <Table.Th ta="right">Committed</Table.Th>
+                <Table.Th ta="right">{g.type === 'share' ? 'Start offset' : 'Committed'}</Table.Th>
                 <Table.Th ta="right">End offset</Table.Th>
                 <Table.Th ta="right">Lag</Table.Th>
                 <Table.Th>Member</Table.Th>
