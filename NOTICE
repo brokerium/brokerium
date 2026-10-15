@@ -1,0 +1,15 @@
+Brokerium
+Copyright (c) 2026 Bulat Valiev
+
+Required Notice: Copyright (c) 2026 Bulat Valiev (https://github.com/bvaliev/brokerium)
+
+Brokerium is source-available under the PolyForm Shield License 1.0.0.
+See the LICENSE file for the full terms and LICENSING.md for a plain-language summary.
+
+Apache(R), Apache Kafka(R), and Kafka(R) are either registered trademarks or
+trademarks of the Apache Software Foundation in the United States and/or other
+countries. Brokerium is not affiliated with, endorsed by, or sponsored by the
+Apache Software Foundation.
+
+Third-party components and their licenses are listed in the software bill of
+materials (SBOM) published with every release.

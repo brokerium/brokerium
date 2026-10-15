@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/bvaliev/brokerium/discussions
+    about: Ask questions and discuss ideas with the community.
+  - name: Report a security vulnerability
+    url: https://github.com/bvaliev/brokerium/security/advisories/new
+    about: Report vulnerabilities privately, never in a public issue.
+  - name: Commercial license or corporate CLA
+    url: https://github.com/bvaliev/brokerium/discussions
+    about: Start a discussion in the Licensing category; the maintainer follows up privately.
