@@ -3,12 +3,12 @@
 The live board is the GitHub project "Brokerium Roadmap". Lab scenarios referenced below are
 listed at the end of this file.
 
-## Phase 0: Foundation
+## Phase 0: Foundation (done)
 
 Repository, license and policies, agent memory, GitHub project, Docker lab, manual validation of
 the lab scenarios with the Kafka CLI, code skeleton, CI and the first container images.
 
-## Phase 1: Multi-cluster dashboard (read-only)
+## Phase 1: Multi-cluster read-only dashboard (done)
 
 - Cluster registry with connection profiles: PLAINTEXT, SASL/PLAIN, SASL/SCRAM, TLS and mTLS.
 - Overview of all clusters with health.
@@ -19,7 +19,7 @@ the lab scenarios with the Kafka CLI, code skeleton, CI and the first container 
 - Spike: direct franz-go access to controllers.
 - Acceptance: scenario 7 in read-only mode.
 
-## Phase 2: Rebalancing
+## Phase 2: Rebalancing (done)
 
 - Operations engine: durable steps, per-cluster lock, pause, resume, cancel, audit.
 - Manual replica and leader moves with preview.
@@ -29,7 +29,7 @@ the lab scenarios with the Kafka CLI, code skeleton, CI and the first container 
 - Agentless load estimation from partition sizes and offsets.
 - Acceptance: scenarios 2 and 6.
 
-## Phase 3: Agent and node lifecycle
+## Phase 3: Agent and node lifecycle (done)
 
 - Agent with enrollment, mTLS stream and typed commands; Docker provider for the lab.
 - Operations: create cluster, add broker, drain and decommission broker, replace broker, add and
@@ -37,26 +37,26 @@ the lab scenarios with the Kafka CLI, code skeleton, CI and the first container 
 - Adoption of existing nodes with a standard layout.
 - Acceptance: scenarios 1-5 and 10 entirely from the dashboard.
 
-## Phase 4: Data plane and access
+## Phase 4: Data plane and access (done)
 
 - Topics, ACLs, SCRAM users, quotas, consumer groups and offset reset, message browsing and
   producing, share groups.
 - Brokerium users, roles and audit log.
 - Acceptance: scenario 9.
 
-## Phase 5: Upgrades
+## Phase 5: Upgrades (done)
 
 - Compatibility matrix and preflight checks (Java, known bugs such as KAFKA-20979).
 - Rolling upgrade one node at a time with health gates; finalization through
   `--release-version` with explicit confirmation.
 - Acceptance: scenario 8.
 
-## Phase 6: Kubernetes and managed services
+## Phase 6: Kubernetes and managed services (done)
 
 - Strimzi provider: node pool scaling, our rebalancing, upgrades through Strimzi.
 - Amazon MSK (IAM), Confluent Cloud and Aiven connection profiles and capability presets.
 
-## Phase 7: Public release v0.1.0
+## Phase 7: Public release v0.1.0 (in progress)
 
 - Documentation, server and agent installers, Helm chart, end-to-end tests in CI, security review.
 

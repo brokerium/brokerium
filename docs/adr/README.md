@@ -13,6 +13,8 @@
 | [0009](0009-agent-protocol.md) | Agent protocol over gRPC with mTLS |
 | [0010](0010-metrics.md) | Agentless metrics first |
 | [0011](0011-editions.md) | Boundary between the free product and a future paid edition |
+| [0012](0012-strimzi-provider.md) | Strimzi provider through the Kubernetes REST API |
+| [0013](0013-distribution.md) | Releases, images, Helm chart and the agent installer |
 
 New ADRs use the next free number and the same structure: status, date, context, decision,
 consequences. Superseded ADRs stay in place with their status changed.

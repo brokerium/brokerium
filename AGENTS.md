@@ -22,24 +22,26 @@ rolling upgrades, and data-plane management. Owner and sole maintainer: Bulat Va
 | --- | --- |
 | `cmd/brokerium-server` | Server entrypoint (API, dashboard, operations engine) |
 | `cmd/brokerium-agent` | Agent entrypoint (runs on Kafka hosts or as lab node PID 1) |
-| `cmd/brokerium-loadgen` | Load generator for the lab |
-| `internal/kafka` | franz-go client factory, KRaft wrappers over `kmsg`, cluster snapshots |
+| `internal/kafka` | franz-go client factory, KRaft wrappers over `kmsg`, direct controller access, cluster snapshots |
 | `internal/cluster` | Cluster registry, connection profiles, capabilities, health evaluation |
 | `internal/metrics` | Agentless sampler: log dir sizes and offsets to rates |
 | `internal/balancer` | Pure rebalancing planner (no I/O, deterministic) |
-| `internal/ops` | Operations engine and operation types (rebalance, drain, add broker, ...) |
+| `internal/ops` | Operations engine and Kafka-level operation types (rebalance, drain, finalize, ...) |
+| `internal/nodes` | Node lifecycle operations (bootstrap, add, replace, quorum, restart, upgrade, Strimzi pools) |
 | `internal/agentgw` | gRPC gateway for agents, internal CA, join tokens |
 | `internal/agent` | Agent runtime: Kafka installer, config writer, storage format, process manager |
-| `internal/provider` | Node providers: `docker` (lab), `strimzi` (Kubernetes) |
-| `internal/api` | HTTP handlers, auth middleware, JSON contracts |
-| `internal/auth`, `internal/audit` | Users, sessions, roles; audit log |
-| `internal/store` | PostgreSQL access and embedded migrations |
+| `internal/provider` | `docker` (lab containers), `strimzi` (Kubernetes REST client and Strimzi resources) |
+| `internal/api` | HTTP handlers, auth middleware, JSON contracts, agent install script |
+| `internal/auth`, `internal/secrets` | Password hashing, tokens, roles; sealing of stored credentials |
+| `internal/store` | PostgreSQL access, embedded migrations, audit log |
+| `internal/config`, `internal/version` | Environment configuration, build version |
 | `internal/webui` | Embedded dashboard build output |
 | `web/` | React + TypeScript dashboard (Vite, Mantine, TanStack Query) |
 | `api/openapi.yaml` | Public REST API description |
 | `proto/brokerium/agent/v1` | Agent protocol (generated Go code committed) |
-| `deploy/lab` | Docker Compose lab with Kafka clusters alpha, beta, gamma |
-| `deploy/docker`, `deploy/helm`, `deploy/install` | Images, Helm chart, install scripts |
+| `deploy/lab` | Docker Compose lab (alpha, beta, gamma), `strimzi/` (kind + Strimzi), `vm/` (systemd hosts), `gencerts/` |
+| `deploy/docker`, `deploy/helm` | Images (server, agent, lab node), Helm chart |
+| `docs/guide` | User guide: install, clusters, operations, security |
 | `docs/adr`, `docs/research`, `docs/runbooks`, `docs/legal` | Decisions, research, procedures, legal playbooks |
 | `test/e2e` | End-to-end scenarios against the lab (build tag `e2e`) |
 
@@ -59,7 +61,16 @@ golangci-lint 2.14.0, buf 1.73.0). Prefix commands with `mise exec --` or activa
 | `make test` | Unit tests (Go and web) |
 | `make lint` | golangci-lint and web lint |
 | `make proto` | Regenerate the agent protocol code |
-| `make e2e` | End-to-end scenarios against a running lab |
+| `make lab-certs` | Throwaway CA and certificates for the SASL and SSL listeners of beta |
+| `make images` | Build the server, agent and lab node images locally |
+| `make e2e` | End-to-end scenarios against a running lab and server |
+| `deploy/lab/strimzi/strimzi.sh up\|down` | kind cluster with Strimzi and Kafka "lab"; kubeconfig `.data/kind.kubeconfig` |
+| `deploy/lab/vm/vm.sh up\|down` | Containerized server on port 18080 and systemd hosts for the agent installer |
+
+End-to-end variables: `BROKERIUM_E2E_HEAVY=1` (scenarios that create Docker clusters),
+`BROKERIUM_E2E_STRIMZI_KUBECONFIG`, `BROKERIUM_E2E_VM=1` with `BROKERIUM_E2E_URL`,
+`BROKERIUM_E2E_CONTROLLERS`, `BROKERIUM_E2E_KEEP=1` (keep clusters after a test). Never use
+`~/.kube/config` of the owner for labs.
 
 ## Conventions
 
@@ -96,3 +107,10 @@ Full text: [docs/adr/0008-operations-engine.md](docs/adr/0008-operations-engine.
   `localhost:<cluster base port + N>` (alpha 19000, beta 29000, gamma 39000).
 - Docker Desktop is set to 6 CPUs and 16 GB; JVM heaps are 512 MB for brokers and 384 MB for
   controllers. Start only the profiles you need.
+- Docker clusters created by the Docker provider get their own port base; the lab node image is
+  `bvaliev/brokerium-agent:lab` (rebuild it after agent changes).
+- Strimzi lab: kind cluster `brokerium`, Strimzi 1.3.0 (serves only `v1` resources), Kafka `lab`
+  with pools `controllers` (ids 0-9) and `brokers` (ids 100+), node ports 32100-32105 on
+  localhost.
+- VM lab: Debian 13 containers with systemd, the server container on port 18080 with database
+  `brokerium_vm`.
