@@ -21,8 +21,8 @@ these trademarks. This policy explains what is allowed.
 - Implying that your product, service or modification is official, endorsed or
   certified by the Brokerium project when it is not.
 
-If you are unsure, open a discussion in the
-[Licensing category](https://github.com/bvaliev/brokerium/discussions).
+If you are unsure, start a [discussion](https://github.com/bvaliev/brokerium/discussions)
+with a title that begins with `[Licensing]`.
 
 ## Apache Kafka
 

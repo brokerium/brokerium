@@ -51,8 +51,7 @@ Sections 5 (moral rights), 6 (what does not change) and 7 (assignment) of the
 
 ## 5. How to sign
 
-Open a discussion in the
-[Licensing category](https://github.com/bvaliev/brokerium/discussions) titled
-"Corporate CLA: <Corporation name>" without posting confidential details. The
+Start a [discussion](https://github.com/bvaliev/brokerium/discussions) titled
+"[Licensing] Corporate CLA: <Corporation name>" without posting confidential details. The
 maintainer will send the signing form privately. Designated Employees still confirm
 the Individual CLA through the bot so that every pull request is traceable.
