@@ -11,10 +11,16 @@ runbooks are the reference behavior for the operations and for the e2e tests.
 | 3. Grow the controller quorum to 5 and back to 3 | [controller-quorum.md](controller-quorum.md) |
 | 4. Replace a failed broker | [replace-broker.md](replace-broker.md) |
 | 5. Decommission a broker | [decommission-broker.md](decommission-broker.md) |
+| 8. Rolling upgrade 4.3.1 -> 4.4.0 and finalization | [rolling-upgrade.md](rolling-upgrade.md) |
 | 10. Migrate a static quorum to a dynamic one | [static-to-dynamic-quorum.md](static-to-dynamic-quorum.md) |
 
-Scenarios 6-9 (one-click balancing, multi-cluster dashboard, rolling upgrade, data plane) are
-product features and are validated through Brokerium itself.
+Scenarios 6, 7 and 9 (one-click balancing, multi-cluster dashboard, data plane) are product
+features and are validated through Brokerium itself.
+
+Every scenario also runs as an e2e test against the lab (`make e2e`, see
+[test/e2e](../../test/e2e)): scenarios 1, 2 and 6 in `TestScaleOutAndBalance`, 3-5 in
+`TestNodeLifecycle`, 7 in `TestMultiClusterOverview`, 8 in `TestRollingUpgrade`, 9 in
+`TestDataPlane`, 10 in `TestMigrateStaticQuorum`.
 
 All commands run from `deploy/lab/`; `./lab.sh cli <tool>` runs a Kafka CLI tool inside the
 `tools` container on the lab network.
