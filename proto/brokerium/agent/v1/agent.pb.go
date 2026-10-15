@@ -1096,8 +1096,10 @@ type NodeStatus struct {
 	Pid               int64                  `protobuf:"varint,8,opt,name=pid,proto3" json:"pid,omitempty"`
 	LastExit          string                 `protobuf:"bytes,9,opt,name=last_exit,json=lastExit,proto3" json:"last_exit,omitempty"`
 	ProcessRoles      string                 `protobuf:"bytes,10,opt,name=process_roles,json=processRoles,proto3" json:"process_roles,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Version of the Java runtime that runs Kafka, for example "21.0.8".
+	JavaVersion   string `protobuf:"bytes,11,opt,name=java_version,json=javaVersion,proto3" json:"java_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NodeStatus) Reset() {
@@ -1200,6 +1202,13 @@ func (x *NodeStatus) GetProcessRoles() string {
 	return ""
 }
 
+func (x *NodeStatus) GetJavaVersion() string {
+	if x != nil {
+		return x.JavaVersion
+	}
+	return ""
+}
+
 var File_brokerium_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_brokerium_agent_v1_agent_proto_rawDesc = "" +
@@ -1274,7 +1283,7 @@ const file_brokerium_agent_v1_agent_proto_rawDesc = "" +
 	"cluster_id\x18\x01 \x01(\tR\tclusterId\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\x05R\x06nodeId\x12!\n" +
 	"\fdirectory_id\x18\x03 \x01(\tR\vdirectoryId\x12\x1c\n" +
-	"\tformatted\x18\x04 \x01(\bR\tformatted\"\xeb\x02\n" +
+	"\tformatted\x18\x04 \x01(\bR\tformatted\"\x8e\x03\n" +
 	"\n" +
 	"NodeStatus\x12\x18\n" +
 	"\arunning\x18\x01 \x01(\bR\arunning\x12%\n" +
@@ -1288,7 +1297,8 @@ const file_brokerium_agent_v1_agent_proto_rawDesc = "" +
 	"\x03pid\x18\b \x01(\x03R\x03pid\x12\x1b\n" +
 	"\tlast_exit\x18\t \x01(\tR\blastExit\x12#\n" +
 	"\rprocess_roles\x18\n" +
-	" \x01(\tR\fprocessRoles*t\n" +
+	" \x01(\tR\fprocessRoles\x12!\n" +
+	"\fjava_version\x18\v \x01(\tR\vjavaVersion*t\n" +
 	"\n" +
 	"FormatMode\x12\x1b\n" +
 	"\x17FORMAT_MODE_UNSPECIFIED\x10\x00\x12\x14\n" +

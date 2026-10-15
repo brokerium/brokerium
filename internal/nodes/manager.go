@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/bvaliev/brokerium/internal/agentgw"
@@ -188,6 +189,7 @@ func (m *Manager) planBootstrap(ctx context.Context, p *ops.Planner, raw json.Ra
 	for i := 1; i <= params.Controllers; i++ {
 		name := NodeName(p.Cluster.Name, RoleController, int32(i))
 		controllers = append(controllers, name)
+		s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, fmt.Sprintf("localhost:%d", s.PortBase+i))
 		initial = append(initial, fmt.Sprintf("%d@%s:9093:%s", i, name, RandomUUID()))
 		voters = append(voters, fmt.Sprintf("%d@%s:9093", i, name))
 	}
@@ -442,6 +444,9 @@ func (m *Manager) planAddController(ctx context.Context, p *ops.Planner, raw jso
 		ops.StepSpec{Name: fmt.Sprintf("Add controller %d as a voter", id), Kind: KindAddVoter, Args: a},
 		ops.StepSpec{Name: fmt.Sprintf("Wait for a quorum of %d voters", len(q.Voters)+1), Kind: KindWaitQuorum, Args: NodeArgs{ExpectVoters: len(q.Voters) + 1}},
 	)
+	if p.Cluster.Provider == store.ProviderDocker {
+		steps = append(steps, ops.StepSpec{Name: "Update bootstrap servers", Kind: KindSyncBootstrap, Args: NodeArgs{}})
+	}
 	doc := ops.PlanDoc{Summary: fmt.Sprintf("Add controller %d (%s): %d -> %d voters", id, name, len(q.Voters), len(q.Voters)+1)}
 	if (len(q.Voters)+1)%2 == 0 {
 		doc.Warnings = append(doc.Warnings, fmt.Sprintf("%d voters tolerate as many failures as %d; add one more for an odd quorum",
@@ -561,10 +566,49 @@ func compareVersions(a, b string) int {
 	return 0
 }
 
-// knownBuggy lists releases with defects that matter for rolling restarts.
-var knownBuggy = map[string]string{
-	"4.1.0": "KAFKA-20979: time index truncation is not flushed on clean shutdown; retention may delete recent segments after a restart",
-	"4.3.0": "KAFKA-20979: time index truncation is not flushed on clean shutdown; retention may delete recent segments after a restart",
+// knownIssue is a Kafka defect that matters for node lifecycle operations, affecting versions
+// in [from, fixed). Sources: the Apache Kafka issue tracker and release notes.
+type knownIssue struct {
+	id, from, fixed, text string
+}
+
+var knownIssues = []knownIssue{
+	{"KAFKA-20979", "4.1.0", "4.3.2",
+		"time index truncation is not flushed on clean shutdown; retention may delete recent segments after a restart (no fix in 4.2.x)"},
+}
+
+// issuesOf returns the known issues of a Kafka version.
+func issuesOf(version string) []string {
+	var out []string
+	for _, i := range knownIssues {
+		if compareVersions(version, i.from) >= 0 && compareVersions(version, i.fixed) < 0 {
+			out = append(out, i.id+": "+i.text)
+		}
+	}
+	return out
+}
+
+// minJavaMajor is the oldest Java runtime Kafka 4.x brokers and controllers support.
+const minJavaMajor = 17
+
+// javaMajor returns the Java feature release reported by the node's agent, 0 when unknown.
+// Old runtimes report "1.8.0_402", newer ones "21.0.8".
+func javaMajor(n *store.Node) int {
+	var st struct {
+		JavaVersion string `json:"javaVersion"`
+	}
+	if json.Unmarshal(n.Status, &st) != nil || st.JavaVersion == "" {
+		return 0
+	}
+	parts := strings.SplitN(st.JavaVersion, ".", 3)
+	major, err := strconv.Atoi(strings.TrimSuffix(parts[0], "-ea"))
+	if err != nil {
+		return 0
+	}
+	if major == 1 && len(parts) > 1 {
+		major, _ = strconv.Atoi(parts[1])
+	}
+	return major
 }
 
 func (m *Manager) planUpgrade(ctx context.Context, p *ops.Planner, raw json.RawMessage) (*ops.Planned, error) {
@@ -592,11 +636,16 @@ func (m *Manager) planUpgrade(ctx context.Context, p *ops.Planner, raw json.RawM
 	}
 	doc := ops.PlanDoc{Summary: fmt.Sprintf("Upgrade %d node(s) from Kafka %s to %s one at a time (controllers first, quorum leader last)",
 		len(nodes), s.KafkaVersion, params.Version), Warnings: []string{}, Details: map[string]any{"from": s.KafkaVersion, "to": params.Version}}
-	if bug, ok := knownBuggy[params.Version]; ok {
-		doc.Warnings = append(doc.Warnings, params.Version+" has "+bug+"; prefer 4.3.2+ or 4.4.0")
+	for _, bug := range issuesOf(params.Version) {
+		doc.Warnings = append(doc.Warnings, "target "+params.Version+" has "+bug+"; prefer 4.3.2 or later")
 	}
-	if bug, ok := knownBuggy[s.KafkaVersion]; ok {
-		doc.Warnings = append(doc.Warnings, "the current version "+s.KafkaVersion+" has "+bug+"; restarts during the upgrade are exposed to it")
+	for _, bug := range issuesOf(s.KafkaVersion) {
+		doc.Warnings = append(doc.Warnings, "the current version "+s.KafkaVersion+" has "+bug+"; the restarts of this upgrade are exposed to it")
+	}
+	for _, n := range nodes {
+		if major := javaMajor(n); major > 0 && major < minJavaMajor {
+			return nil, fmt.Errorf("%s runs Java %d; Kafka 4.x needs Java %d or later", n.Name, major, minJavaMajor)
+		}
 	}
 	doc.Warnings = append(doc.Warnings, "metadata.version stays at the old level until you run finalize-upgrade; you can still roll back binaries before that")
 	steps := []ops.StepSpec{{Name: "Check cluster health", Kind: ops.KindHealthGate, Args: ops.HealthGateArgs{}}}

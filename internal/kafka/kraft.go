@@ -97,6 +97,14 @@ func errorFor(code int16, msg *string) error {
 
 // DescribeQuorum returns the voters, observers and leader of the metadata quorum.
 func (c *Client) DescribeQuorum(ctx context.Context) (*Quorum, error) {
+	resp, err := describeQuorumRequest().RequestWith(ctx, c.KGO)
+	if err != nil {
+		return nil, fmt.Errorf("describe quorum: %w", err)
+	}
+	return parseQuorum(resp)
+}
+
+func describeQuorumRequest() *kmsg.DescribeQuorumRequest {
 	req := kmsg.NewPtrDescribeQuorumRequest()
 	t := kmsg.NewDescribeQuorumRequestTopic()
 	t.Topic = MetadataTopic
@@ -104,10 +112,10 @@ func (c *Client) DescribeQuorum(ctx context.Context) (*Quorum, error) {
 	p.Partition = 0
 	t.Partitions = append(t.Partitions, p)
 	req.Topics = append(req.Topics, t)
-	resp, err := req.RequestWith(ctx, c.KGO)
-	if err != nil {
-		return nil, fmt.Errorf("describe quorum: %w", err)
-	}
+	return req
+}
+
+func parseQuorum(resp *kmsg.DescribeQuorumResponse) (*Quorum, error) {
 	if err := errorFor(resp.ErrorCode, resp.ErrorMessage); err != nil {
 		return nil, fmt.Errorf("describe quorum: %w", err)
 	}

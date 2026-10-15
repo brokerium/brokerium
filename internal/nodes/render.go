@@ -33,6 +33,8 @@ type Settings struct {
 	BrokerHeap        string   `json:"brokerHeap"`
 	ControllerHeap    string   `json:"controllerHeap"`
 	Image             string   `json:"image"`
+	// ControllerBootstrapServers lets the server read the quorum when no broker answers.
+	ControllerBootstrapServers []string `json:"controllerBootstrapServers,omitempty"`
 }
 
 func settingsOf(c *store.Cluster) Settings {
