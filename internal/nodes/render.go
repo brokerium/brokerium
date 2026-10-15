@@ -127,9 +127,27 @@ func quorumBootstrap(controllers []string) string {
 	return strings.Join(parts, ",")
 }
 
+// brokerAddress is how clients reach a managed broker: Docker lab nodes publish their listener
+// on localhost; agent nodes are reached by their node name, which must be a DNS name.
+func brokerAddress(s Settings, docker bool, name string, id int32) string {
+	if docker {
+		return fmt.Sprintf("localhost:%d", s.PortBase+int(id))
+	}
+	return name + ":9092"
+}
+
+// controllerAddress is how the server reaches a managed controller directly.
+func controllerAddress(s Settings, docker bool, name string, id int32) string {
+	if docker {
+		return fmt.Sprintf("localhost:%d", s.PortBase+int(id))
+	}
+	return name + ":9093"
+}
+
 // renderProperties builds server.properties for a node. quorum is either a bootstrap server
-// list (dynamic) or a voters string (static).
-func renderProperties(s Settings, role, name string, id int32, rack, quorumKind, quorum string) map[string]string {
+// list (dynamic) or a voters string (static). Docker lab nodes get a second listener published
+// on localhost; agent nodes have one listener on their node name.
+func renderProperties(s Settings, docker bool, role, name string, id int32, rack, quorumKind, quorum string) map[string]string {
 	p := map[string]string{
 		"node.id":                          strconv.Itoa(int(id)),
 		"controller.listener.names":        "CONTROLLER",
@@ -153,16 +171,26 @@ func renderProperties(s Settings, role, name string, id int32, rack, quorumKind,
 	if role == RoleController {
 		p["process.roles"] = "controller"
 		p["listeners"] = "CONTROLLER://" + name + ":9093"
+		if !docker {
+			p["listeners"] = "CONTROLLER://0.0.0.0:9093"
+		}
 		p["advertised.listeners"] = "CONTROLLER://" + name + ":9093"
 		p["listener.security.protocol.map"] = "CONTROLLER:PLAINTEXT"
 		return p
 	}
-	port := s.PortBase + int(id)
 	p["process.roles"] = "broker"
-	p["listeners"] = fmt.Sprintf("INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:%d", port)
-	p["advertised.listeners"] = fmt.Sprintf("INTERNAL://%s:9092,EXTERNAL://localhost:%d", name, port)
-	p["inter.broker.listener.name"] = "INTERNAL"
-	p["listener.security.protocol.map"] = "CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
+	if docker {
+		port := s.PortBase + int(id)
+		p["listeners"] = fmt.Sprintf("INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:%d", port)
+		p["advertised.listeners"] = fmt.Sprintf("INTERNAL://%s:9092,EXTERNAL://localhost:%d", name, port)
+		p["inter.broker.listener.name"] = "INTERNAL"
+		p["listener.security.protocol.map"] = "CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
+	} else {
+		p["listeners"] = "PLAINTEXT://0.0.0.0:9092"
+		p["advertised.listeners"] = "PLAINTEXT://" + name + ":9092"
+		p["inter.broker.listener.name"] = "PLAINTEXT"
+		p["listener.security.protocol.map"] = "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+	}
 	p["offsets.topic.replication.factor"] = strconv.Itoa(s.ReplicationFactor)
 	p["transaction.state.log.replication.factor"] = strconv.Itoa(s.ReplicationFactor)
 	p["transaction.state.log.min.isr"] = strconv.Itoa(s.MinISR)

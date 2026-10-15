@@ -46,7 +46,7 @@ var versionRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 // Types lists node lifecycle operation types.
 func (m *Manager) Types() []ops.OpType {
 	return []ops.OpType{
-		{Type: "bootstrap-cluster", Title: "Create cluster nodes", Scope: "cluster", Requires: []string{"provisionNodes"},
+		{Type: "bootstrap-cluster", Title: "Create cluster nodes", Scope: "cluster", Requires: []string{"restartNodes"},
 			AllowUnreachable: true, Plan: m.planBootstrap,
 			Description: "Provision controllers and brokers, format storage for a dynamic quorum and start the cluster."},
 		{Type: "add-broker", Title: "Add brokers", Scope: "cluster", Requires: []string{"restartNodes"}, Plan: m.planAddBroker,
@@ -174,11 +174,15 @@ func (m *Manager) planBootstrap(ctx context.Context, p *ops.Planner, raw json.Ra
 	case params.Quorum != "dynamic" && params.Quorum != "static":
 		return nil, errors.New("quorum must be dynamic or static")
 	}
-	if p.Cluster.Provider == store.ProviderDocker && m.Docker == nil {
+	switch {
+	case p.Cluster.Provider != store.ProviderDocker && p.Cluster.Provider != store.ProviderAgent:
+		return nil, errors.New("only Docker and agent clusters are created by Brokerium")
+	case p.Cluster.Provider == store.ProviderDocker && m.Docker == nil:
 		return nil, errors.New("the Docker provider is not available on this server (no Docker socket)")
 	}
-	if mn, err := m.managedNodes(ctx, p.Cluster.ID); err == nil && len(mn.nodes) > 0 {
-		return nil, errors.New("the cluster already has nodes")
+	// Agent hosts join the cluster before it exists; only nodes with a Kafka role count.
+	if mn, err := m.managedNodes(ctx, p.Cluster.ID); err == nil && len(mn.controllers)+len(mn.brokers) > 0 {
+		return nil, errors.New("the cluster already has Kafka nodes")
 	}
 	if params.PortBase == 0 {
 		used := m.usedPortBases(ctx, p.Cluster.ID)
@@ -194,19 +198,21 @@ func (m *Manager) planBootstrap(ctx context.Context, p *ops.Planner, raw json.Ra
 		PortBase: params.PortBase, Racks: params.Racks, ReplicationFactor: rf, MinISR: min(2, rf)}
 	s = settingsOf(&store.Cluster{Settings: s.toMap()})
 
+	docker := p.Cluster.Provider == store.ProviderDocker
 	var controllers []string
 	var initial []string
 	var voters []string
 	for i := 1; i <= params.Controllers; i++ {
 		name := NodeName(p.Cluster.Name, RoleController, int32(i))
 		controllers = append(controllers, name)
-		s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, fmt.Sprintf("localhost:%d", s.PortBase+i))
+		s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, controllerAddress(s, docker, name, int32(i)))
 		initial = append(initial, fmt.Sprintf("%d@%s:9093:%s", i, name, RandomUUID()))
 		voters = append(voters, fmt.Sprintf("%d@%s:9093", i, name))
 	}
 	var bootstrap []string
 	for i := 0; i < params.Brokers; i++ {
-		bootstrap = append(bootstrap, fmt.Sprintf("localhost:%d", s.PortBase+101+i))
+		id := int32(101 + i)
+		bootstrap = append(bootstrap, brokerAddress(s, docker, NodeName(p.Cluster.Name, RoleBroker, id), id))
 	}
 	steps := []ops.StepSpec{{Name: "Save cluster settings", Kind: KindSetSettings,
 		Args: NodeArgs{Settings: &s, BootstrapServers: bootstrap}}}
@@ -456,9 +462,7 @@ func (m *Manager) planAddController(ctx context.Context, p *ops.Planner, raw jso
 		ops.StepSpec{Name: fmt.Sprintf("Add controller %d as a voter", id), Kind: KindAddVoter, Args: a},
 		ops.StepSpec{Name: fmt.Sprintf("Wait for a quorum of %d voters", len(q.Voters)+1), Kind: KindWaitQuorum, Args: NodeArgs{ExpectVoters: len(q.Voters) + 1}},
 	)
-	if p.Cluster.Provider == store.ProviderDocker {
-		steps = append(steps, ops.StepSpec{Name: "Update bootstrap servers", Kind: KindSyncBootstrap, Args: NodeArgs{}})
-	}
+	steps = append(steps, ops.StepSpec{Name: "Update bootstrap servers", Kind: KindSyncBootstrap, Args: NodeArgs{}})
 	doc := ops.PlanDoc{Summary: fmt.Sprintf("Add controller %d (%s): %d -> %d voters", id, name, len(q.Voters), len(q.Voters)+1)}
 	if (len(q.Voters)+1)%2 == 0 {
 		doc.Warnings = append(doc.Warnings, fmt.Sprintf("%d voters tolerate as many failures as %d; add one more for an odd quorum",
@@ -636,6 +640,14 @@ func issuesOf(version string) []string {
 
 // minJavaMajor is the oldest Java runtime Kafka 4.x brokers and controllers support.
 const minJavaMajor = 17
+
+// adopted reports whether the node's agent runs Kafka with an operator-owned configuration.
+func adopted(n *store.Node) bool {
+	var st struct {
+		Adopted bool `json:"adopted"`
+	}
+	return json.Unmarshal(n.Status, &st) == nil && st.Adopted
+}
 
 // javaMajor returns the Java feature release reported by the node's agent, 0 when unknown.
 // Old runtimes report "1.8.0_402", newer ones "21.0.8".

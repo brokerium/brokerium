@@ -4,7 +4,7 @@
 FROM --platform=$BUILDPLATFORM node:24.22.0-alpine AS web
 WORKDIR /src/web
 RUN npm install -g pnpm@12.11.2
-COPY web/package.json web/pnpm-lock.yaml ./
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build

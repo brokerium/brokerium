@@ -296,12 +296,15 @@ func (m *Manager) stepConfigure(ctx context.Context, x *ops.Exec, raw json.RawMe
 	if err != nil {
 		return nil, err
 	}
+	if n, err := m.Store.GetNodeByName(ctx, a.Name); err == nil && adopted(n) {
+		return map[string]any{"skipped": "adopted node keeps its own server.properties"}, nil
+	}
 	s := settingsOf(x.Cluster)
 	kind, quorum, err := m.quorumFor(ctx, x, a)
 	if err != nil {
 		return nil, err
 	}
-	props := renderProperties(s, a.Role, a.Name, a.NodeID, a.Rack, kind, quorum)
+	props := renderProperties(s, x.Cluster.Provider == store.ProviderDocker, a.Role, a.Name, a.NodeID, a.Rack, kind, quorum)
 	heap := s.BrokerHeap
 	if a.Role == RoleController {
 		heap = s.ControllerHeap
@@ -388,10 +391,8 @@ func (m *Manager) stepRemoveNode(ctx context.Context, x *ops.Exec, raw json.RawM
 			_ = m.Store.AssignNode(ctx, n.ID, nil, "", nil)
 		}
 	}
-	if x.Cluster.Provider == store.ProviderDocker {
-		if _, err := m.stepSyncBootstrap(ctx, x, nil); err != nil {
-			return nil, fmt.Errorf("updating bootstrap servers: %w", err)
-		}
+	if _, err := m.stepSyncBootstrap(ctx, x, nil); err != nil {
+		return nil, fmt.Errorf("updating bootstrap servers: %w", err)
 	}
 	return map[string]any{"removed": a.Name}, nil
 }
@@ -562,8 +563,9 @@ func (m *Manager) stepUpgrade(ctx context.Context, x *ops.Exec, raw json.RawMess
 }
 
 func (m *Manager) stepSyncBootstrap(ctx context.Context, x *ops.Exec, raw json.RawMessage) (any, error) {
-	if x.Cluster.Provider != store.ProviderDocker {
-		return map[string]any{"skipped": "bootstrap servers of agent clusters are managed by the operator"}, nil
+	docker := x.Cluster.Provider == store.ProviderDocker
+	if !docker && x.Cluster.Provider != store.ProviderAgent {
+		return map[string]any{"skipped": "the provider manages its own addresses"}, nil
 	}
 	mn, err := m.managedNodes(ctx, x.Cluster.ID)
 	if err != nil {
@@ -572,7 +574,9 @@ func (m *Manager) stepSyncBootstrap(ctx context.Context, x *ops.Exec, raw json.R
 	s := settingsOf(x.Cluster)
 	var servers []string
 	for _, b := range mn.brokers {
-		servers = append(servers, fmt.Sprintf("localhost:%d", s.PortBase+int(*b.KafkaNodeID)))
+		if b.KafkaNodeID != nil {
+			servers = append(servers, brokerAddress(s, docker, b.Name, *b.KafkaNodeID))
+		}
 	}
 	if len(servers) == 0 {
 		return map[string]any{"skipped": "no managed brokers"}, nil
@@ -580,7 +584,7 @@ func (m *Manager) stepSyncBootstrap(ctx context.Context, x *ops.Exec, raw json.R
 	s.ControllerBootstrapServers = nil
 	for _, c := range mn.controllers {
 		if c.KafkaNodeID != nil {
-			s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, fmt.Sprintf("localhost:%d", s.PortBase+int(*c.KafkaNodeID)))
+			s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, controllerAddress(s, docker, c.Name, *c.KafkaNodeID))
 		}
 	}
 	return m.stepSetSettings(ctx, x, mustJSON(NodeArgs{BootstrapServers: servers, Settings: &s}))

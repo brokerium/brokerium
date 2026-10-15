@@ -72,8 +72,33 @@ func newKafka(cfg Config) *Kafka {
 	return k
 }
 
-func (k *Kafka) statePath() string  { return filepath.Join(k.cfg.DataDir, "state.json") }
-func (k *Kafka) configPath() string { return filepath.Join(k.cfg.DataDir, "server.properties") }
+func (k *Kafka) statePath() string { return filepath.Join(k.cfg.DataDir, "state.json") }
+
+func (k *Kafka) configPath() string {
+	if k.cfg.KafkaConfig != "" {
+		return k.cfg.KafkaConfig
+	}
+	return filepath.Join(k.cfg.DataDir, "server.properties")
+}
+
+// errAdopted refuses changes that belong to the operator of an adopted node.
+var errAdopted = errors.New("this node was adopted with --kafka-config; its configuration and storage are managed outside Brokerium")
+
+// Adopted reports whether the node runs with an operator-owned configuration.
+func (k *Kafka) Adopted() bool { return k.cfg.KafkaConfig != "" }
+
+// dataDir is the first log directory: from the adopted configuration, else the agent setting.
+func (k *Kafka) dataDir() string {
+	if k.Adopted() {
+		if dirs := readProperty(k.cfg.KafkaConfig, "log.dirs"); dirs != "" {
+			return strings.TrimSpace(strings.Split(dirs, ",")[0])
+		}
+		if dir := readProperty(k.cfg.KafkaConfig, "log.dir"); dir != "" {
+			return dir
+		}
+	}
+	return k.cfg.KafkaDataDir
+}
 
 func (k *Kafka) saveState() {
 	raw, _ := json.MarshalIndent(k.state, "", "  ")
@@ -166,6 +191,10 @@ func (k *Kafka) Install(ctx context.Context, version, mirror string) (string, er
 	}
 	k.mu.Lock()
 	k.state.Installed[version] = dest
+	if k.state.ActiveVersion == "" {
+		// The first release on a fresh host is what formatting and the first start use.
+		k.state.ActiveVersion = version
+	}
 	k.saveState()
 	k.mu.Unlock()
 	return "installed " + version + " to " + dest + " (sha512 verified)", nil
@@ -292,6 +321,9 @@ func extractTarGz(archive, dest string) error {
 
 // WriteConfig replaces server.properties.
 func (k *Kafka) WriteConfig(props map[string]string, heap string) error {
+	if k.Adopted() {
+		return errAdopted
+	}
 	keys := make([]string, 0, len(props))
 	for key := range props {
 		keys = append(keys, key)
@@ -314,6 +346,9 @@ func (k *Kafka) WriteConfig(props map[string]string, heap string) error {
 
 // Format runs kafka-storage.sh format with --ignore-formatted.
 func (k *Kafka) Format(ctx context.Context, clusterID string, mode agentv1.FormatMode, initial string) (string, error) {
+	if k.Adopted() {
+		return "", errAdopted
+	}
 	home, err := k.home("")
 	if err != nil {
 		return "", err
@@ -330,6 +365,16 @@ func (k *Kafka) Format(ctx context.Context, clusterID string, mode agentv1.Forma
 	cmd := exec.CommandContext(ctx, filepath.Join(home, "bin", "kafka-storage.sh"), args...)
 	cmd.Env = append(os.Environ(), "KAFKA_HEAP_OPTS=-Xmx256m")
 	out, err := cmd.CombinedOutput()
+	if err == nil && k.cfg.Process == "systemd" && os.Geteuid() == 0 {
+		// The agent formats as root; the Kafka unit runs as the kafka account.
+		user := k.cfg.KafkaUser
+		if user == "" {
+			user = "kafka"
+		}
+		if chown, cerr := exec.CommandContext(ctx, "chown", "-R", user, k.dataDir()).CombinedOutput(); cerr != nil {
+			return strings.TrimSpace(string(chown)), fmt.Errorf("chown %s: %w", k.dataDir(), cerr)
+		}
+	}
 	return strings.TrimSpace(string(out)), err
 }
 
@@ -400,11 +445,17 @@ func (k *Kafka) Start(version string) error {
 }
 
 func (k *Kafka) writeUnit(home string) error {
+	user := k.cfg.KafkaUser
+	if user == "" {
+		user = "kafka"
+	}
+	logDir := filepath.Join(k.cfg.DataDir, "logs")
 	unit := fmt.Sprintf(`[Unit]
 Description=Apache Kafka managed by brokerium-agent
 After=network-online.target
 
 [Service]
+User=%s
 Environment=KAFKA_HEAP_OPTS=%s
 Environment=LOG_DIR=%s
 ExecStart=%s %s
@@ -415,7 +466,13 @@ LimitNOFILE=1000000
 
 [Install]
 WantedBy=multi-user.target
-`, k.state.HeapOpts, filepath.Join(k.cfg.DataDir, "logs"), filepath.Join(home, "bin", "kafka-server-start.sh"), k.configPath())
+`, user, k.state.HeapOpts, logDir, filepath.Join(home, "bin", "kafka-server-start.sh"), k.configPath())
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return err
+	}
+	if out, err := exec.Command("chown", "-R", user, logDir).CombinedOutput(); err != nil {
+		return fmt.Errorf("chown %s: %v: %s", logDir, err, out)
+	}
 	if err := os.WriteFile("/etc/systemd/system/brokerium-kafka.service", []byte(unit), 0o644); err != nil {
 		return err
 	}
@@ -468,6 +525,9 @@ func (k *Kafka) Wipe(confirm, nodeName string) error {
 	if confirm != nodeName || nodeName == "" {
 		return errors.New("wipe requires confirm to equal the node name")
 	}
+	if k.Adopted() {
+		return errAdopted
+	}
 	if err := k.Stop(2 * time.Minute); err != nil {
 		return err
 	}
@@ -500,14 +560,15 @@ func (k *Kafka) Status() *agentv1.NodeStatus {
 		st.Running = exec.Command("systemctl", "is-active", "--quiet", "brokerium-kafka.service").Run() == nil
 	}
 	sort.Strings(st.InstalledVersions)
-	st.Meta = readMeta(filepath.Join(k.cfg.KafkaDataDir, "meta.properties"))
+	st.Meta = readMeta(filepath.Join(k.dataDir(), "meta.properties"))
 	st.ProcessRoles = readProperty(k.configPath(), "process.roles")
 	var fs unix.Statfs_t
-	if unix.Statfs(k.cfg.KafkaDataDir, &fs) == nil {
+	if unix.Statfs(k.dataDir(), &fs) == nil {
 		st.DiskFreeBytes = int64(uint64(fs.Bavail) * uint64(fs.Bsize)) //nolint:unconvert // field types differ between Linux and macOS
 	}
 	st.DataBytes = k.dataBytes()
 	st.JavaVersion = k.javaVersion()
+	st.Adopted = k.Adopted()
 	return st
 }
 
@@ -545,7 +606,7 @@ func (k *Kafka) dataBytes() int64 {
 	}
 	k.mu.Unlock()
 	var total int64
-	_ = filepath.WalkDir(k.cfg.KafkaDataDir, func(_ string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(k.dataDir(), func(_ string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
 			if info, err := d.Info(); err == nil {
 				total += info.Size()
