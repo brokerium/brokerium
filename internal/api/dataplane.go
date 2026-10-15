@@ -304,7 +304,7 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	}
 	partition := int32(-1)
 	if p := q.Get("partition"); p != "" {
-		n, err := strconv.Atoi(p)
+		n, err := strconv.ParseInt(p, 10, 32)
 		if err != nil {
 			WriteError(w, http.StatusBadRequest, "bad_request", "invalid partition")
 			return
@@ -484,7 +484,7 @@ func (s *Server) handleBrokerConfigsAlter(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	id, err := strconv.Atoi(r.PathValue("broker"))
+	id, err := strconv.ParseInt(r.PathValue("broker"), 10, 32)
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, "bad_request", "invalid broker id")
 		return

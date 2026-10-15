@@ -603,8 +603,8 @@ type upgradeParams struct {
 
 func compareVersions(a, b string) int {
 	var x, y [3]int
-	fmt.Sscanf(a, "%d.%d.%d", &x[0], &x[1], &x[2])
-	fmt.Sscanf(b, "%d.%d.%d", &y[0], &y[1], &y[2])
+	_, _ = fmt.Sscanf(a, "%d.%d.%d", &x[0], &x[1], &x[2])
+	_, _ = fmt.Sscanf(b, "%d.%d.%d", &y[0], &y[1], &y[2])
 	for i := range x {
 		if x[i] != y[i] {
 			if x[i] < y[i] {

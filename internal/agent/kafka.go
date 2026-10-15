@@ -159,7 +159,7 @@ func (k *Kafka) Install(ctx context.Context, version, mirror string) (string, er
 	}
 	tmp := filepath.Join(k.cfg.KafkaDir, ".download-"+version)
 	_ = os.RemoveAll(tmp)
-	if err := os.MkdirAll(tmp, 0o755); err != nil {
+	if err := os.MkdirAll(tmp, 0o755); err != nil { //nolint:gosec // releases must be readable by the kafka account
 		return "", err
 	}
 	defer os.RemoveAll(tmp)
@@ -210,7 +210,7 @@ func fetchSHA512(ctx context.Context, urls []string) (string, error) {
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			lastErr = fmt.Errorf("%s: HTTP %d", u, resp.StatusCode)
 			continue
@@ -249,7 +249,7 @@ func download(ctx context.Context, url, dest string) error {
 		return err
 	}
 	if _, err := io.Copy(f, resp.Body); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	return f.Close()
@@ -306,15 +306,19 @@ func extractTarGz(archive, dest string) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(h.Mode)&0o755|0o600)
+			perm := os.FileMode(0o644)
+			if h.Mode&0o111 != 0 {
+				perm = 0o755
+			}
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
 			if err != nil {
 				return err
 			}
 			if _, err := io.Copy(out, io.LimitReader(tr, 2<<30)); err != nil {
-				out.Close()
+				_ = out.Close()
 				return err
 			}
-			out.Close()
+			_ = out.Close()
 		}
 	}
 }
@@ -334,7 +338,7 @@ func (k *Kafka) WriteConfig(props map[string]string, heap string) error {
 	for _, key := range keys {
 		fmt.Fprintf(&b, "%s=%s\n", key, props[key])
 	}
-	if err := os.WriteFile(k.configPath(), []byte(b.String()), 0o644); err != nil {
+	if err := os.WriteFile(k.configPath(), []byte(b.String()), 0o644); err != nil { //nolint:gosec // Kafka runs as the kafka account and reads it
 		return err
 	}
 	k.mu.Lock()
@@ -362,7 +366,7 @@ func (k *Kafka) Format(ctx context.Context, clusterID string, mode agentv1.Forma
 	case agentv1.FormatMode_FORMAT_MODE_JOIN:
 		args = append(args, "--no-initial-controllers")
 	}
-	cmd := exec.CommandContext(ctx, filepath.Join(home, "bin", "kafka-storage.sh"), args...)
+	cmd := exec.CommandContext(ctx, filepath.Join(home, "bin", "kafka-storage.sh"), args...) //nolint:gosec // the installed Kafka release, typed arguments
 	cmd.Env = append(os.Environ(), "KAFKA_HEAP_OPTS=-Xmx256m")
 	out, err := cmd.CombinedOutput()
 	if err == nil && k.cfg.Process == "systemd" && os.Geteuid() == 0 {
@@ -371,7 +375,7 @@ func (k *Kafka) Format(ctx context.Context, clusterID string, mode agentv1.Forma
 		if user == "" {
 			user = "kafka"
 		}
-		if chown, cerr := exec.CommandContext(ctx, "chown", "-R", user, k.dataDir()).CombinedOutput(); cerr != nil {
+		if chown, cerr := exec.CommandContext(ctx, "chown", "-R", user, k.dataDir()).CombinedOutput(); cerr != nil { //nolint:gosec // agent configuration
 			return strings.TrimSpace(string(chown)), fmt.Errorf("chown %s: %w", k.dataDir(), cerr)
 		}
 	}
@@ -411,7 +415,7 @@ func (k *Kafka) Start(version string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(filepath.Join(home, "bin", "kafka-server-start.sh"), k.configPath())
+	cmd := exec.Command(filepath.Join(home, "bin", "kafka-server-start.sh"), k.configPath()) //nolint:gosec // the installed Kafka release
 	cmd.Env = append(os.Environ(), "LOG_DIR="+logDir)
 	if k.state.HeapOpts != "" {
 		cmd.Env = append(cmd.Env, "KAFKA_HEAP_OPTS="+k.state.HeapOpts)
@@ -419,7 +423,7 @@ func (k *Kafka) Start(version string) error {
 	cmd.Stdout, cmd.Stderr = out, out
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
-		out.Close()
+		_ = out.Close()
 		return err
 	}
 	done := make(chan struct{})
@@ -428,7 +432,7 @@ func (k *Kafka) Start(version string) error {
 	k.saveState()
 	go func() {
 		err := cmd.Wait()
-		out.Close()
+		_ = out.Close()
 		k.mu.Lock()
 		if err != nil {
 			k.lastExit = err.Error()
@@ -470,10 +474,10 @@ WantedBy=multi-user.target
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return err
 	}
-	if out, err := exec.Command("chown", "-R", user, logDir).CombinedOutput(); err != nil {
+	if out, err := exec.Command("chown", "-R", user, logDir).CombinedOutput(); err != nil { //nolint:gosec // agent configuration
 		return fmt.Errorf("chown %s: %v: %s", logDir, err, out)
 	}
-	if err := os.WriteFile("/etc/systemd/system/brokerium-kafka.service", []byte(unit), 0o644); err != nil {
+	if err := os.WriteFile("/etc/systemd/system/brokerium-kafka.service", []byte(unit), 0o644); err != nil { //nolint:gosec // systemd unit files are world-readable
 		return err
 	}
 	return exec.Command("systemctl", "daemon-reload").Run()
@@ -564,7 +568,7 @@ func (k *Kafka) Status() *agentv1.NodeStatus {
 	st.ProcessRoles = readProperty(k.configPath(), "process.roles")
 	var fs unix.Statfs_t
 	if unix.Statfs(k.dataDir(), &fs) == nil {
-		st.DiskFreeBytes = int64(uint64(fs.Bavail) * uint64(fs.Bsize)) //nolint:unconvert // field types differ between Linux and macOS
+		st.DiskFreeBytes = int64(uint64(fs.Bavail) * uint64(fs.Bsize)) //nolint:unconvert,gosec // field types differ between Linux and macOS; disks are far below 2^63 bytes
 	}
 	st.DataBytes = k.dataBytes()
 	st.JavaVersion = k.javaVersion()
@@ -583,7 +587,7 @@ func (k *Kafka) javaVersion() string {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		out, err := exec.CommandContext(ctx, bin, "-version").CombinedOutput()
+		out, err := exec.CommandContext(ctx, bin, "-version").CombinedOutput() //nolint:gosec // the Java runtime the Kafka scripts use
 		if err == nil {
 			k.java = parseJavaVersion(string(out))
 		}
@@ -637,7 +641,7 @@ func readMeta(path string) *agentv1.MetaProperties {
 		case "cluster.id":
 			m.ClusterId = strings.TrimSpace(value)
 		case "node.id":
-			id, _ := strconv.Atoi(strings.TrimSpace(value))
+			id, _ := strconv.ParseInt(strings.TrimSpace(value), 10, 32)
 			m.NodeId = int32(id)
 		case "directory.id":
 			m.DirectoryId = strings.TrimSpace(value)

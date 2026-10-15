@@ -362,7 +362,7 @@ func (e *Engine) tick(ctx context.Context) {
 			}
 			continue
 		}
-		go e.execute(ctx, op.ID)
+		go e.execute(ctx, op.ID) //nolint:gosec // operations outlive the request that started them
 	}
 }
 
@@ -429,7 +429,7 @@ func (e *Engine) execute(parent context.Context, id string) {
 	_ = e.Store.SetOperationStatus(ctx, id, store.OpSucceeded, "")
 	e.audit(ctx, op, "ok")
 	log.Info("operation succeeded")
-	go e.Clusters.Refresh(context.Background(), op.ClusterID) //nolint:errcheck
+	go e.Clusters.Refresh(context.Background(), op.ClusterID) //nolint:errcheck,gosec // refresh after the operation, detached
 }
 
 // runStep executes one step and records its outcome; it returns false on failure.
@@ -495,7 +495,7 @@ func (e *Engine) finish(ctx context.Context, x *Exec, from int, status, msg stri
 	_ = e.Store.SetRequestedAction(ctx, x.Op.ID, "")
 	_ = e.Store.SetOperationStatus(ctx, x.Op.ID, status, msg)
 	e.audit(ctx, x.Op, status+": "+msg)
-	go e.Clusters.Refresh(context.Background(), x.Op.ClusterID) //nolint:errcheck
+	go e.Clusters.Refresh(context.Background(), x.Op.ClusterID) //nolint:errcheck,gosec // refresh after the operation, detached
 }
 
 func (e *Engine) audit(ctx context.Context, op *store.Operation, result string) {

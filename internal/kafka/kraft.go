@@ -222,8 +222,11 @@ func (c *Client) AddRaftVoter(ctx context.Context, clusterID string, voterID int
 	req.VoterDirectoryID = dir
 	req.AckWhenCommitted = true
 	for _, e := range endpoints {
+		if e.Port <= 0 || e.Port > 65535 {
+			return fmt.Errorf("listener %s has an invalid port %d", e.Name, e.Port)
+		}
 		l := kmsg.NewAddRaftVoterRequestListener()
-		l.Name, l.Host, l.Port = e.Name, e.Host, uint16(e.Port)
+		l.Name, l.Host, l.Port = e.Name, e.Host, uint16(e.Port) //nolint:gosec // range checked above
 		req.Listeners = append(req.Listeners, l)
 	}
 	resp, err := req.RequestWith(ctx, c.KGO)

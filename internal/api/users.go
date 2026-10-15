@@ -44,7 +44,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		WriteStoreError(w, err)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: SessionCookie, Value: token, Path: "/", HttpOnly: true,
+	http.SetCookie(w, &http.Cookie{Name: SessionCookie, Value: token, Path: "/", HttpOnly: true, //nolint:gosec // Secure follows BROKERIUM_SECURE_COOKIES for plain-HTTP labs
 		Secure: s.SecureCookies, SameSite: http.SameSiteLaxMode, Expires: expires})
 	_ = s.Store.DeleteExpiredSessions(r.Context())
 	WriteJSON(w, http.StatusOK, map[string]any{"user": u, "token": token, "expiresAt": expires})
@@ -57,7 +57,8 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		_ = s.Store.DeleteSession(r.Context(), auth.HashToken(strings.TrimPrefix(h, "Bearer ")))
 	}
-	http.SetCookie(w, &http.Cookie{Name: SessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+	http.SetCookie(w, &http.Cookie{Name: SessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, //nolint:gosec // Secure follows BROKERIUM_SECURE_COOKIES
+		Secure: s.SecureCookies, SameSite: http.SameSiteLaxMode})
 	w.WriteHeader(http.StatusNoContent)
 }
 

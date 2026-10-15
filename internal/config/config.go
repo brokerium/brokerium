@@ -75,7 +75,7 @@ func loadSecretKey(explicit, path string) ([]byte, error) {
 		}
 		return key, nil
 	}
-	if data, err := os.ReadFile(path); err == nil {
+	if data, err := os.ReadFile(path); err == nil { //nolint:gosec // path comes from BROKERIUM_DATA_DIR
 		key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(data)))
 		if err != nil || len(key) != 32 {
 			return nil, fmt.Errorf("invalid secret key in %s", path)
