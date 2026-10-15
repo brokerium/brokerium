@@ -175,7 +175,10 @@ func (s *Service) Refresh(ctx context.Context, id string) (*View, error) {
 	}
 	snapCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	snap, err := cl.Snapshot(snapCtx, kafka.SnapshotOptions{Groups: true, MaxGroups: 500})
+	caps := CapabilitiesFor(c, false)
+	snap, err := cl.Snapshot(snapCtx, kafka.SnapshotOptions{Groups: true, MaxGroups: 500,
+		SkipQuorum: !caps.DescribeQuorum, SkipReassignments: !caps.Reassign,
+		SkipLogDirs: c.Flavor == store.FlavorConfluentCloud})
 	v := &View{Cluster: c, UpdatedAt: time.Now()}
 	if err != nil {
 		v.Health = Health{Status: HealthUnreachable, Issues: []Issue{{Severity: HealthCritical, Code: "unreachable", Message: err.Error()}}}

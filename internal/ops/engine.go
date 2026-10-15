@@ -136,8 +136,21 @@ func (e *Engine) Extend(m NodeManager) {
 	for k, f := range m.StepKinds() {
 		e.kinds[k] = f
 	}
-	e.stopStep = m.StopBrokerStep
-	e.stopControllerStep = m.StopControllerStep
+	e.stopStep = chainStop(m.StopBrokerStep, e.stopStep)
+	e.stopControllerStep = chainStop(m.StopControllerStep, e.stopControllerStep)
+}
+
+// chainStop asks the newer node manager first and falls back to the earlier one.
+func chainStop(first, then func(*Planner, int32) (StepSpec, bool)) func(*Planner, int32) (StepSpec, bool) {
+	if then == nil {
+		return first
+	}
+	return func(p *Planner, id int32) (StepSpec, bool) {
+		if s, ok := first(p, id); ok {
+			return s, true
+		}
+		return then(p, id)
+	}
 }
 
 // Types lists operation types sorted by name.

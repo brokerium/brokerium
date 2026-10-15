@@ -25,6 +25,8 @@ type Snapshot struct {
 	Reassignments []Reassignment `json:"reassignments"`
 	Groups        []Group        `json:"groups"`
 	Errors        []string       `json:"errors,omitempty"`
+	// Skipped lists parts not collected because the cluster does not offer them.
+	Skipped []string `json:"skipped,omitempty"`
 }
 
 // Broker combines registration, metadata and log dir information of one broker.
@@ -113,6 +115,27 @@ type Group struct {
 type SnapshotOptions struct {
 	Groups    bool
 	MaxGroups int
+	// Managed services reject some admin requests; skipping them avoids noise in the health.
+	SkipQuorum        bool
+	SkipLogDirs       bool
+	SkipReassignments bool
+}
+
+// Parts of a snapshot that can be skipped.
+const (
+	PartQuorum        = "quorum"
+	PartLogDirs       = "logDirs"
+	PartReassignments = "reassignments"
+)
+
+// Has reports whether a part was collected (it is not in Skipped).
+func (s *Snapshot) Has(part string) bool {
+	for _, p := range s.Skipped {
+		if p == part {
+			return false
+		}
+	}
+	return true
 }
 
 var snapshotConfigKeys = []string{
@@ -153,9 +176,17 @@ func (c *Client) Snapshot(ctx context.Context, opts SnapshotOptions) (*Snapshot,
 	}
 	topicNames := md.Topics.Names()
 	run("describe cluster", func() (err error) { info, err = c.DescribeCluster(ctx, true); return })
-	run("describe quorum", func() (err error) { s.Quorum, err = c.DescribeQuorum(ctx); return })
+	if opts.SkipQuorum {
+		s.Skipped = append(s.Skipped, PartQuorum)
+	} else {
+		run("describe quorum", func() (err error) { s.Quorum, err = c.DescribeQuorum(ctx); return })
+	}
 	run("features", func() (err error) { s.Features, err = c.Features(ctx); return })
-	run("log dirs", func() (err error) { logDirs, err = c.Adm.DescribeAllLogDirs(ctx, nil); return })
+	if opts.SkipLogDirs {
+		s.Skipped = append(s.Skipped, PartLogDirs)
+	} else {
+		run("log dirs", func() (err error) { logDirs, err = c.Adm.DescribeAllLogDirs(ctx, nil); return })
+	}
 	run("topic configs", func() (err error) {
 		if len(topicNames) == 0 {
 			return nil
@@ -163,7 +194,11 @@ func (c *Client) Snapshot(ctx context.Context, opts SnapshotOptions) (*Snapshot,
 		configs, err = c.Adm.DescribeTopicConfigs(ctx, topicNames...)
 		return
 	})
-	run("reassignments", func() (err error) { reassign, err = c.Adm.ListPartitionReassignments(ctx, nil); return })
+	if opts.SkipReassignments {
+		s.Skipped = append(s.Skipped, PartReassignments)
+	} else {
+		run("reassignments", func() (err error) { reassign, err = c.Adm.ListPartitionReassignments(ctx, nil); return })
+	}
 	run("end offsets", func() (err error) {
 		if len(topicNames) == 0 {
 			return nil

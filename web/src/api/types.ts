@@ -35,6 +35,7 @@ export interface Secrets {
   awsSecretAccessKey?: string;
   awsSessionToken?: string;
   oauthToken?: string;
+  kubeconfig?: string;
 }
 
 export type Provider = 'external' | 'agent' | 'docker' | 'strimzi';
@@ -444,6 +445,7 @@ export interface OperationParams {
     portBase?: number;
   };
   'destroy-cluster': Record<string, never>;
+  'scale-node-pool': { pool: string; replicas: number };
 }
 
 // ---------------------------------------------------------------- data plane
