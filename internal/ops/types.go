@@ -23,7 +23,7 @@ type PlanDoc struct {
 	Moves           []balancer.Move `json:"moves,omitempty"`
 	Before          *balancer.Stats `json:"before,omitempty"`
 	After           *balancer.Stats `json:"after,omitempty"`
-	DataToMoveBytes int64           `json:"dataToMoveBytes,omitempty"`
+	DataToMoveBytes int64           `json:"dataToMoveBytes"`
 	Details         map[string]any  `json:"details,omitempty"`
 }
 
@@ -136,12 +136,8 @@ func racksKnown(v *cluster.View) bool {
 	return len(v.Snapshot.Brokers) > 0
 }
 
-func aliveMap(v *cluster.View) map[int32]bool {
-	return aliveBrokers(v)
-}
-
-// reassignSteps turns moves into throttled, batched, health-gated steps.
-func reassignSteps(v *cluster.View, moves []balancer.Move, throttle int64, batch int) []StepSpec {
+// reassignStepsURP turns moves into throttled, batched, health-gated steps.
+func reassignStepsURP(moves []balancer.Move, throttle int64, batch int, allowURP bool) []StepSpec {
 	if throttle <= 0 {
 		throttle = DefaultThrottle
 	}
@@ -149,17 +145,17 @@ func reassignSteps(v *cluster.View, moves []balancer.Move, throttle int64, batch
 		batch = DefaultBatchSize
 	}
 	var assignments []kafka.Assignment
-	current := map[string][]int32{}
+	copiesData := false
 	for _, mv := range moves {
-		a := kafka.Assignment{Topic: mv.Topic, Partition: mv.Partition, Replicas: mv.To}
-		assignments = append(assignments, a)
-		current[a.Key()] = mv.From
+		assignments = append(assignments, kafka.Assignment{Topic: mv.Topic, Partition: mv.Partition, Replicas: mv.To})
+		copiesData = copiesData || mv.ReplicaMoves > 0
 	}
-	spec := kafka.BuildThrottle(throttle, assignments, current, aliveMap(v))
-	topics := topicsOf(assignments)
+	throttleArgs := ThrottleArgs{RateBytesPerSec: throttle, Assignments: assignments}
 	steps := []StepSpec{
-		{Name: "Check cluster health", Kind: KindHealthGate, Args: HealthGateArgs{}},
-		{Name: fmt.Sprintf("Throttle replication to %s/s", humanBytes(throttle)), Kind: KindThrottle, Args: spec},
+		{Name: "Check cluster health", Kind: KindHealthGate, Args: HealthGateArgs{AllowUnderReplicated: allowURP}},
+	}
+	if copiesData {
+		steps = append(steps, StepSpec{Name: fmt.Sprintf("Throttle replication to %s/s", humanBytes(throttle)), Kind: KindThrottle, Args: throttleArgs})
 	}
 	for i := 0; i < len(assignments); i += batch {
 		end := min(i+batch, len(assignments))
@@ -168,15 +164,19 @@ func reassignSteps(v *cluster.View, moves []balancer.Move, throttle int64, batch
 		steps = append(steps,
 			StepSpec{Name: fmt.Sprintf("Start batch %d (%d partitions)", n, len(part)), Kind: KindReassign, Args: ReassignArgs{Assignments: part}},
 			StepSpec{Name: fmt.Sprintf("Wait for batch %d", n), Kind: KindWaitReassign, Args: ReassignArgs{Assignments: part}},
-			StepSpec{Name: fmt.Sprintf("Check health after batch %d", n), Kind: KindHealthGate, Args: HealthGateArgs{}},
+			StepSpec{Name: fmt.Sprintf("Check health after batch %d", n), Kind: KindHealthGate, Args: HealthGateArgs{AllowUnderReplicated: allowURP}},
 		)
 	}
-	steps = append(steps,
-		StepSpec{Name: "Remove replication throttles", Kind: KindClearThrottle, AlwaysRun: true,
-			Args: ClearThrottleArgs{Brokers: spec.Brokers, Topics: topics}},
-		StepSpec{Name: "Elect preferred leaders", Kind: KindElectPreferred, Args: ReassignArgs{Assignments: assignments}},
-	)
-	return steps
+	if copiesData {
+		steps = append(steps, StepSpec{Name: "Remove replication throttles", Kind: KindClearThrottle, AlwaysRun: true, Args: throttleArgs})
+	}
+	return append(steps, StepSpec{Name: "Elect preferred leaders", Kind: KindElectPreferred, Args: ReassignArgs{Assignments: assignments}})
+}
+
+// ReassignSteps exposes reassignSteps to node lifecycle operations. allowURP lets the health
+// gates pass while partitions are under-replicated, for replacing a failed broker.
+func ReassignSteps(moves []balancer.Move, throttle int64, batch int, allowURP bool) []StepSpec {
+	return reassignStepsURP(moves, throttle, batch, allowURP)
 }
 
 func planRebalance(_ context.Context, p *Planner, raw json.RawMessage) (*Planned, error) {
@@ -229,7 +229,7 @@ func planFromMoves(p *Planner, plan *balancer.Plan, title string, throttle int64
 	doc.Summary = fmt.Sprintf("%s: %d partition(s) change, %d replica move(s) (%s), %d leader-only change(s); replica spread %d -> %d, leader spread %d -> %d",
 		title, len(plan.Moves), moved, humanBytes(plan.DataToMoveBytes), leaderOnly,
 		plan.Before.ReplicaSpread, plan.After.ReplicaSpread, plan.Before.LeaderSpread, plan.After.LeaderSpread)
-	steps := reassignSteps(p.View, plan.Moves, throttle, batch)
+	steps := reassignStepsURP(plan.Moves, throttle, batch, false)
 	return &Planned{Doc: doc, Steps: append(steps, extra...)}, nil
 }
 
@@ -483,7 +483,9 @@ func planFinalize(ctx context.Context, p *Planner, _ json.RawMessage) (*Planned,
 	var steps []StepSpec
 	var changes []string
 	doc := PlanDoc{Irreversible: true, Details: map[string]any{}}
-	sort.Slice(features, func(i, j int) bool { return features[i].Name == "metadata.version" && features[j].Name != "metadata.version" })
+	sort.Slice(features, func(i, j int) bool {
+		return features[i].Name == "metadata.version" && features[j].Name != "metadata.version"
+	})
 	for _, f := range features {
 		if f.Finalized >= f.SupportedMax {
 			continue

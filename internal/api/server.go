@@ -68,6 +68,7 @@ func (s *Server) Handler(exts ...Extension) http.Handler {
 	s.mux.HandleFunc("POST /api/v1/auth/logout", s.handleLogout)
 	s.Route("GET /api/v1/auth/me", store.RoleViewer, s.handleMe)
 	s.registerClusters()
+	s.registerDataPlane()
 	s.registerUsers()
 	for _, e := range exts {
 		e.Register(s)

@@ -79,7 +79,10 @@ type OpType struct {
 	Scope        string   `json:"scope"`
 	Requires     []string `json:"requires"`
 	Irreversible bool     `json:"irreversible"`
-	Plan         func(ctx context.Context, p *Planner, params json.RawMessage) (*Planned, error) `json:"-"`
+	// AllowUnreachable lets the operation be planned while the cluster does not answer yet, for
+	// example to create its nodes.
+	AllowUnreachable bool                                                                            `json:"-"`
+	Plan             func(ctx context.Context, p *Planner, params json.RawMessage) (*Planned, error) `json:"-"`
 }
 
 // NodeManager performs node lifecycle actions through agents or providers.
@@ -157,7 +160,7 @@ func (e *Engine) Plan(ctx context.Context, clusterID, typ string, params json.Ra
 	if err != nil {
 		return nil, err
 	}
-	if view.Snapshot == nil {
+	if view.Snapshot == nil && !t.AllowUnreachable {
 		return nil, fmt.Errorf("cluster is unreachable: %s", view.Error)
 	}
 	if missing := missingCapabilities(view.Capabilities, t.Requires); len(missing) > 0 {

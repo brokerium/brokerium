@@ -6,6 +6,15 @@ linters:
   enable:
     - misspell
     - unconvert
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (io.ReadCloser).Close
+        - (*os.File).Close
+        - (*google.golang.org/grpc.ClientConn).Close
+        - os.RemoveAll
+        - fmt.Sscanf
   exclusions:
     paths:
       - proto/

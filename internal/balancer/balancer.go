@@ -437,17 +437,6 @@ func (s *state) topicWeight(t string) float64 {
 	return s.w.Topic * float64(s.topicSize[t]) / math.Max(1, s.totals.replicas)
 }
 
-// moveDelta is the objective change of moving one replica of partition pi from broker index a
-// to broker index b (both eligible).
-func (s *state) moveDelta(pi, a, b int, m means) float64 {
-	p := s.parts[pi]
-	tv := s.topicN[p.Topic]
-	return s.w.Replicas*varDelta(1, s.replicaN[a], s.replicaN[b], m.replicas, m.n) +
-		s.w.Disk*varDelta(float64(p.SizeBytes), s.data[a], s.data[b], m.data, m.n) +
-		s.w.BytesIn*varDelta(p.BytesInPerSec, s.bytesIn[a], s.bytesIn[b], m.bytes, m.n) +
-		s.topicWeight(p.Topic)*varDelta(1, tv[a], tv[b], m.topic[p.Topic], m.n)
-}
-
 // swapDelta is the objective change of moving a replica of p1 from a to b and a replica of p2
 // from b to a.
 func (s *state) swapDelta(p1, p2, a, b int, m means) float64 {

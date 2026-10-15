@@ -1,5 +1,5 @@
-# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # syntax=docker/dockerfile:1.7
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 
 FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine AS build
 ARG TARGETOS TARGETARCH VERSION=dev COMMIT=none DATE=unknown

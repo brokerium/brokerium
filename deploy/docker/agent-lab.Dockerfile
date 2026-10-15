@@ -1,5 +1,5 @@
-# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # syntax=docker/dockerfile:1.7
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 #
 # Lab node image: Apache Kafka plus brokerium-agent as the main process. The Docker provider of
 # brokerium-server starts these containers to simulate virtual machines (ADR 0004).

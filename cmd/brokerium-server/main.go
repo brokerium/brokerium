@@ -15,11 +15,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bvaliev/brokerium/internal/agentgw"
 	"github.com/bvaliev/brokerium/internal/api"
 	"github.com/bvaliev/brokerium/internal/cluster"
 	"github.com/bvaliev/brokerium/internal/config"
 	"github.com/bvaliev/brokerium/internal/metrics"
+	"github.com/bvaliev/brokerium/internal/nodes"
 	"github.com/bvaliev/brokerium/internal/ops"
+	"github.com/bvaliev/brokerium/internal/provider/docker"
 	"github.com/bvaliev/brokerium/internal/secrets"
 	"github.com/bvaliev/brokerium/internal/store"
 	"github.com/bvaliev/brokerium/internal/version"
@@ -80,16 +83,34 @@ func run(log *slog.Logger) error {
 		}
 	})
 	engine := ops.New(st, clusters, sampler, log)
+
+	ca, err := agentgw.LoadOrCreateCA(ctx, st, box)
+	if err != nil {
+		return fmt.Errorf("loading agent CA: %w", err)
+	}
+	gateway := agentgw.New(st, ca, log)
+	dockerClient, err := docker.New(cfg.DockerHost)
+	if err != nil {
+		log.Info("docker provider disabled", "reason", err)
+		dockerClient = nil
+	}
+	engine.Extend(&nodes.Manager{Store: st, Gateway: gateway, Docker: dockerClient, Clusters: clusters, Log: log,
+		Cfg: nodes.Config{AgentEndpoint: cfg.AgentEndpoint, AgentImage: cfg.AgentImage, LabNetwork: cfg.LabNetwork}})
+
 	go clusters.Run(ctx, cfg.SnapshotInterval)
 	go engine.Run(ctx, cfg.WorkerInterval)
+	errCh := make(chan error, 2)
+	go func() { errCh <- gateway.Serve(ctx, cfg.GRPCAddr, cfg.AgentServerNames) }()
 
 	srv := &api.Server{Store: st, Clusters: clusters, Box: box, Log: log, SecureCookies: cfg.SecureCookies}
 	httpServer := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           srv.Handler(&api.OperationsAPI{Engine: engine, Sampler: sampler}),
+		Addr: cfg.HTTPAddr,
+		Handler: srv.Handler(
+			&api.OperationsAPI{Engine: engine, Sampler: sampler},
+			&api.NodesAPI{Gateway: gateway, PublicURL: cfg.PublicURL, AgentEndpoint: cfg.AgentEndpoint},
+		),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	errCh := make(chan error, 1)
 	go func() { errCh <- httpServer.ListenAndServe() }()
 
 	select {
