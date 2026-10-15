@@ -4,6 +4,7 @@
 # Brokerium lab helper. Usage: deploy/lab/lab.sh <command> [args]
 #
 #   up [profile...]           start PostgreSQL and the given profiles (default: alpha)
+#   start <service...>        start or recreate individual services
 #   stop <service...>         stop services (simulate a node failure)
 #   rm <service...>           stop and remove services and their volumes (simulate disk loss)
 #   down                      stop all lab containers, keep volumes
@@ -33,7 +34,7 @@ compose() {
 
 bootstrap() {
   case "$1" in
-    alpha) echo "alpha-b1:9092,alpha-b2:9092,alpha-b3:9092" ;;
+    alpha) echo "alpha-b1:9092,alpha-b2:9092" ;;
     beta) echo "beta-b1:9092" ;;
     gamma) echo "gamma-b1:9092" ;;
     *) echo "unknown cluster: $1" >&2; exit 1 ;;
@@ -62,6 +63,9 @@ case "$cmd" in
     args=()
     for p in "$@"; do args+=(--profile "$p"); done
     docker compose -f compose.yaml "${args[@]}" up -d --wait
+    ;;
+  start)
+    compose up -d --wait "$@"
     ;;
   stop)
     compose stop "$@"
@@ -131,6 +135,6 @@ case "$cmd" in
     compose exec -T tools bash -c "cat > '$1'"
     ;;
   help | *)
-    sed -n '4,23p' "$0"
+    sed -n '4,24p' "$0"
     ;;
 esac
