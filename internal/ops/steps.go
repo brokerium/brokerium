@@ -43,10 +43,11 @@ type ReassignArgs struct {
 	TimeoutSeconds int                `json:"timeoutSeconds,omitempty"`
 }
 
-// ClearThrottleArgs list brokers and topics to clear.
-type ClearThrottleArgs struct {
-	Brokers []int32  `json:"brokers"`
-	Topics  []string `json:"topics"`
+// ThrottleArgs describe the moves to throttle; brokers and replica lists are computed when the
+// step runs, so brokers added after planning are throttled too.
+type ThrottleArgs struct {
+	RateBytesPerSec int64              `json:"rateBytesPerSec"`
+	Assignments     []kafka.Assignment `json:"assignments"`
 }
 
 // BrokerArgs target one broker.
@@ -176,7 +177,28 @@ func stepHealthGate(ctx context.Context, x *Exec, raw json.RawMessage) (any, err
 }
 
 func stepThrottle(ctx context.Context, x *Exec, raw json.RawMessage) (any, error) {
-	spec, err := decode[kafka.ThrottleSpec](raw)
+	args, err := decode[ThrottleArgs](raw)
+	if err != nil {
+		return nil, err
+	}
+	v, err := x.view(ctx)
+	if err != nil {
+		return nil, err
+	}
+	current, err := x.Client.CurrentReplicas(ctx, topicsOf(args.Assignments)...)
+	if err != nil {
+		return nil, err
+	}
+	// Only live brokers are throttled: setting configs on a dead broker hangs (lab finding 3).
+	spec := kafka.BuildThrottle(args.RateBytesPerSec, args.Assignments, current, aliveBrokers(v))
+	if err := x.Client.ApplyThrottle(ctx, spec); err != nil {
+		return nil, err
+	}
+	return map[string]any{"rateBytesPerSec": spec.RateBytesPerSec, "brokers": spec.Brokers}, nil
+}
+
+func stepClearThrottle(ctx context.Context, x *Exec, raw json.RawMessage) (any, error) {
+	args, err := decode[ThrottleArgs](raw)
 	if err != nil {
 		return nil, err
 	}
@@ -185,37 +207,24 @@ func stepThrottle(ctx context.Context, x *Exec, raw json.RawMessage) (any, error
 		return nil, err
 	}
 	alive := aliveBrokers(v)
-	var live []int32
-	for _, b := range spec.Brokers {
-		if alive[b] {
-			live = append(live, b)
-		}
-	}
-	spec.Brokers = live
-	if err := x.Client.ApplyThrottle(ctx, spec); err != nil {
-		return nil, err
-	}
-	return map[string]any{"rateBytesPerSec": spec.RateBytesPerSec, "brokers": live}, nil
-}
-
-func stepClearThrottle(ctx context.Context, x *Exec, raw json.RawMessage) (any, error) {
-	args, err := decode[ClearThrottleArgs](raw)
-	if err != nil {
-		return nil, err
-	}
-	var live []int32
-	if v, err := x.view(ctx); err == nil {
-		alive := aliveBrokers(v)
-		for _, b := range args.Brokers {
-			if alive[b] {
-				live = append(live, b)
+	involved := map[int32]bool{}
+	current, _ := x.Client.CurrentReplicas(ctx, topicsOf(args.Assignments)...)
+	for _, a := range args.Assignments {
+		for _, r := range append(append([]int32{}, a.Replicas...), current[a.Key()]...) {
+			if alive[r] {
+				involved[r] = true
 			}
 		}
 	}
-	if err := x.Client.ClearThrottle(ctx, live, args.Topics); err != nil {
+	var live []int32
+	for b := range involved {
+		live = append(live, b)
+	}
+	sort.Slice(live, func(i, j int) bool { return live[i] < live[j] })
+	if err := x.Client.ClearThrottle(ctx, live, topicsOf(args.Assignments)); err != nil {
 		return nil, err
 	}
-	return map[string]any{"brokers": live, "topics": args.Topics}, nil
+	return map[string]any{"brokers": live, "topics": topicsOf(args.Assignments)}, nil
 }
 
 func stepReassign(ctx context.Context, x *Exec, raw json.RawMessage) (any, error) {
@@ -416,17 +425,33 @@ func stepUnregisterBroker(ctx context.Context, x *Exec, raw json.RawMessage) (an
 	if err != nil {
 		return nil, err
 	}
-	v, err := x.view(ctx)
-	if err != nil {
-		return nil, err
-	}
+	// A stopped broker stays registered and unfenced until its session times out (about 9 s).
+	deadline := time.Now().Add(90 * time.Second)
+	var v *cluster.View
 	registered := false
-	for _, b := range v.Snapshot.Brokers {
-		if b.ID == args.BrokerID {
-			registered = true
-			if b.Alive && !b.Fenced {
-				return nil, fmt.Errorf("broker %d is still serving; stop it first", args.BrokerID)
+	for {
+		if v, err = x.view(ctx); err != nil {
+			return nil, err
+		}
+		registered = false
+		serving := false
+		for _, b := range v.Snapshot.Brokers {
+			if b.ID == args.BrokerID {
+				registered = true
+				serving = b.Alive && !b.Fenced
 			}
+		}
+		if !serving {
+			break
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("broker %d is still serving; stop it first", args.BrokerID)
+		}
+		x.Progress(map[string]any{"waitingFor": fmt.Sprintf("broker %d to be fenced", args.BrokerID)})
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(3 * time.Second):
 		}
 	}
 	if !registered {

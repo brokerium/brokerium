@@ -1,5 +1,5 @@
-# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # syntax=docker/dockerfile:1.7
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 
 FROM --platform=$BUILDPLATFORM node:24.22.0-alpine AS web
 WORKDIR /src/web
