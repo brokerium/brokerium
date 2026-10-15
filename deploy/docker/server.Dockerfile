@@ -18,7 +18,7 @@ COPY . .
 COPY --from=web /src/web/dist/ internal/webui/dist/
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
     -ldflags "-s -w -X github.com/bvaliev/brokerium/internal/version.Version=${VERSION} -X github.com/bvaliev/brokerium/internal/version.Commit=${COMMIT} -X github.com/bvaliev/brokerium/internal/version.Date=${DATE}" \
-    -o /out/brokerium-server ./cmd/brokerium-server
+    -o /out/brokerium-server ./cmd/brokerium-server && mkdir -p /out/data
 
 FROM gcr.io/distroless/static-debian12:nonroot
 LABEL org.opencontainers.image.title="brokerium-server" \
@@ -27,6 +27,8 @@ LABEL org.opencontainers.image.title="brokerium-server" \
       org.opencontainers.image.licenses="LicenseRef-PolyForm-Shield-1.0.0"
 COPY --from=build /out/brokerium-server /usr/local/bin/brokerium-server
 COPY LICENSE NOTICE /licenses/
+# Owned by the runtime user, so a named volume mounted here starts out writable.
+COPY --from=build --chown=65532:65532 /out/data /var/lib/brokerium
 ENV BROKERIUM_DATA_DIR=/var/lib/brokerium
 WORKDIR /var/lib/brokerium
 EXPOSE 8080 8443
