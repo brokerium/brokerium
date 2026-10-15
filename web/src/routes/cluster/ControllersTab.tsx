@@ -11,7 +11,7 @@ import { RelativeTime } from '../../components/RelativeTime';
 import { StatCard } from '../../components/StatCard';
 import type { Availability } from '../../lib/capabilities';
 import { formatNumber } from '../../lib/format';
-import { canRemoveVoter, classifyObservers, faultTolerance, isDynamicQuorum, quorumHint } from '../../lib/quorum';
+import { canRemoveVoter, classifyObservers, faultTolerance, isDynamicQuorum, kraftVersionOf, quorumHint, quorumKindLabel } from '../../lib/quorum';
 import { useClusterContext } from './clusterContext';
 import { NoSnapshot, Section, TabNotAvailable } from './common';
 
@@ -28,7 +28,7 @@ function LagText({ lag }: { lag: number }) {
 }
 
 export default function ControllersTab() {
-  const { snapshot, caps, view } = useClusterContext();
+  const { snapshot, caps } = useClusterContext();
   const planner = usePlanner();
 
   if (!caps.describeQuorum) return <TabNotAvailable what="Describing the controller quorum" />;
@@ -44,8 +44,8 @@ export default function ControllersTab() {
 
   const voters = [...quorum.voters].sort((a, b) => a.nodeId - b.nodeId);
   const observers = classifyObservers(quorum.observers, snapshot.brokers);
-  const kraftVersion = view.health.kraftVersion;
-  const dynamic = isDynamicQuorum(kraftVersion);
+  const kraftVersion = kraftVersionOf(snapshot.features);
+  const dynamic = kraftVersion !== null && isDynamicQuorum(kraftVersion);
   const removable = canRemoveVoter(voters.length);
   const removeAvailability = (voter: QuorumReplica): Availability => {
     const base = planner.availability('remove-controller');
@@ -71,12 +71,12 @@ export default function ControllersTab() {
           value={voters.length}
           hint={`tolerates ${faultTolerance(voters.length)} failure${faultTolerance(voters.length) === 1 ? '' : 's'}`}
         />
-        <StatCard label="kraft.version" value={kraftVersion} hint={dynamic ? 'dynamic quorum' : 'static quorum'} />
+        <StatCard label="kraft.version" value={kraftVersion ?? '—'} hint={quorumKindLabel(kraftVersion)} />
       </SimpleGrid>
 
       <Alert color="blue" variant="light" icon={<IconInfoCircle size={18} />}>
-        {quorumHint(voters.length)} 3 voters tolerate 1 failure, 5 tolerate 2; even numbers add no fault tolerance.
-        Change the quorum one controller at a time and add the new controller before removing an old one.
+        {quorumHint(voters.length)} Change the quorum one controller at a time and add the new controller before
+        removing an old one.
       </Alert>
 
       <Section

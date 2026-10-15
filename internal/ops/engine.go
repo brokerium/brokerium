@@ -150,6 +150,17 @@ func (e *Engine) Types() []OpType {
 	return out
 }
 
+// clientFor returns the cluster and its Kafka client. Operations that run on clusters
+// without brokers yet (creating nodes) get a nil client when none can be built.
+func (e *Engine) clientFor(ctx context.Context, clusterID string, allowNoClient bool) (*kafka.Client, *store.Cluster, error) {
+	cl, c, err := e.Clusters.Client(ctx, clusterID)
+	if err == nil || !allowNoClient {
+		return cl, c, err
+	}
+	c, err = e.Store.GetCluster(ctx, clusterID)
+	return nil, c, err
+}
+
 // Plan computes a plan and stores it as a planned operation.
 func (e *Engine) Plan(ctx context.Context, clusterID, typ string, params json.RawMessage, user string) (*store.Operation, error) {
 	t, ok := e.types[typ]
@@ -166,7 +177,7 @@ func (e *Engine) Plan(ctx context.Context, clusterID, typ string, params json.Ra
 	if missing := missingCapabilities(view.Capabilities, t.Requires); len(missing) > 0 {
 		return nil, fmt.Errorf("%w: requires %v", ErrNotAllowed, missing)
 	}
-	cl, c, err := e.Clusters.Client(ctx, clusterID)
+	cl, c, err := e.clientFor(ctx, clusterID, t.AllowUnreachable)
 	if err != nil {
 		return nil, err
 	}
@@ -354,7 +365,7 @@ func (e *Engine) execute(parent context.Context, id string) {
 		return
 	}
 	log := e.Log.With("operation", op.ID, "type", op.Type)
-	cl, c, err := e.Clusters.Client(ctx, op.ClusterID)
+	cl, c, err := e.clientFor(ctx, op.ClusterID, e.types[op.Type].AllowUnreachable)
 	if err != nil {
 		_ = e.Store.SetOperationStatus(ctx, id, store.OpFailed, "cluster client: "+err.Error())
 		return

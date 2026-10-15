@@ -121,7 +121,7 @@ func (s *Store) CreateCluster(ctx context.Context, c *Cluster) error {
 	settings, _ := json.Marshal(nonNilAnyMap(c.Settings))
 	err := s.Pool.QueryRow(ctx, `INSERT INTO clusters (id, name, provider, flavor, bootstrap_servers, security, secrets,
 		labels, settings, kafka_cluster_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING created_at, updated_at`,
-		c.ID, c.Name, c.Provider, c.Flavor, c.BootstrapServers, security, c.SecretsSealed, labels, settings,
+		c.ID, c.Name, c.Provider, c.Flavor, nonNilStrings(c.BootstrapServers), security, c.SecretsSealed, labels, settings,
 		c.KafkaClusterID).Scan(&c.CreatedAt, &c.UpdatedAt)
 	return conflict(err)
 }
@@ -133,7 +133,7 @@ func (s *Store) UpdateCluster(ctx context.Context, c *Cluster) error {
 	settings, _ := json.Marshal(nonNilAnyMap(c.Settings))
 	tag, err := s.Pool.Exec(ctx, `UPDATE clusters SET name=$2, provider=$3, flavor=$4, bootstrap_servers=$5, security=$6,
 		secrets=$7, labels=$8, settings=$9, kafka_cluster_id=$10, updated_at=now() WHERE id=$1`,
-		c.ID, c.Name, c.Provider, c.Flavor, c.BootstrapServers, security, c.SecretsSealed, labels, settings, c.KafkaClusterID)
+		c.ID, c.Name, c.Provider, c.Flavor, nonNilStrings(c.BootstrapServers), security, c.SecretsSealed, labels, settings, c.KafkaClusterID)
 	if err != nil {
 		return conflict(err)
 	}
@@ -166,6 +166,13 @@ func nonNilMap(m map[string]string) map[string]string {
 		return map[string]string{}
 	}
 	return m
+}
+
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 func nonNilAnyMap(m map[string]any) map[string]any {

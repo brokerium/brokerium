@@ -33,24 +33,18 @@ Usage:
   brokerium-agent version
 
 Flags (or BROKERIUM_AGENT_* environment variables):`)
-		flags().PrintDefaults()
+		fs, _ := flags()
+		fs.SetOutput(os.Stdout)
+		fs.PrintDefaults()
 		return
 	}
 	switch os.Args[1] {
 	case "version":
 		fmt.Println(version.String())
 	case "run":
-		fs := flags()
-		cfg := agent.Config{}
-		fs.StringVar(&cfg.Server, "server", env("BROKERIUM_AGENT_SERVER", ""), "server gRPC address host:port")
-		fs.StringVar(&cfg.Token, "token", env("BROKERIUM_AGENT_TOKEN", ""), "join token (first run only)")
-		fs.StringVar(&cfg.DataDir, "data-dir", env("BROKERIUM_AGENT_DATA_DIR", "/var/lib/brokerium-agent"), "agent state directory")
-		fs.StringVar(&cfg.KafkaDir, "kafka-dir", env("BROKERIUM_AGENT_KAFKA_DIR", "/opt/brokerium/kafka"), "where Kafka releases are installed")
-		fs.StringVar(&cfg.KafkaDataDir, "kafka-data-dir", env("BROKERIUM_AGENT_KAFKA_DATA_DIR", "/var/lib/kafka/data"), "Kafka log.dirs")
-		fs.StringVar(&cfg.Preinstalled, "preinstalled", env("BROKERIUM_AGENT_PREINSTALLED", ""), "existing Kafka installation to adopt")
-		fs.StringVar(&cfg.Process, "process", env("BROKERIUM_AGENT_PROCESS", "child"), "process manager: child or systemd")
+		fs, cfg := flags()
 		_ = fs.Parse(os.Args[2:])
-		if err := run(cfg); err != nil {
+		if err := run(*cfg); err != nil {
 			fmt.Fprintln(os.Stderr, "brokerium-agent:", err)
 			os.Exit(1)
 		}
@@ -60,9 +54,17 @@ Flags (or BROKERIUM_AGENT_* environment variables):`)
 	}
 }
 
-func flags() *flag.FlagSet {
+func flags() (*flag.FlagSet, *agent.Config) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	return fs
+	cfg := &agent.Config{}
+	fs.StringVar(&cfg.Server, "server", env("BROKERIUM_AGENT_SERVER", ""), "server gRPC address host:port")
+	fs.StringVar(&cfg.Token, "token", env("BROKERIUM_AGENT_TOKEN", ""), "join token (first run only)")
+	fs.StringVar(&cfg.DataDir, "data-dir", env("BROKERIUM_AGENT_DATA_DIR", "/var/lib/brokerium-agent"), "agent state directory")
+	fs.StringVar(&cfg.KafkaDir, "kafka-dir", env("BROKERIUM_AGENT_KAFKA_DIR", "/opt/brokerium/kafka"), "where Kafka releases are installed")
+	fs.StringVar(&cfg.KafkaDataDir, "kafka-data-dir", env("BROKERIUM_AGENT_KAFKA_DATA_DIR", "/var/lib/kafka/data"), "Kafka log.dirs")
+	fs.StringVar(&cfg.Preinstalled, "preinstalled", env("BROKERIUM_AGENT_PREINSTALLED", ""), "existing Kafka installation to adopt")
+	fs.StringVar(&cfg.Process, "process", env("BROKERIUM_AGENT_PROCESS", "child"), "process manager: child or systemd")
+	return fs, cfg
 }
 
 func run(cfg agent.Config) error {

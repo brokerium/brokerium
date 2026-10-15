@@ -422,8 +422,20 @@ WantedBy=multi-user.target
 	return exec.Command("systemctl", "daemon-reload").Run()
 }
 
-// Stop shuts Kafka down gracefully (controlled shutdown), killing it after the timeout.
-func (k *Kafka) Stop(timeout time.Duration) error {
+// Stop shuts Kafka down gracefully (controlled shutdown), killing it after the timeout, and
+// records that it should stay stopped.
+func (k *Kafka) Stop(timeout time.Duration) error { return k.stop(timeout, false) }
+
+// Shutdown stops a child-process Kafka because the agent itself exits; it starts again with
+// the agent. Under systemd Kafka does not depend on the agent and keeps running.
+func (k *Kafka) Shutdown(timeout time.Duration) error {
+	if k.cfg.Process == "systemd" {
+		return nil
+	}
+	return k.stop(timeout, true)
+}
+
+func (k *Kafka) stop(timeout time.Duration, keepDesired bool) error {
 	k.mu.Lock()
 	if k.cfg.Process == "systemd" {
 		k.state.Running = false
@@ -432,8 +444,10 @@ func (k *Kafka) Stop(timeout time.Duration) error {
 		return exec.Command("systemctl", "stop", "brokerium-kafka.service").Run()
 	}
 	cmd, done := k.cmd, k.done
-	k.state.Running = false
-	k.saveState()
+	if !keepDesired {
+		k.state.Running = false
+		k.saveState()
+	}
 	k.mu.Unlock()
 	if cmd == nil || cmd.Process == nil {
 		return nil

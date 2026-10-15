@@ -430,6 +430,15 @@ export interface OperationParams {
   'rolling-restart': { nodeIds?: number[] };
   'rolling-upgrade': { version: string };
   'finalize-upgrade': Record<string, never>;
+  'bootstrap-cluster': {
+    controllers?: number;
+    brokers?: number;
+    version?: string;
+    racks?: string[];
+    quorum?: 'dynamic' | 'static';
+    portBase?: number;
+  };
+  'destroy-cluster': Record<string, never>;
 }
 
 // ---------------------------------------------------------------- data plane

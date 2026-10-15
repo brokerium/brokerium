@@ -199,9 +199,11 @@ services:
     <<: *node
     profiles: [beta]
     hostname: beta-b1
-    environment: { <<: *beta-env, ROLE: broker, NODE_ID: "101", NODE_HOST: beta-b1, EXTERNAL_PORT: "29101", KAFKA_HEAP_OPTS: -Xmx512m -Xms512m }
-    volumes: ["./kafka:/lab:ro", "beta-b1:/var/lib/kafka/data"]
-    ports: ["29101:29101"]
+    # Besides PLAINTEXT, beta exposes SASL/SCRAM on 29201 and mTLS on 29301 (make lab-certs first).
+    environment: { <<: *beta-env, ROLE: broker, NODE_ID: "101", NODE_HOST: beta-b1, EXTERNAL_PORT: "29101",
+                   SASL_PORT: "29201", SSL_PORT: "29301", KAFKA_HEAP_OPTS: -Xmx512m -Xms512m }
+    volumes: ["./kafka:/lab:ro", "./.certs:/certs:ro", "beta-b1:/var/lib/kafka/data"]
+    ports: ["29101:29101", "29201:29201", "29301:29301"]
     mem_limit: 1g
     healthcheck: *broker-health
 

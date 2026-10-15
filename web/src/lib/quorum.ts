@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 
-import type { Broker, QuorumReplica } from '../api/types';
+import type { Broker, Feature, QuorumReplica } from '../api/types';
 
 /** Number of voter failures a quorum of the given size survives. */
 export function faultTolerance(voters: number): number {
@@ -58,4 +58,14 @@ export function classifyObservers(observers: QuorumReplica[], brokers: Broker[])
 /** kraft.version 0 is a static quorum; 1 and later support dynamic membership (KIP-853). */
 export function isDynamicQuorum(kraftVersion: number): boolean {
   return kraftVersion >= 1;
+}
+
+/** The finalized kraft.version, or null when the snapshot carries no feature levels. */
+export function kraftVersionOf(features: readonly Feature[] | undefined): number | null {
+  return features?.find((f) => f.name === 'kraft.version')?.finalized ?? null;
+}
+
+export function quorumKindLabel(kraftVersion: number | null): string {
+  if (kraftVersion === null) return 'quorum type unknown';
+  return isDynamicQuorum(kraftVersion) ? 'dynamic quorum' : 'static quorum';
 }

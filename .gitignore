@@ -19,6 +19,7 @@ internal/webui/dist/*
 # Local state
 /.data/
 /deploy/lab/.state/
+/deploy/lab/.certs/
 *.local
 .env
 .env.*

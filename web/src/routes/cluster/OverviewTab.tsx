@@ -9,7 +9,7 @@ import { FeaturesTable } from '../../components/FeaturesTable';
 import { ReplicaList } from '../../components/ReplicaList';
 import { StatCard } from '../../components/StatCard';
 import { formatNumber, formatPercent } from '../../lib/format';
-import { faultTolerance, isDynamicQuorum } from '../../lib/quorum';
+import { faultTolerance, kraftVersionOf, quorumKindLabel } from '../../lib/quorum';
 import { bySeverity } from '../../lib/status';
 import { useClusterContext } from './clusterContext';
 import { Section } from './common';
@@ -106,8 +106,8 @@ export default function OverviewTab() {
               />
               <StatCard
                 label="kraft.version"
-                value={h.kraftVersion}
-                hint={isDynamicQuorum(h.kraftVersion) ? 'dynamic quorum' : 'static quorum'}
+                value={kraftVersionOf(snapshot?.features) ?? '—'}
+                hint={quorumKindLabel(kraftVersionOf(snapshot?.features))}
               />
             </SimpleGrid>
           ) : (

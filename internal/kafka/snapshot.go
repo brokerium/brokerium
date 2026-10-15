@@ -306,8 +306,19 @@ func (c *Client) Snapshot(ctx context.Context, opts SnapshotOptions) (*Snapshot,
 		return a.Topic < b.Topic || (a.Topic == b.Topic && a.Partition < b.Partition)
 	})
 	s.Groups = groups
-	if s.Groups == nil {
-		s.Groups = []Group{}
+	s.FillEmpty()
+	sort.Strings(s.Errors)
+	s.DurationMs = time.Since(start).Milliseconds()
+	return s, nil
+}
+
+// FillEmpty replaces nil lists with empty ones so the JSON never carries null arrays.
+func (s *Snapshot) FillEmpty() {
+	if s.Brokers == nil {
+		s.Brokers = []Broker{}
+	}
+	if s.Features == nil {
+		s.Features = []Feature{}
 	}
 	if s.Topics == nil {
 		s.Topics = []Topic{}
@@ -315,9 +326,9 @@ func (c *Client) Snapshot(ctx context.Context, opts SnapshotOptions) (*Snapshot,
 	if s.Reassignments == nil {
 		s.Reassignments = []Reassignment{}
 	}
-	sort.Strings(s.Errors)
-	s.DurationMs = time.Since(start).Milliseconds()
-	return s, nil
+	if s.Groups == nil {
+		s.Groups = []Group{}
+	}
 }
 
 func (c *Client) groupSummaries(ctx context.Context, maxGroups int) ([]Group, error) {
