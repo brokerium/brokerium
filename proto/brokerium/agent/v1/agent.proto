@@ -1,0 +1,138 @@
+// SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+
+syntax = "proto3";
+
+package brokerium.agent.v1;
+
+option go_package = "github.com/bvaliev/brokerium/proto/brokerium/agent/v1;agentv1";
+
+// AgentService is served by brokerium-server; agents connect out to it (ADR 0009).
+service AgentService {
+  // Enroll exchanges a single-use join token and a CSR for a client certificate.
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+  // Connect is the long-lived mTLS stream: the server sends commands, the agent answers
+  // with results and periodic status reports.
+  rpc Connect(stream AgentMessage) returns (stream ServerMessage);
+}
+
+message EnrollRequest {
+  string token = 1;
+  bytes csr_der = 2;
+  string hostname = 3;
+  string agent_version = 4;
+}
+
+message EnrollResponse {
+  string node_id = 1;
+  string node_name = 2;
+  bytes cert_der = 3;
+  bytes ca_cert_der = 4;
+}
+
+message AgentMessage {
+  oneof body {
+    Hello hello = 1;
+    CommandResult result = 2;
+    NodeStatus status = 3;
+  }
+}
+
+message Hello {
+  string agent_version = 1;
+  NodeStatus status = 2;
+}
+
+message ServerMessage {
+  oneof body {
+    Command command = 1;
+  }
+}
+
+// Command is one typed action. There is deliberately no generic shell command.
+message Command {
+  string id = 1;
+  oneof action {
+    InstallKafka install = 10;
+    WriteConfig write_config = 11;
+    FormatStorage format = 12;
+    StartKafka start = 13;
+    StopKafka stop = 14;
+    GetStatus status = 15;
+    WipeData wipe = 16;
+  }
+}
+
+// InstallKafka makes a Kafka version available on the node, verifying the SHA-512 checksum
+// published by the Apache Kafka project.
+message InstallKafka {
+  string version = 1;
+  string mirror_url = 2;
+}
+
+// WriteConfig replaces server.properties and JVM settings of the node.
+message WriteConfig {
+  map<string, string> properties = 1;
+  string heap_opts = 2;
+}
+
+enum FormatMode {
+  FORMAT_MODE_UNSPECIFIED = 0;
+  // --no-initial-controllers: brokers and controllers joining an existing cluster.
+  FORMAT_MODE_JOIN = 1;
+  // --initial-controllers: the initial voters of a new dynamic quorum.
+  FORMAT_MODE_INITIAL = 2;
+  // --standalone: a single initial voter.
+  FORMAT_MODE_STANDALONE = 3;
+}
+
+// FormatStorage runs kafka-storage.sh format with --ignore-formatted.
+message FormatStorage {
+  string cluster_id = 1;
+  FormatMode mode = 2;
+  string initial_controllers = 3;
+}
+
+// StartKafka starts the Kafka process with the given installed version (or the active one).
+message StartKafka {
+  string version = 1;
+}
+
+// StopKafka stops Kafka gracefully (controlled shutdown), killing it after the timeout.
+message StopKafka {
+  int32 timeout_seconds = 1;
+}
+
+message GetStatus {}
+
+// WipeData deletes the Kafka data directory. confirm must equal the node name.
+message WipeData {
+  string confirm = 1;
+}
+
+message CommandResult {
+  string command_id = 1;
+  bool ok = 2;
+  string error = 3;
+  NodeStatus status = 4;
+  string output = 5;
+}
+
+message MetaProperties {
+  string cluster_id = 1;
+  int32 node_id = 2;
+  string directory_id = 3;
+  bool formatted = 4;
+}
+
+message NodeStatus {
+  bool running = 1;
+  string active_version = 2;
+  repeated string installed_versions = 3;
+  MetaProperties meta = 4;
+  int64 data_bytes = 5;
+  int64 disk_free_bytes = 6;
+  string hostname = 7;
+  int64 pid = 8;
+  string last_exit = 9;
+  string process_roles = 10;
+}
