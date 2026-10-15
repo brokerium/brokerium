@@ -1,0 +1,283 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+#
+# Brokerium lab. Start profiles with deploy/lab/lab.sh (see deploy/lab/README.md).
+#   alpha          3 controllers (1-3) + 3 brokers (101-103), dynamic quorum
+#   alpha-scale    extra brokers 104, 105 (scenario 2)
+#   alpha-quorum   extra controllers 4, 5 (scenario 3)
+#   alpha-replace  replacement broker 106 (scenario 4)
+#   beta           1 controller + 1 broker, dynamic quorum (standalone bootstrap)
+#   gamma          3 controllers + 1 broker, static quorum on the stock entrypoint
+name: brokerium-lab
+
+x-kafka-image: &kafka-image ${KAFKA_IMAGE:-apache/kafka:4.3.1}
+
+x-node: &node
+  image: *kafka-image
+  command: ["bash", "/lab/start.sh"]
+  networks: [lab]
+
+x-controller-health: &controller-health
+  test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/$$(hostname)/9093"]
+  interval: 5s
+  timeout: 3s
+  retries: 30
+  start_period: 10s
+
+x-broker-health: &broker-health
+  test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9092"]
+  interval: 5s
+  timeout: 3s
+  retries: 30
+  start_period: 15s
+
+x-alpha-env: &alpha-env
+  CLUSTER_ID: 7K6Qjf0GRFOfM4h4aB_tsQ
+  QUORUM_BOOTSTRAP: alpha-c1:9093,alpha-c2:9093,alpha-c3:9093
+  INITIAL_CONTROLLERS: 1@alpha-c1:9093:tQZ2Eap5SyKCiBmkOuSVBQ,2@alpha-c2:9093:NO4NIwnXQ46uHuKwobUSPw,3@alpha-c3:9093:5fgXeFksS8C1SNc1k54cVQ
+
+x-alpha-controller-env: &alpha-controller-env
+  <<: *alpha-env
+  ROLE: controller
+  KAFKA_HEAP_OPTS: -Xmx384m -Xms384m
+
+x-alpha-broker-env: &alpha-broker-env
+  <<: *alpha-env
+  ROLE: broker
+  KAFKA_HEAP_OPTS: -Xmx512m -Xms512m
+
+x-beta-env: &beta-env
+  CLUSTER_ID: d48h6QPQRuOgUnuzbibvWA
+  QUORUM_BOOTSTRAP: beta-c1:9093
+  REPLICATION_FACTOR: "1"
+  MIN_ISR: "1"
+
+x-gamma-env: &gamma-env
+  CLUSTER_ID: taBhtRlaSgiQS1-PVRVAxA
+  KAFKA_CONTROLLER_QUORUM_VOTERS: 1@gamma-c1:9093,2@gamma-c2:9093,3@gamma-c3:9093
+  KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  KAFKA_LOG_DIRS: /var/lib/kafka/data
+
+x-gamma-controller-env: &gamma-controller-env
+  <<: *gamma-env
+  KAFKA_PROCESS_ROLES: controller
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT
+  KAFKA_HEAP_OPTS: -Xmx384m -Xms384m
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: brokerium
+      POSTGRES_PASSWORD: brokerium
+      POSTGRES_DB: brokerium
+    ports: ["55432:5432"]
+    volumes: ["postgres:/var/lib/postgresql"]
+    networks: [lab]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "brokerium"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  tools:
+    image: *kafka-image
+    profiles: [alpha, beta, gamma, tools]
+    entrypoint: ["sleep", "infinity"]
+    environment:
+      KAFKA_HEAP_OPTS: -Xmx256m
+    volumes: ["./kafka:/lab:ro"]
+    networks: [lab]
+
+  # Cluster alpha: controllers
+  alpha-c1:
+    <<: *node
+    profiles: [alpha]
+    hostname: alpha-c1
+    environment: { <<: *alpha-controller-env, NODE_ID: "1", NODE_HOST: alpha-c1, FORMAT_MODE: initial }
+    volumes: ["./kafka:/lab:ro", "alpha-c1:/var/lib/kafka/data"]
+    mem_limit: 768m
+    healthcheck: *controller-health
+  alpha-c2:
+    <<: *node
+    profiles: [alpha]
+    hostname: alpha-c2
+    environment: { <<: *alpha-controller-env, NODE_ID: "2", NODE_HOST: alpha-c2, FORMAT_MODE: initial }
+    volumes: ["./kafka:/lab:ro", "alpha-c2:/var/lib/kafka/data"]
+    mem_limit: 768m
+    healthcheck: *controller-health
+  alpha-c3:
+    <<: *node
+    profiles: [alpha]
+    hostname: alpha-c3
+    environment: { <<: *alpha-controller-env, NODE_ID: "3", NODE_HOST: alpha-c3, FORMAT_MODE: initial }
+    volumes: ["./kafka:/lab:ro", "alpha-c3:/var/lib/kafka/data"]
+    mem_limit: 768m
+    healthcheck: *controller-health
+  alpha-c4:
+    <<: *node
+    profiles: [alpha-quorum]
+    hostname: alpha-c4
+    environment: { <<: *alpha-controller-env, NODE_ID: "4", NODE_HOST: alpha-c4, FORMAT_MODE: join }
+    volumes: ["./kafka:/lab:ro", "alpha-c4:/var/lib/kafka/data"]
+    mem_limit: 768m
+    healthcheck: *controller-health
+  alpha-c5:
+    <<: *node
+    profiles: [alpha-quorum]
+    hostname: alpha-c5
+    environment: { <<: *alpha-controller-env, NODE_ID: "5", NODE_HOST: alpha-c5, FORMAT_MODE: join }
+    volumes: ["./kafka:/lab:ro", "alpha-c5:/var/lib/kafka/data"]
+    mem_limit: 768m
+    healthcheck: *controller-health
+
+  # Cluster alpha: brokers
+  alpha-b1:
+    <<: *node
+    profiles: [alpha]
+    hostname: alpha-b1
+    environment: { <<: *alpha-broker-env, NODE_ID: "101", NODE_HOST: alpha-b1, EXTERNAL_PORT: "19101", RACK: rack-a }
+    volumes: ["./kafka:/lab:ro", "alpha-b1:/var/lib/kafka/data"]
+    ports: ["19101:19101"]
+    mem_limit: 1g
+    healthcheck: *broker-health
+  alpha-b2:
+    <<: *node
+    profiles: [alpha]
+    hostname: alpha-b2
+    environment: { <<: *alpha-broker-env, NODE_ID: "102", NODE_HOST: alpha-b2, EXTERNAL_PORT: "19102", RACK: rack-b }
+    volumes: ["./kafka:/lab:ro", "alpha-b2:/var/lib/kafka/data"]
+    ports: ["19102:19102"]
+    mem_limit: 1g
+    healthcheck: *broker-health
+  alpha-b3:
+    <<: *node
+    profiles: [alpha]
+    hostname: alpha-b3
+    environment: { <<: *alpha-broker-env, NODE_ID: "103", NODE_HOST: alpha-b3, EXTERNAL_PORT: "19103", RACK: rack-c }
+    volumes: ["./kafka:/lab:ro", "alpha-b3:/var/lib/kafka/data"]
+    ports: ["19103:19103"]
+    mem_limit: 1g
+    healthcheck: *broker-health
+  alpha-b4:
+    <<: *node
+    profiles: [alpha-scale]
+    hostname: alpha-b4
+    environment: { <<: *alpha-broker-env, NODE_ID: "104", NODE_HOST: alpha-b4, EXTERNAL_PORT: "19104", RACK: rack-a }
+    volumes: ["./kafka:/lab:ro", "alpha-b4:/var/lib/kafka/data"]
+    ports: ["19104:19104"]
+    mem_limit: 1g
+    healthcheck: *broker-health
+  alpha-b5:
+    <<: *node
+    profiles: [alpha-scale]
+    hostname: alpha-b5
+    environment: { <<: *alpha-broker-env, NODE_ID: "105", NODE_HOST: alpha-b5, EXTERNAL_PORT: "19105", RACK: rack-b }
+    volumes: ["./kafka:/lab:ro", "alpha-b5:/var/lib/kafka/data"]
+    ports: ["19105:19105"]
+    mem_limit: 1g
+    healthcheck: *broker-health
+  alpha-b6:
+    <<: *node
+    profiles: [alpha-replace]
+    hostname: alpha-b6
+    environment: { <<: *alpha-broker-env, NODE_ID: "106", NODE_HOST: alpha-b6, EXTERNAL_PORT: "19106", RACK: rack-c }
+    volumes: ["./kafka:/lab:ro", "alpha-b6:/var/lib/kafka/data"]
+    ports: ["19106:19106"]
+    mem_limit: 1g
+    healthcheck: *broker-health
+
+  # Cluster beta: one controller bootstrapped with --standalone and one broker
+  beta-c1:
+    <<: *node
+    profiles: [beta]
+    hostname: beta-c1
+    environment: { <<: *beta-env, ROLE: controller, NODE_ID: "1", NODE_HOST: beta-c1, FORMAT_MODE: standalone, KAFKA_HEAP_OPTS: -Xmx384m -Xms384m }
+    volumes: ["./kafka:/lab:ro", "beta-c1:/var/lib/kafka/data"]
+    mem_limit: 768m
+    healthcheck: *controller-health
+  beta-b1:
+    <<: *node
+    profiles: [beta]
+    hostname: beta-b1
+    environment: { <<: *beta-env, ROLE: broker, NODE_ID: "101", NODE_HOST: beta-b1, EXTERNAL_PORT: "29101", KAFKA_HEAP_OPTS: -Xmx512m -Xms512m }
+    volumes: ["./kafka:/lab:ro", "beta-b1:/var/lib/kafka/data"]
+    ports: ["29101:29101"]
+    mem_limit: 1g
+    healthcheck: *broker-health
+
+  # Cluster gamma: static quorum, stock entrypoint configured through KAFKA_* variables
+  gamma-c1:
+    image: *kafka-image
+    profiles: [gamma]
+    hostname: gamma-c1
+    networks: [lab]
+    environment: { <<: *gamma-controller-env, KAFKA_NODE_ID: "1", KAFKA_LISTENERS: CONTROLLER://gamma-c1:9093 }
+    volumes: ["gamma-c1:/var/lib/kafka/data"]
+    mem_limit: 768m
+    healthcheck: *controller-health
+  gamma-c2:
+    image: *kafka-image
+    profiles: [gamma]
+    hostname: gamma-c2
+    networks: [lab]
+    environment: { <<: *gamma-controller-env, KAFKA_NODE_ID: "2", KAFKA_LISTENERS: CONTROLLER://gamma-c2:9093 }
+    volumes: ["gamma-c2:/var/lib/kafka/data"]
+    mem_limit: 768m
+    healthcheck: *controller-health
+  gamma-c3:
+    image: *kafka-image
+    profiles: [gamma]
+    hostname: gamma-c3
+    networks: [lab]
+    environment: { <<: *gamma-controller-env, KAFKA_NODE_ID: "3", KAFKA_LISTENERS: CONTROLLER://gamma-c3:9093 }
+    volumes: ["gamma-c3:/var/lib/kafka/data"]
+    mem_limit: 768m
+    healthcheck: *controller-health
+  gamma-b1:
+    image: *kafka-image
+    profiles: [gamma]
+    hostname: gamma-b1
+    networks: [lab]
+    environment:
+      <<: *gamma-env
+      KAFKA_NODE_ID: "101"
+      KAFKA_PROCESS_ROLES: broker
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:39101
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://gamma-b1:9092,EXTERNAL://localhost:39101
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_HEAP_OPTS: -Xmx512m -Xms512m
+    ports: ["39101:39101"]
+    volumes: ["gamma-b1:/var/lib/kafka/data"]
+    mem_limit: 1g
+    healthcheck: *broker-health
+
+networks:
+  lab:
+    name: brokerium-lab
+
+volumes:
+  postgres:
+  alpha-c1:
+  alpha-c2:
+  alpha-c3:
+  alpha-c4:
+  alpha-c5:
+  alpha-b1:
+  alpha-b2:
+  alpha-b3:
+  alpha-b4:
+  alpha-b5:
+  alpha-b6:
+  beta-c1:
+  beta-b1:
+  gamma-c1:
+  gamma-c2:
+  gamma-c3:
+  gamma-b1:
