@@ -1,0 +1,71 @@
+name: e2e
+
+# Lab scenarios against a real server, PostgreSQL, the lab cluster beta and Docker clusters
+# created by the Docker provider. Runs on main and on demand; takes about 20 minutes.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      BROKERIUM_ADMIN_PASSWORD: brokerium-admin
+      BROKERIUM_SNAPSHOT_INTERVAL: 10s
+      BROKERIUM_E2E_HEAVY: "1"
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: jdx/mise-action@v5.1.2
+        with:
+          install: true
+          install_args: go node pnpm
+      - name: Lab (PostgreSQL and beta)
+        run: |
+          make lab-certs
+          docker compose -f deploy/lab/compose.yaml --profile beta up -d --wait postgres beta-c1 beta-b1
+      - name: Agent image for Docker clusters
+        run: docker build -f deploy/docker/agent-lab.Dockerfile --build-arg VERSION=ci -t bvaliev/brokerium-agent:lab .
+      - name: Build
+        run: make build
+      - name: Start the server
+        run: |
+          nohup ./bin/brokerium-server > server.log 2>&1 &
+          for i in $(seq 1 60); do curl -fs localhost:8080/readyz && break; sleep 1; done
+      - name: Register beta and a small Docker cluster
+        run: |
+          api() { curl -fsS -b jar -c jar -H 'Content-Type: application/json' -H 'X-Brokerium-Request: 1' "$@"; }
+          api -d '{"username":"admin","password":"brokerium-admin"}' localhost:8080/api/v1/auth/login > /dev/null
+          api -d '{"name":"beta","bootstrapServers":["localhost:29101"]}' localhost:8080/api/v1/clusters > /dev/null
+          id=$(api -d '{"name":"ci-small","provider":"docker","skipTest":true,"bootstrapServers":[]}' localhost:8080/api/v1/clusters | jq -r .cluster.id)
+          op=$(api -d '{"type":"bootstrap-cluster","params":{"controllers":1,"brokers":1,"racks":["r1"]}}' "localhost:8080/api/v1/clusters/$id/operations" | jq -r .id)
+          api -d '{}' "localhost:8080/api/v1/operations/$op/confirm" > /dev/null
+          for i in $(seq 1 120); do
+            status=$(api "localhost:8080/api/v1/operations/$op" | jq -r .status)
+            [ "$status" = succeeded ] && break
+            [ "$status" = failed ] && { api "localhost:8080/api/v1/operations/$op" | jq .; exit 1; }
+            sleep 2
+          done
+      - name: Scenarios
+        run: go test -tags e2e -count=1 -timeout 60m -v ./test/e2e
+      - name: Diagnostics
+        if: failure()
+        run: |
+          tail -n 200 server.log
+          docker ps -a
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-logs
+          path: server.log

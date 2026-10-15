@@ -58,7 +58,7 @@ licenses: ## Check dependency licenses against the allowlist
 	cd web && $(MISE) node scripts/check-licenses.mjs
 
 e2e: ## End-to-end scenarios against a running lab and server
-	$(MISE) go test -tags e2e -count=1 -timeout 30m ./test/e2e/...
+	$(MISE) go test -tags e2e -count=1 -timeout 60m ./test/e2e/...
 
 images: ## Build container images locally
 	docker build -f deploy/docker/server.Dockerfile --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO)/brokerium-server:$(VERSION) .

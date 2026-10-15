@@ -28,14 +28,21 @@ jobs:
           go vet ./...
           go test -count=1 ./...
       - name: golangci-lint
-        run: golangci-lint run ./...
+        run: golangci-lint run --build-tags e2e ./...
       - name: buf lint
         run: buf lint
+      - name: Vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - name: Dependency licenses
         run: |
           go run github.com/google/go-licenses@v1.6.0 check ./... \
             --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0 \
             --ignore github.com/bvaliev/brokerium
+      - name: Helm chart (helm is preinstalled on GitHub runners)
+        run: |
+          helm lint deploy/helm/brokerium
+          helm template ci deploy/helm/brokerium > /dev/null
+          helm template ci deploy/helm/brokerium --set postgresql.enabled=false --set database.url=postgres://u:p@db/b > /dev/null
 
   web:
     name: web
