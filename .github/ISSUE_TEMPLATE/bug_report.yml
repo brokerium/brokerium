@@ -1,0 +1,54 @@
+name: Bug report
+description: Something does not work as expected
+labels: ["type/bug", "status/triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Do not include passwords, keys or customer data.
+        Security problems go through SECURITY.md, not issues.
+  - type: input
+    id: version
+    attributes:
+      label: Brokerium version
+      placeholder: "v0.1.0 or commit SHA"
+    validations:
+      required: true
+  - type: input
+    id: kafka
+    attributes:
+      label: Apache Kafka version
+      placeholder: "4.3.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Cluster type
+      options:
+        - Virtual machines or bare metal with brokerium-agent
+        - Kafka without agent (Kafka API only)
+        - Kubernetes (Strimzi)
+        - Amazon MSK
+        - Confluent Cloud
+        - Aiven
+        - Local lab (Docker)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      render: text

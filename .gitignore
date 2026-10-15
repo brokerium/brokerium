@@ -1,0 +1,30 @@
+# Build output
+/bin/
+/dist/
+*.test
+*.out
+coverage.*
+
+# Dashboard
+web/node_modules/
+web/dist/
+web/coverage/
+web/playwright-report/
+web/test-results/
+internal/webui/dist/*
+!internal/webui/dist/.gitkeep
+!internal/webui/dist/index.html
+
+# Local state
+/.data/
+/deploy/lab/.state/
+*.local
+.env
+.env.*
+!.env.example
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
