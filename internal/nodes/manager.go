@@ -371,6 +371,7 @@ func (m *Manager) planReplace(ctx context.Context, p *ops.Planner, raw json.RawM
 		steps = append(steps,
 			ops.StepSpec{Name: fmt.Sprintf("Wait for broker %d", old), Kind: KindWaitBroker, Args: NodeArgs{NodeID: old}},
 			ops.StepSpec{Name: "Wait until all replicas are in sync", Kind: KindWaitInSync, Args: NodeArgs{}},
+			ops.StepSpec{Name: "Update bootstrap servers", Kind: KindSyncBootstrap, Args: NodeArgs{}},
 		)
 		return &ops.Planned{Doc: ops.PlanDoc{Summary: fmt.Sprintf(
 			"Replace broker %d in place: new node with the same id and an empty disk; followers re-replicate from the leaders", old)},
