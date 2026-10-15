@@ -1,0 +1,45 @@
+{{/* SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0 */}}
+{{- $name := include "brokerium.fullname" . }}
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "brokerium.serviceAccountName" . }}
+  labels: {{- include "brokerium.labels" . | nindent 4 }}
+  {{- with .Values.serviceAccount.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- if .Values.rbac.strimzi }}
+---
+# Strimzi resources Brokerium reads and changes: node pool replicas, Kafka version and
+# metadataVersion, and the manual rolling update annotation of pod sets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}-strimzi
+  labels: {{- include "brokerium.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [kafka.strimzi.io]
+    resources: [kafkas, kafkanodepools]
+    verbs: [get, list, watch, patch]
+  - apiGroups: [core.strimzi.io]
+    resources: [strimzipodsets]
+    verbs: [get, list, patch]
+  - nonResourceURLs: [/apis, /apis/*]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}-strimzi
+  labels: {{- include "brokerium.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}-strimzi
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "brokerium.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

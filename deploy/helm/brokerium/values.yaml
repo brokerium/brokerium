@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+
+image:
+  repository: bvaliev/brokerium-server
+  # Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# One server runs the operations engine; several replicas are not supported yet.
+replicaCount: 1
+
+admin:
+  username: admin
+  # Password of the first administrator, used only when the database has no users yet.
+  # Leave empty to generate one (kubectl get secret <release>-brokerium -o jsonpath='{.data.admin-password}').
+  password: ""
+
+# 32 random bytes, base64-encoded, sealing stored credentials. Generated on install and kept
+# on upgrades. Losing it makes stored cluster credentials unreadable.
+secretKey: ""
+# Use an existing Secret with the keys secret-key, admin-password and database-url instead.
+existingSecret: ""
+
+database:
+  # postgres://user:password@host:5432/brokerium?sslmode=require; ignored when postgresql.enabled.
+  url: ""
+
+# A single PostgreSQL instance for evaluations. Use a managed database in production.
+postgresql:
+  enabled: true
+  image: postgres:18-alpine
+  storage: 5Gi
+  storageClass: ""
+
+# Public URL of the dashboard, used in links and in agent install commands.
+publicURL: "http://localhost:8080"
+
+agents:
+  # host:port agents dial for the gRPC gateway. Agents outside the cluster need an external
+  # address (service type LoadBalancer or a TCP ingress) listed here.
+  endpoint: ""
+  # Extra names in the gateway certificate, for example the external host name.
+  serverNames: []
+
+service:
+  type: ClusterIP
+  http: 8080
+  grpc: 8443
+  grpcType: ClusterIP
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: brokerium.example.com
+  tls: []
+
+# Lets Brokerium manage Strimzi clusters in this Kubernetes cluster with its service account
+# (cluster setting "in-cluster access").
+rbac:
+  strimzi: true
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { memory: 1Gi }
+
+secureCookies: false
+snapshotInterval: 15s
+# Debug logging of every API request.
+debug: false
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}

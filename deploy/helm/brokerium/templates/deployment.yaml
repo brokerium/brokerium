@@ -1,0 +1,86 @@
+{{/* SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0 */}}
+{{- $name := include "brokerium.fullname" . }}
+{{- $secret := include "brokerium.secretName" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: {{- include "brokerium.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # The operations engine must not run twice: replace the pod instead of overlapping.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {{- include "brokerium.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "brokerium.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}{{ toYaml . | nindent 8 }}{{ end }}
+    spec:
+      serviceAccountName: {{ include "brokerium.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: server
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: grpc, containerPort: 8443 }
+          env:
+            - name: BROKERIUM_DATABASE_URL
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: database-url } }
+            - name: BROKERIUM_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: secret-key } }
+            - name: BROKERIUM_ADMIN_USERNAME
+              value: {{ .Values.admin.username | quote }}
+            - name: BROKERIUM_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: admin-password } }
+            - name: BROKERIUM_PUBLIC_URL
+              value: {{ .Values.publicURL | quote }}
+            - name: BROKERIUM_AGENT_ENDPOINT
+              value: {{ include "brokerium.agentEndpoint" . | quote }}
+            - name: BROKERIUM_AGENT_SERVER_NAMES
+              value: {{ concat (list $name (printf "%s.%s.svc" $name .Release.Namespace) (include "brokerium.agentEndpoint" . | splitList ":" | first)) .Values.agents.serverNames | uniq | join "," | quote }}
+            - name: BROKERIUM_SECURE_COOKIES
+              value: {{ .Values.secureCookies | quote }}
+            - name: BROKERIUM_SNAPSHOT_INTERVAL
+              value: {{ .Values.snapshotInterval | quote }}
+            - name: BROKERIUM_DEBUG
+              value: {{ ternary "1" "0" .Values.debug | quote }}
+            - name: BROKERIUM_DATA_DIR
+              value: /var/lib/brokerium
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/brokerium }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: data, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}

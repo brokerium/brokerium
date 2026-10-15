@@ -30,5 +30,5 @@ COPY LICENSE NOTICE /licenses/
 ENV BROKERIUM_DATA_DIR=/var/lib/brokerium
 WORKDIR /var/lib/brokerium
 EXPOSE 8080 8443
-USER nonroot:nonroot
+USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/brokerium-server"]
