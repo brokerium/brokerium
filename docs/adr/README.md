@@ -12,6 +12,7 @@
 | [0008](0008-operations-engine.md) | Durable operations engine with safety gates |
 | [0009](0009-agent-protocol.md) | Agent protocol over gRPC with mTLS |
 | [0010](0010-metrics.md) | Agentless metrics first |
+| [0011](0011-editions.md) | Boundary between the free product and a future paid edition |
 
 New ADRs use the next free number and the same structure: status, date, context, decision,
 consequences. Superseded ADRs stay in place with their status changed.

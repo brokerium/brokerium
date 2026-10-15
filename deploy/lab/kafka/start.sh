@@ -109,6 +109,14 @@ EOF
     ;;
 esac
 
+# ACLs are enforced once defined; without any ACL access stays open (lab only). KRaft needs the
+# authorizer on controllers and brokers alike.
+cat >> "$CONF" <<EOF
+authorizer.class.name=org.apache.kafka.metadata.authorizer.StandardAuthorizer
+allow.everyone.if.no.acl.found=true
+super.users=User:ANONYMOUS
+EOF
+
 FORMAT_ARGS=(--no-initial-controllers)
 if [[ "$ROLE" == controller ]]; then
   case "${FORMAT_MODE:-join}" in

@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
 
@@ -83,8 +84,27 @@ func hasCapability(c cluster.Capabilities, name string) bool {
 	return false
 }
 
+// kafkaErr maps Kafka errors to HTTP: request problems the user can fix are 4xx, the rest 502.
 func kafkaErr(w http.ResponseWriter, err error) {
-	WriteError(w, http.StatusBadGateway, "kafka_error", err.Error())
+	switch {
+	case errors.Is(err, kerr.SecurityDisabled):
+		WriteError(w, http.StatusConflict, "security_disabled",
+			"the cluster has no authorizer (authorizer.class.name), so ACLs cannot be managed")
+	case errors.Is(err, kerr.TopicAuthorizationFailed), errors.Is(err, kerr.GroupAuthorizationFailed),
+		errors.Is(err, kerr.ClusterAuthorizationFailed), errors.Is(err, kerr.TransactionalIDAuthorizationFailed):
+		WriteError(w, http.StatusForbidden, "kafka_not_authorized", "the Brokerium principal is not allowed to do this: "+err.Error())
+	case errors.Is(err, kerr.InvalidConfig), errors.Is(err, kerr.InvalidPartitions), errors.Is(err, kerr.InvalidReplicationFactor),
+		errors.Is(err, kerr.InvalidTopicException), errors.Is(err, kerr.InvalidRequest), errors.Is(err, kerr.PolicyViolation):
+		WriteError(w, http.StatusBadRequest, "kafka_invalid", err.Error())
+	case errors.Is(err, kerr.TopicAlreadyExists):
+		WriteError(w, http.StatusConflict, "already_exists", err.Error())
+	case errors.Is(err, kerr.UnknownTopicOrPartition), errors.Is(err, kerr.GroupIDNotFound), errors.Is(err, kerr.ResourceNotFound):
+		WriteError(w, http.StatusNotFound, "not_found", err.Error())
+	case errors.Is(err, kerr.NonEmptyGroup):
+		WriteError(w, http.StatusConflict, "group_active", err.Error())
+	default:
+		WriteError(w, http.StatusBadGateway, "kafka_error", err.Error())
+	}
 }
 
 func timeout(r *http.Request) (context.Context, context.CancelFunc) {
@@ -874,13 +894,14 @@ func (s *Server) handleResetOffsets(w http.ResponseWriter, r *http.Request) {
 	group := r.PathValue("group")
 	ctx, cancel := timeout(r)
 	defer cancel()
+	share := cl.ShareGroupNames(ctx)[group]
 	if !req.DryRun {
-		groups, err := cl.Adm.DescribeGroups(ctx, group)
+		members, err := groupMembers(ctx, cl, group, share)
 		if err != nil {
 			kafkaErr(w, err)
 			return
 		}
-		if g, ok := groups[group]; ok && len(g.Members) > 0 {
+		if members > 0 {
 			WriteError(w, http.StatusConflict, "group_active", "the group has active members; stop the consumers before resetting offsets")
 			return
 		}
@@ -908,7 +929,7 @@ func (s *Server) handleResetOffsets(w http.ResponseWriter, r *http.Request) {
 	for _, p := range req.Partitions {
 		only[p] = true
 	}
-	committed, _ := cl.Adm.FetchOffsets(ctx, group)
+	committed := currentOffsets(ctx, cl, group, share)
 	type change struct {
 		Topic     string `json:"topic"`
 		Partition int32  `json:"partition"`
@@ -926,17 +947,25 @@ func (s *Server) handleResetOffsets(w http.ResponseWriter, r *http.Request) {
 			target = min(req.Offset, o.Offset)
 		}
 		from := int64(-1)
-		if c, ok := committed.Lookup(req.Topic, o.Partition); ok {
-			from = c.At
+		if at, ok := committed[fmt.Sprintf("%s-%d", req.Topic, o.Partition)]; ok {
+			from = at
 		}
 		changes = append(changes, change{Topic: req.Topic, Partition: o.Partition, From: from, To: target})
 		commit.AddOffset(req.Topic, o.Partition, target, -1)
 	})
 	sort.Slice(changes, func(i, j int) bool { return changes[i].Partition < changes[j].Partition })
 	if !req.DryRun {
-		resp, err := cl.Adm.CommitOffsets(ctx, group, commit)
-		if err == nil {
-			err = resp.Error()
+		var err error
+		if share {
+			var resp kadm.AlterShareGroupOffsetsResponses
+			if resp, err = cl.Adm.AlterShareGroupOffsets(ctx, group, commit); err == nil {
+				err = resp.Error()
+			}
+		} else {
+			var resp kadm.OffsetResponses
+			if resp, err = cl.Adm.CommitOffsets(ctx, group, commit); err == nil {
+				err = resp.Error()
+			}
 		}
 		s.Audit(r, "group.reset-offsets", r.PathValue("id"), group, req, err)
 		if err != nil {
@@ -945,6 +974,41 @@ func (s *Server) handleResetOffsets(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{"offsets": changes, "dryRun": req.DryRun})
+}
+
+func groupMembers(ctx context.Context, cl *kafka.Client, group string, share bool) (int, error) {
+	if share {
+		described, err := cl.Adm.DescribeShareGroups(ctx, group)
+		if err != nil && len(described) == 0 {
+			return 0, err
+		}
+		return len(described[group].Members), nil
+	}
+	described, err := cl.Adm.DescribeGroups(ctx, group)
+	if err != nil {
+		return 0, err
+	}
+	return len(described[group].Members), nil
+}
+
+// currentOffsets returns committed offsets (consumer groups) or share-partition start offsets
+// (share groups) keyed by "topic-partition".
+func currentOffsets(ctx context.Context, cl *kafka.Client, group string, share bool) map[string]int64 {
+	out := map[string]int64{}
+	if share {
+		described, _ := cl.Adm.DescribeShareGroupOffsets(ctx, group)
+		for t, parts := range described[group].Offsets {
+			for p, o := range parts {
+				out[fmt.Sprintf("%s-%d", t, p)] = o.StartOffset
+			}
+		}
+		return out
+	}
+	fetched, _ := cl.Adm.FetchOffsets(ctx, group)
+	fetched.Each(func(o kadm.OffsetResponse) {
+		out[fmt.Sprintf("%s-%d", o.Topic, o.Partition)] = o.At
+	})
+	return out
 }
 
 func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {

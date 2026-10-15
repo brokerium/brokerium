@@ -419,6 +419,10 @@ func (s *Server) handleGroupDetail(w http.ResponseWriter, r *http.Request) {
 	group := r.PathValue("group")
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
+	if cl.ShareGroupNames(ctx)[group] {
+		s.shareGroupDetail(ctx, w, cl, group)
+		return
+	}
 	lags, err := cl.Adm.Lag(ctx, group)
 	if err != nil {
 		WriteError(w, http.StatusBadGateway, "kafka_error", err.Error())
@@ -450,6 +454,61 @@ func (s *Server) handleGroupDetail(w http.ResponseWriter, r *http.Request) {
 	if err := l.Error(); err != nil {
 		errMsg = err.Error()
 	}
-	WriteJSON(w, http.StatusOK, map[string]any{"group": group, "state": l.State, "protocolType": l.ProtocolType,
-		"members": len(l.Members), "totalLag": total, "partitions": rows, "error": errMsg})
+	WriteJSON(w, http.StatusOK, map[string]any{"group": group, "type": kafka.GroupTypeConsumer, "state": l.State,
+		"protocolType": l.ProtocolType, "members": len(l.Members), "totalLag": total, "partitions": rows, "error": errMsg})
+}
+
+// shareGroupDetail reports share-partitions of a share group: "committed" is the share-partition
+// start offset, the first record not yet acknowledged by the group.
+func (s *Server) shareGroupDetail(ctx context.Context, w http.ResponseWriter, cl *kafka.Client, group string) {
+	described, err := cl.Adm.DescribeShareGroups(ctx, group)
+	if err != nil && len(described) == 0 {
+		WriteError(w, http.StatusBadGateway, "kafka_error", err.Error())
+		return
+	}
+	d := described[group]
+	offsets, err := cl.Adm.DescribeShareGroupOffsets(ctx, group)
+	if err != nil && len(offsets) == 0 {
+		WriteError(w, http.StatusBadGateway, "kafka_error", err.Error())
+		return
+	}
+	var topics []string
+	for t := range offsets[group].Offsets {
+		topics = append(topics, t)
+	}
+	ends, _ := cl.Adm.ListEndOffsets(ctx, topics...)
+	owner := map[string]kadm.ShareGroupMember{}
+	for _, m := range d.Members {
+		for t, parts := range m.Assignment {
+			for p := range parts {
+				owner[fmt.Sprintf("%s-%d", t, p)] = m
+			}
+		}
+	}
+	rows := []GroupPartitionLag{}
+	var total int64
+	for t, parts := range offsets[group].Offsets {
+		for p, o := range parts {
+			row := GroupPartitionLag{Topic: t, Partition: p, Committed: o.StartOffset, End: -1, Lag: o.Lag}
+			if e, ok := ends.Lookup(t, p); ok {
+				row.End = e.Offset
+			}
+			if m, ok := owner[fmt.Sprintf("%s-%d", t, p)]; ok {
+				row.Member, row.ClientID, row.Host = m.MemberID, m.ClientID, m.ClientHost
+			}
+			if o.Lag > 0 {
+				total += o.Lag
+			}
+			rows = append(rows, row)
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].Topic < rows[j].Topic || (rows[i].Topic == rows[j].Topic && rows[i].Partition < rows[j].Partition)
+	})
+	errMsg := ""
+	if d.Err != nil {
+		errMsg = d.Err.Error()
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"group": group, "type": kafka.GroupTypeShare, "state": d.GroupState,
+		"protocolType": kafka.GroupTypeShare, "members": len(d.Members), "totalLag": total, "partitions": rows, "error": errMsg})
 }

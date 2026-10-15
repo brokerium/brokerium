@@ -91,9 +91,16 @@ type Reassignment struct {
 	Removing  []int32 `json:"removing"`
 }
 
-// Group is a consumer group summary.
+// Group types.
+const (
+	GroupTypeConsumer = "consumer"
+	GroupTypeShare    = "share"
+)
+
+// Group is a consumer or share group summary.
 type Group struct {
 	ID           string   `json:"id"`
+	Type         string   `json:"type"`
 	State        string   `json:"state"`
 	ProtocolType string   `json:"protocolType"`
 	Members      int      `json:"members"`
@@ -331,10 +338,29 @@ func (s *Snapshot) FillEmpty() {
 	}
 }
 
+// ShareGroupNames lists the share groups (KIP-932); clusters without share groups return none.
+func (c *Client) ShareGroupNames(ctx context.Context) map[string]bool {
+	out := map[string]bool{}
+	listed, err := c.Adm.ListGroupsByType(ctx, []string{GroupTypeShare})
+	if err != nil {
+		return out
+	}
+	for name := range listed {
+		out[name] = true
+	}
+	return out
+}
+
 func (c *Client) groupSummaries(ctx context.Context, maxGroups int) ([]Group, error) {
 	listed, err := c.Adm.ListGroups(ctx)
 	if err != nil {
 		return nil, err
+	}
+	share := c.ShareGroupNames(ctx)
+	for name := range share {
+		if _, ok := listed[name]; !ok {
+			listed[name] = kadm.ListedGroup{Group: name, ProtocolType: GroupTypeShare}
+		}
 	}
 	names := listed.Groups()
 	sort.Strings(names)
@@ -345,12 +371,27 @@ func (c *Client) groupSummaries(ctx context.Context, maxGroups int) ([]Group, er
 	if len(names) == 0 {
 		return out, nil
 	}
-	lags, err := c.Adm.Lag(ctx, names...)
-	if err != nil {
-		return nil, err
-	}
+	var consumers, shares []string
 	for _, name := range names {
-		g := Group{ID: name, ProtocolType: listed[name].ProtocolType, State: listed[name].State}
+		if share[name] {
+			shares = append(shares, name)
+		} else {
+			consumers = append(consumers, name)
+		}
+	}
+	lags := kadm.DescribedGroupLags{}
+	if len(consumers) > 0 {
+		if lags, err = c.Adm.Lag(ctx, consumers...); err != nil {
+			return nil, err
+		}
+	}
+	shareGroups := c.shareSummaries(ctx, shares)
+	for _, name := range names {
+		if g, ok := shareGroups[name]; ok {
+			out = append(out, g)
+			continue
+		}
+		g := Group{ID: name, Type: GroupTypeConsumer, ProtocolType: listed[name].ProtocolType, State: listed[name].State}
 		if l, ok := lags[name]; ok {
 			g.State = l.State
 			g.Members = len(l.Members)
@@ -370,4 +411,54 @@ func (c *Client) groupSummaries(ctx context.Context, maxGroups int) ([]Group, er
 		out = append(out, g)
 	}
 	return out, nil
+}
+
+// shareSummaries describes share groups: state, members, the topics they consume and the lag
+// of their share-partitions.
+func (c *Client) shareSummaries(ctx context.Context, names []string) map[string]Group {
+	out := map[string]Group{}
+	if len(names) == 0 {
+		return out
+	}
+	described, err := c.Adm.DescribeShareGroups(ctx, names...)
+	if err != nil && len(described) == 0 {
+		for _, name := range names {
+			out[name] = Group{ID: name, Type: GroupTypeShare, ProtocolType: GroupTypeShare, Error: err.Error()}
+		}
+		return out
+	}
+	offsets, _ := c.Adm.DescribeShareGroupOffsets(ctx, names...)
+	for _, name := range names {
+		g := Group{ID: name, Type: GroupTypeShare, ProtocolType: GroupTypeShare}
+		d, ok := described[name]
+		if !ok {
+			g.Error = "not described"
+			out[name] = g
+			continue
+		}
+		g.State, g.Members = d.GroupState, len(d.Members)
+		if d.Err != nil {
+			g.Error = d.Err.Error()
+		}
+		topics := map[string]bool{}
+		for _, m := range d.Members {
+			for _, t := range m.SubscribedTopicNames {
+				topics[t] = true
+			}
+		}
+		for t, parts := range offsets[name].Offsets {
+			topics[t] = true
+			for _, o := range parts {
+				if o.Lag > 0 {
+					g.Lag += o.Lag
+				}
+			}
+		}
+		for t := range topics {
+			g.Topics = append(g.Topics, t)
+		}
+		sort.Strings(g.Topics)
+		out[name] = g
+	}
+	return out
 }

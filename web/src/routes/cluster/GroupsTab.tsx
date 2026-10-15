@@ -42,7 +42,7 @@ export default function GroupsTab() {
               <Table.Tr>
                 <Table.Th>Group</Table.Th>
                 <Table.Th>State</Table.Th>
-                <Table.Th>Protocol type</Table.Th>
+                <Table.Th>Type</Table.Th>
                 <Table.Th ta="right">Members</Table.Th>
                 <Table.Th ta="right">Lag</Table.Th>
                 <Table.Th>Topics</Table.Th>
@@ -71,7 +71,9 @@ export default function GroupsTab() {
                       </Badge>
                     </Table.Td>
                     <Table.Td>
-                      <Text size="sm">{g.protocolType || '—'}</Text>
+                      <Badge size="sm" variant="outline" color={g.type === 'share' ? 'grape' : 'gray'}>
+                        {g.type === 'share' ? 'share' : g.protocolType || 'consumer'}
+                      </Badge>
                     </Table.Td>
                     <Table.Td ta="right">{formatNumber(g.members)}</Table.Td>
                     <Table.Td ta="right">
