@@ -1,0 +1,60 @@
+name: release
+
+# Builds release binaries for a version tag and publishes them with checksums and an SBOM.
+# Container images for the tag are built by the CI workflow.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: jdx/mise-action@v5.1.2
+        with:
+          install: true
+          install_args: go node pnpm
+      - name: Dashboard
+        run: |
+          cd web && pnpm install --frozen-lockfile && pnpm build && cd ..
+          find internal/webui/dist -mindepth 1 ! -name .gitkeep -delete
+          cp -R web/dist/. internal/webui/dist/
+      - name: Binaries
+        env:
+          VERSION: ${{ github.ref_name }}
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p dist
+          flags="-s -w -X github.com/bvaliev/brokerium/internal/version.Version=${VERSION} -X github.com/bvaliev/brokerium/internal/version.Commit=${GITHUB_SHA::7} -X github.com/bvaliev/brokerium/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          for target in linux/amd64 linux/arm64 darwin/arm64 darwin/amd64; do
+            os=${target%/*}; arch=${target#*/}
+            GOOS=$os GOARCH=$arch go build -trimpath -ldflags "$flags" -o "dist/brokerium-server-${os}-${arch}" ./cmd/brokerium-server
+          done
+          for arch in amd64 arm64; do
+            GOOS=linux GOARCH=$arch go build -trimpath -ldflags "$flags" -o "dist/brokerium-agent-linux-${arch}" ./cmd/brokerium-agent
+          done
+          (cd dist && sha256sum brokerium-* > SHA256SUMS)
+      - uses: anchore/sbom-action@v0.24.3
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/brokerium-${{ github.ref_name }}.spdx.json
+          upload-artifact: false
+      - name: Notes
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          awk -v v="## [${VERSION#v}]" 'index($0, v) == 1 {on=1; next} on && /^## \[/ {exit} on' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Release ${VERSION}" > notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: gh release create "$VERSION" dist/* --title "Brokerium $VERSION" --notes-file notes.md --verify-tag
