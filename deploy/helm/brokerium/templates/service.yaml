@@ -1,0 +1,30 @@
+{{/* SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0 */}}
+{{- $name := include "brokerium.fullname" . }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels: {{- include "brokerium.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector: {{- include "brokerium.selectorLabels" . | nindent 4 }}
+  ports:
+    - { name: http, port: {{ .Values.service.http }}, targetPort: http }
+    - { name: grpc, port: {{ .Values.service.grpc }}, targetPort: grpc }
+{{- if ne .Values.service.grpcType .Values.service.type }}
+---
+# The agent gateway on its own service, for example a LoadBalancer for agents on VMs.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-agents
+  labels: {{- include "brokerium.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.grpcType }}
+  selector: {{- include "brokerium.selectorLabels" . | nindent 4 }}
+  ports:
+    - { name: grpc, port: {{ .Values.service.grpc }}, targetPort: grpc }
+{{- end }}

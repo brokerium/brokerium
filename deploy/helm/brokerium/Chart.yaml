@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+apiVersion: v2
+name: brokerium
+description: Brokerium control plane and dashboard for Apache Kafka clusters
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/bvaliev/brokerium
+sources:
+  - https://github.com/bvaliev/brokerium
+keywords: [kafka, kraft, strimzi, rebalancing, dashboard]
+maintainers:
+  - name: Bulat Valiev
+    url: https://github.com/bvaliev
+annotations:
+  licenses: LicenseRef-PolyForm-Shield-1.0.0

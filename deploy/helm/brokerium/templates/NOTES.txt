@@ -1,0 +1,14 @@
+Brokerium {{ .Chart.AppVersion }} is starting in namespace {{ .Release.Namespace }}.
+
+Dashboard:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "brokerium.fullname" . }} 8080:{{ .Values.service.http }}
+  open http://localhost:8080
+
+Administrator: {{ .Values.admin.username }}
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "brokerium.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+
+Agents dial {{ include "brokerium.agentEndpoint" . }}; set agents.endpoint to an address reachable
+from your Kafka hosts. Strimzi clusters in this Kubernetes cluster can use in-cluster access
+{{- if not .Values.rbac.strimzi }} once rbac.strimzi is enabled{{ end }}.
+
+Keep the Secret {{ include "brokerium.secretName" . }}: its secret-key decrypts stored cluster credentials.
