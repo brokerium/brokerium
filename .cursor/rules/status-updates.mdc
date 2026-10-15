@@ -1,0 +1,7 @@
+---
+description: Keep docs/STATUS.md current so the next session can continue
+alwaysApply: true
+---
+
+Before finishing a task, update `docs/STATUS.md`: what was done, what is in progress, the next
+steps and any blockers. Record changed decisions as ADRs in `docs/adr/`.

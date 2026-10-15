@@ -1,0 +1,19 @@
+---
+description: Conventions for the React dashboard in web/
+globs: "web/**"
+alwaysApply: false
+---
+
+# Dashboard conventions
+
+- React + TypeScript (strict) + Vite, managed with pnpm (`mise exec -- pnpm ...` inside `web/`).
+- First line of every source file: `// SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0`.
+- UI components from Mantine; icons from `@tabler/icons-react`. No other UI kits.
+- Server state through TanStack Query hooks in `web/src/api`; types for API payloads live next to
+  the hooks and mirror `api/openapi.yaml`.
+- Routes in `web/src/routes`; one page component per route, shared parts in `web/src/components`.
+- Destructive or irreversible actions always go through a confirmation modal; irreversible ones
+  require typing the cluster name.
+- Show only actions allowed by the cluster's `capabilities`.
+- UI text in English; mention "Apache Kafka" only descriptively and keep the ASF attribution in the
+  footer.

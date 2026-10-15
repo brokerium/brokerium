@@ -1,0 +1,24 @@
+---
+description: Safety rules for code and scripts that change Kafka clusters (operations, balancer, agent, lab)
+globs: "internal/ops/**,internal/balancer/**,internal/agent/**,internal/kafka/**,internal/provider/**,deploy/lab/**"
+alwaysApply: false
+---
+
+# Kafka operations safety
+
+Source of truth: `docs/adr/0008-operations-engine.md` and `docs/adr/0007-dynamic-quorum.md`.
+
+- Every mutating operation has a dry run that returns the plan without side effects.
+- Before each step run the health gate: no offline partitions, no under-replicated partitions
+  except those in the current reassignment, nothing under `min.insync.replicas`, quorum has a
+  leader, voters caught up, no other running operation on the cluster.
+- Reassignments: full target replica lists, `allowReplicationFactorChange=false` semantics,
+  batches, broker and topic throttles set before and removed after (also on failure or cancel).
+- Never move or keep a replica on a cordoned or draining broker; check free disk on targets.
+- Quorum: one voter change at a time; add the new voter after it caught up as an observer, then
+  remove the old one. Never remove the last voter. Brokerium does not enable controller auto-join.
+- After unregistering a broker, delete its `cordoned.log.dirs` config so a future broker with the
+  same id is not cordoned.
+- Irreversible actions (`metadata.version` / `kraft.version` finalization, unregister, wipe) need
+  an explicit confirmation carrying the cluster name.
+- Storage is formatted with the same Kafka version that will run the node (KIP-1170 in 4.4).

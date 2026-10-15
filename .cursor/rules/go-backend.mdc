@@ -1,0 +1,22 @@
+---
+description: Go conventions for brokerium-server, brokerium-agent and internal packages
+globs: "**/*.go"
+alwaysApply: false
+---
+
+# Go backend conventions
+
+- Go 1.27, `CGO_ENABLED=0`, module `github.com/bvaliev/brokerium`. Run Go through `mise exec --`.
+- First line of every file: `// SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0`.
+- HTTP: standard library `net/http` with method patterns (`mux.HandleFunc("GET /api/v1/...", h)`).
+  JSON errors use `{"error": {"code": "...", "message": "..."}}`.
+- Logging with `log/slog`; never log credentials, SASL payloads or message contents.
+- Pass `context.Context` as the first argument; respect cancellation in loops that talk to Kafka.
+- Wrap errors with `fmt.Errorf("doing x: %w", err)`; return typed errors for API-visible cases.
+- Kafka access only through `internal/kafka`. Use `kadm` when it covers the feature, `kmsg`
+  requests for KRaft-specific APIs. Always check per-partition and per-resource error codes.
+- `internal/balancer` stays pure: no I/O, no time, no randomness without an explicit seed.
+- Database access through `internal/store` with pgx; schema changes are new numbered files in
+  `internal/store/migrations`, never edits of applied migrations.
+- Tests: table-driven, `t.Parallel()` where safe, no network in unit tests (`kfake` or fakes);
+  integration tests that need the lab use the `e2e` build tag.
