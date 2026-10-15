@@ -66,7 +66,7 @@ type identity struct {
 // New creates an agent.
 func New(cfg Config, log *slog.Logger) (*Agent, error) {
 	for _, d := range []string{cfg.DataDir, cfg.KafkaDir, cfg.KafkaDataDir} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
+		if err := os.MkdirAll(d, 0o755); err != nil { //nolint:gosec // Kafka directories are shared with the kafka account
 			return nil, err
 		}
 	}
@@ -143,7 +143,12 @@ func (a *Agent) enroll(ctx context.Context) error {
 	tlsCfg := &tls.Config{
 		MinVersion:         tls.VersionTLS13,
 		InsecureSkipVerify: true, //nolint:gosec // verified below against the CA fingerprint from the token
-		VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
+		// VerifyConnection also runs for resumed sessions, unlike VerifyPeerCertificate.
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			raw := make([][]byte, len(cs.PeerCertificates))
+			for i, c := range cs.PeerCertificates {
+				raw[i] = c.Raw
+			}
 			return verifyChain(raw, wantCA)
 		},
 	}

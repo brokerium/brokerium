@@ -1,9 +1,13 @@
 version: "2"
 run:
   timeout: 5m
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
 linters:
   default: standard
   enable:
+    - gosec
     - misspell
     - unconvert
   settings:
@@ -18,6 +22,15 @@ linters:
   exclusions:
     paths:
       - proto/
+    rules:
+      # Tests and lab tooling run fixed commands, write throwaway files and use test data.
+      - path: (_test\.go|^deploy/lab/)
+        linters: [gosec]
+      # The agent works on paths from its own configuration, and Kafka directories must stay
+      # readable for the kafka account that runs Kafka.
+      - path: ^internal/agent/kafka\.go$
+        text: "G30[14]"
+        linters: [gosec]
 formatters:
   enable:
     - gofmt

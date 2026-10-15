@@ -362,7 +362,7 @@ func (s *Server) handleTopicDetail(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleBrokerConfigs(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	brokerID, err := strconv.Atoi(r.PathValue("broker"))
+	brokerID, err := strconv.ParseInt(r.PathValue("broker"), 10, 32)
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, "bad_request", "invalid broker id")
 		return

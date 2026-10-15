@@ -42,7 +42,7 @@ func New(host string) (*Client, error) {
 			continue
 		}
 		if path, ok := strings.CutPrefix(h, "unix://"); ok {
-			if _, err := os.Stat(path); err != nil {
+			if _, err := os.Stat(path); err != nil { //nolint:gosec // socket path from BROKERIUM_DOCKER_HOST
 				continue
 			}
 			tr := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
