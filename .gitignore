@@ -6,6 +6,8 @@
 coverage.*
 
 # Dashboard
+/.pnpm-store/
+/node_modules/
 web/node_modules/
 web/dist/
 web/coverage/
@@ -13,7 +15,6 @@ web/playwright-report/
 web/test-results/
 internal/webui/dist/*
 !internal/webui/dist/.gitkeep
-!internal/webui/dist/index.html
 
 # Local state
 /.data/

@@ -1,0 +1,105 @@
+// SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+
+// Command brokerium-server runs the Brokerium control plane: API, dashboard, operations engine
+// and agent gateway.
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/bvaliev/brokerium/internal/api"
+	"github.com/bvaliev/brokerium/internal/cluster"
+	"github.com/bvaliev/brokerium/internal/config"
+	"github.com/bvaliev/brokerium/internal/metrics"
+	"github.com/bvaliev/brokerium/internal/ops"
+	"github.com/bvaliev/brokerium/internal/secrets"
+	"github.com/bvaliev/brokerium/internal/store"
+	"github.com/bvaliev/brokerium/internal/version"
+)
+
+func main() {
+	if len(os.Args) > 1 && os.Args[1] == "version" {
+		fmt.Println(version.String())
+		return
+	}
+	level := slog.LevelInfo
+	if os.Getenv("BROKERIUM_DEBUG") == "1" {
+		level = slog.LevelDebug
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	if err := run(log); err != nil {
+		log.Error("brokerium-server stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run(log *slog.Logger) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	cfg, err := config.LoadServer()
+	if err != nil {
+		return err
+	}
+	log.Info("starting brokerium-server", "version", version.String(), "http", cfg.HTTPAddr)
+
+	st, err := store.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if err := st.Migrate(ctx); err != nil {
+		return fmt.Errorf("migrating database: %w", err)
+	}
+	generated, err := api.EnsureAdmin(ctx, st, cfg.AdminUsername, cfg.AdminPassword)
+	if err != nil {
+		return fmt.Errorf("creating admin user: %w", err)
+	}
+	if generated != "" {
+		log.Warn("created initial administrator; change the password after the first login",
+			"username", cfg.AdminUsername, "password", generated)
+	}
+
+	box, err := secrets.New(cfg.SecretKey)
+	if err != nil {
+		return err
+	}
+	clusters := cluster.New(st, box, log)
+	sampler := metrics.NewSampler(5 * time.Minute)
+	clusters.OnRefresh(func(v *cluster.View) {
+		if v.Snapshot != nil {
+			sampler.Observe(v.Cluster.ID, v.Snapshot)
+		}
+	})
+	engine := ops.New(st, clusters, sampler, log)
+	go clusters.Run(ctx, cfg.SnapshotInterval)
+	go engine.Run(ctx, cfg.WorkerInterval)
+
+	srv := &api.Server{Store: st, Clusters: clusters, Box: box, Log: log, SecureCookies: cfg.SecureCookies}
+	httpServer := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           srv.Handler(&api.OperationsAPI{Engine: engine, Sampler: sampler}),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	errCh := make(chan error, 1)
+	go func() { errCh <- httpServer.ListenAndServe() }()
+
+	select {
+	case <-ctx.Done():
+	case err := <-errCh:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return httpServer.Shutdown(shutdownCtx)
+}
