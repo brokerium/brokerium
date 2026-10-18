@@ -4,7 +4,7 @@ syntax = "proto3";
 
 package brokerium.agent.v1;
 
-option go_package = "github.com/bvaliev/brokerium/proto/brokerium/agent/v1;agentv1";
+option go_package = "github.com/brokerium/brokerium/proto/brokerium/agent/v1;agentv1";
 
 // AgentService is served by brokerium-server; agents connect out to it (ADR 0009).
 service AgentService {

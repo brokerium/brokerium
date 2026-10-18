@@ -1,4 +1,4 @@
-module github.com/bvaliev/brokerium
+module github.com/brokerium/brokerium
 
 go 1.27.2
 

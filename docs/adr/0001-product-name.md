@@ -14,7 +14,9 @@ descriptive forms are "<Name> for Apache Kafka" and "<Name>, Powered by Apache K
 
 - The product is called **Brokerium**; the descriptive form is "Brokerium for Apache Kafka".
 - Binaries: `brokerium-server`, `brokerium-agent`. Images: `bvaliev/brokerium-server`,
-  `bvaliev/brokerium-agent`. Go module: `github.com/bvaliev/brokerium`.
+  `bvaliev/brokerium-agent`. Go module: `github.com/brokerium/brokerium` (it was
+  `github.com/bvaliev/brokerium` until the repository moved to the `brokerium` organization on
+  2026-10-18).
 - Every user-facing page that mentions Apache Kafka carries the ASF attribution sentence
   (see [TRADEMARKS.md](../../TRADEMARKS.md)). The Kafka logo is never used.
 

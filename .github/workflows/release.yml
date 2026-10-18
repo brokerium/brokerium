@@ -32,7 +32,7 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           mkdir -p dist
-          flags="-s -w -X github.com/bvaliev/brokerium/internal/version.Version=${VERSION} -X github.com/bvaliev/brokerium/internal/version.Commit=${GITHUB_SHA::7} -X github.com/bvaliev/brokerium/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          flags="-s -w -X github.com/brokerium/brokerium/internal/version.Version=${VERSION} -X github.com/brokerium/brokerium/internal/version.Commit=${GITHUB_SHA::7} -X github.com/brokerium/brokerium/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           for target in linux/amd64 linux/arm64 darwin/arm64 darwin/amd64; do
             os=${target%/*}; arch=${target#*/}
             GOOS=$os GOARCH=$arch go build -trimpath -ldflags "$flags" -o "dist/brokerium-server-${os}-${arch}" ./cmd/brokerium-server

@@ -15,17 +15,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bvaliev/brokerium/internal/agentgw"
-	"github.com/bvaliev/brokerium/internal/api"
-	"github.com/bvaliev/brokerium/internal/cluster"
-	"github.com/bvaliev/brokerium/internal/config"
-	"github.com/bvaliev/brokerium/internal/metrics"
-	"github.com/bvaliev/brokerium/internal/nodes"
-	"github.com/bvaliev/brokerium/internal/ops"
-	"github.com/bvaliev/brokerium/internal/provider/docker"
-	"github.com/bvaliev/brokerium/internal/secrets"
-	"github.com/bvaliev/brokerium/internal/store"
-	"github.com/bvaliev/brokerium/internal/version"
+	"github.com/brokerium/brokerium/internal/agentgw"
+	"github.com/brokerium/brokerium/internal/api"
+	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/config"
+	"github.com/brokerium/brokerium/internal/metrics"
+	"github.com/brokerium/brokerium/internal/nodes"
+	"github.com/brokerium/brokerium/internal/ops"
+	"github.com/brokerium/brokerium/internal/provider/docker"
+	"github.com/brokerium/brokerium/internal/secrets"
+	"github.com/brokerium/brokerium/internal/store"
+	"github.com/brokerium/brokerium/internal/version"
 )
 
 func main() {

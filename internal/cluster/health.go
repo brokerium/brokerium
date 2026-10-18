@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bvaliev/brokerium/internal/kafka"
+	"github.com/brokerium/brokerium/internal/kafka"
 )
 
 // Health statuses.

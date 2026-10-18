@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bvaliev/brokerium/internal/kafka"
-	"github.com/bvaliev/brokerium/internal/secrets"
-	"github.com/bvaliev/brokerium/internal/store"
+	"github.com/brokerium/brokerium/internal/kafka"
+	"github.com/brokerium/brokerium/internal/secrets"
+	"github.com/brokerium/brokerium/internal/store"
 )
 
 // View is everything the dashboard shows about one cluster.

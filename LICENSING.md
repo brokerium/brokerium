@@ -55,7 +55,7 @@ published keep their license. See [GOVERNANCE.md](GOVERNANCE.md).
 
 **Where is the commercial license?**
 Commercial licenses (OEM, service providers, special terms) are available on
-request. Start a [discussion](https://github.com/bvaliev/brokerium/discussions)
+request. Start a [discussion](https://github.com/brokerium/brokerium/discussions)
 with a title that begins with `[Licensing]`, without sharing confidential details,
 and the maintainer will follow up privately.
 

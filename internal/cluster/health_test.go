@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bvaliev/brokerium/internal/kafka"
-	"github.com/bvaliev/brokerium/internal/store"
+	"github.com/brokerium/brokerium/internal/kafka"
+	"github.com/brokerium/brokerium/internal/store"
 )
 
 func healthySnapshot(now time.Time) *kafka.Snapshot {

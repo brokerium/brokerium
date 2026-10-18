@@ -15,7 +15,7 @@ import (
 
 	"golang.org/x/crypto/argon2"
 
-	"github.com/bvaliev/brokerium/internal/store"
+	"github.com/brokerium/brokerium/internal/store"
 )
 
 const (

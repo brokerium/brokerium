@@ -21,8 +21,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/bvaliev/brokerium/internal/secrets"
-	"github.com/bvaliev/brokerium/internal/store"
+	"github.com/brokerium/brokerium/internal/secrets"
+	"github.com/brokerium/brokerium/internal/store"
 )
 
 // CA signs server and agent certificates.

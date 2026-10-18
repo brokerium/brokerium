@@ -16,12 +16,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bvaliev/brokerium/internal/agentgw"
-	"github.com/bvaliev/brokerium/internal/balancer"
-	"github.com/bvaliev/brokerium/internal/cluster"
-	"github.com/bvaliev/brokerium/internal/ops"
-	"github.com/bvaliev/brokerium/internal/provider/docker"
-	"github.com/bvaliev/brokerium/internal/store"
+	"github.com/brokerium/brokerium/internal/agentgw"
+	"github.com/brokerium/brokerium/internal/balancer"
+	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/ops"
+	"github.com/brokerium/brokerium/internal/provider/docker"
+	"github.com/brokerium/brokerium/internal/store"
 )
 
 // Config holds provider settings.

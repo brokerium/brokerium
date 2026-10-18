@@ -1317,7 +1317,7 @@ const file_brokerium_agent_v1_agent_proto_rawDesc = "" +
 	"\x16FORMAT_MODE_STANDALONE\x10\x032\xb3\x01\n" +
 	"\fAgentService\x12O\n" +
 	"\x06Enroll\x12!.brokerium.agent.v1.EnrollRequest\x1a\".brokerium.agent.v1.EnrollResponse\x12R\n" +
-	"\aConnect\x12 .brokerium.agent.v1.AgentMessage\x1a!.brokerium.agent.v1.ServerMessage(\x010\x01B?Z=github.com/bvaliev/brokerium/proto/brokerium/agent/v1;agentv1b\x06proto3"
+	"\aConnect\x12 .brokerium.agent.v1.AgentMessage\x1a!.brokerium.agent.v1.ServerMessage(\x010\x01BAZ?github.com/brokerium/brokerium/proto/brokerium/agent/v1;agentv1b\x06proto3"
 
 var (
 	file_brokerium_agent_v1_agent_proto_rawDescOnce sync.Once

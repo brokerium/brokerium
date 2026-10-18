@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bvaliev/brokerium/internal/cluster"
-	"github.com/bvaliev/brokerium/internal/ops"
-	"github.com/bvaliev/brokerium/internal/provider/strimzi"
-	"github.com/bvaliev/brokerium/internal/store"
+	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/ops"
+	"github.com/brokerium/brokerium/internal/provider/strimzi"
+	"github.com/brokerium/brokerium/internal/store"
 )
 
 // Step kinds of Strimzi clusters.

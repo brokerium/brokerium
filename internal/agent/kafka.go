@@ -27,7 +27,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	agentv1 "github.com/bvaliev/brokerium/proto/brokerium/agent/v1"
+	agentv1 "github.com/brokerium/brokerium/proto/brokerium/agent/v1"
 )
 
 var versionRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)

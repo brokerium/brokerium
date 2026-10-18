@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bvaliev/brokerium/internal/kafka"
+	"github.com/brokerium/brokerium/internal/kafka"
 )
 
 // RateEntry is a byte and message rate.
