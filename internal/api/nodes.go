@@ -164,6 +164,7 @@ const installScript = `#!/bin/sh
 #   BROKERIUM_AGENT_SERVER, BROKERIUM_AGENT_TOKEN  required (Nodes page of the dashboard)
 #   BROKERIUM_AGENT_VERSION                        release tag, default: latest
 #   BROKERIUM_AGENT_URL                            download URL of the binary (air-gapped installs)
+#   BROKERIUM_AGENT_SHA256                         expected SHA-256 of that binary
 #   BROKERIUM_AGENT_KAFKA_DATA_DIR                 log.dirs of new nodes, default /var/lib/kafka/data
 #   BROKERIUM_AGENT_KAFKA_CONFIG                   adopt a running node: its server.properties
 #   BROKERIUM_AGENT_PREINSTALLED                   and its Kafka installation directory
@@ -191,6 +192,18 @@ install -d -m 0711 /var/lib/brokerium-agent
 install -d -m 0755 /opt/brokerium/kafka
 install -d -o kafka -g kafka "$DATA_DIR"
 curl -fsSL "$URL" -o /usr/local/bin/brokerium-agent.new
+if [ -n "${BROKERIUM_AGENT_URL:-}" ]; then
+  WANT="${BROKERIUM_AGENT_SHA256:-}"
+else
+  # Release binaries are checked against the SHA256SUMS of the same release.
+  WANT=$(curl -fsSL "${URL%/*}/SHA256SUMS" | awk -v f="brokerium-agent-linux-${ARCH}" '$2 == f {print $1}')
+  [ -n "$WANT" ] || { echo "no checksum for brokerium-agent-linux-${ARCH} in the release" >&2; exit 1; }
+fi
+if [ -n "$WANT" ] && [ "$(sha256sum /usr/local/bin/brokerium-agent.new | cut -d' ' -f1)" != "$WANT" ]; then
+  rm -f /usr/local/bin/brokerium-agent.new
+  echo "checksum mismatch for $URL" >&2
+  exit 1
+fi
 chmod 0755 /usr/local/bin/brokerium-agent.new
 mv /usr/local/bin/brokerium-agent.new /usr/local/bin/brokerium-agent
 umask 077

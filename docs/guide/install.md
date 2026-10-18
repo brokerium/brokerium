@@ -89,8 +89,9 @@ write the configuration, format storage, start, stop, report status).
    as listener addresses, so they must resolve in DNS for clients and other nodes.
 
 Installer variables: `BROKERIUM_AGENT_VERSION` (release tag), `BROKERIUM_AGENT_URL` (download
-from your own mirror), `BROKERIUM_AGENT_KAFKA_DATA_DIR` (log.dirs, default
-`/var/lib/kafka/data`).
+from your own mirror) with `BROKERIUM_AGENT_SHA256` (its expected checksum),
+`BROKERIUM_AGENT_KAFKA_DATA_DIR` (log.dirs, default `/var/lib/kafka/data`). Binaries from
+GitHub releases are always checked against the `SHA256SUMS` of the release.
 
 ### Adopting running nodes
 
