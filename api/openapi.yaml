@@ -119,6 +119,16 @@ paths:
                   token: { type: string }
                   expiresAt: { type: string, format: date-time }
         "401": { $ref: "#/components/responses/Error" }
+        "429":
+          description: >-
+            Too many failed logins for this user from this address (`too_many_attempts`).
+          headers:
+            Retry-After:
+              description: Seconds until the next attempt is accepted.
+              schema: { type: integer }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/v1/auth/logout:
     post:
       tags: [auth]

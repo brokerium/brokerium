@@ -42,8 +42,14 @@ type Server struct {
 	SecureCookies bool
 	SessionTTL    time.Duration
 
-	mux *http.ServeMux
+	mux    *http.ServeMux
+	logins *loginLimiter
 }
+
+// contentSecurityPolicy allows only the dashboard's own scripts. Mantine sets inline styles.
+const contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; " +
+	"form-action 'self'; frame-ancestors 'none'"
 
 type ctxKey int
 
@@ -60,6 +66,7 @@ func (s *Server) Handler(exts ...Extension) http.Handler {
 	if s.SessionTTL == 0 {
 		s.SessionTTL = 12 * time.Hour
 	}
+	s.logins = newLoginLimiter()
 	s.mux = http.NewServeMux()
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	s.mux.HandleFunc("GET /readyz", s.handleReady)
@@ -101,6 +108,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")
+		w.Header().Set("Content-Security-Policy", contentSecurityPolicy)
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && strings.HasPrefix(r.URL.Path, "/api/") &&
 			r.Header.Get(CSRFHeader) == "" {
 			WriteError(sw, http.StatusForbidden, "csrf", "missing "+CSRFHeader+" header")
@@ -126,17 +134,22 @@ func (s *Server) requireRole(role string, h http.HandlerFunc) http.Handler {
 }
 
 func (s *Server) authenticate(r *http.Request) (*store.User, error) {
-	token := ""
-	if c, err := r.Cookie(SessionCookie); err == nil {
-		token = c.Value
-	}
-	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-		token = strings.TrimPrefix(h, "Bearer ")
-	}
+	token := sessionToken(r)
 	if token == "" {
 		return nil, errors.New("no session")
 	}
 	return s.Store.SessionUser(r.Context(), auth.HashToken(token))
+}
+
+// sessionToken returns the session token of a request: the bearer token, else the cookie.
+func sessionToken(r *http.Request) string {
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		return strings.TrimPrefix(h, "Bearer ")
+	}
+	if c, err := r.Cookie(SessionCookie); err == nil {
+		return c.Value
+	}
+	return ""
 }
 
 // Audit records a change made by the current user.
@@ -157,7 +170,8 @@ func (s *Server) Audit(r *http.Request, action, clusterID, target string, detail
 
 func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	if err := s.Store.Pool.Ping(r.Context()); err != nil {
-		WriteError(w, http.StatusServiceUnavailable, "database", err.Error())
+		s.Log.Warn("readiness check failed", "error", err)
+		WriteError(w, http.StatusServiceUnavailable, "database", "database unavailable")
 		return
 	}
 	_, _ = w.Write([]byte("ready"))

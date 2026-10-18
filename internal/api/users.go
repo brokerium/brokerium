@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bvaliev/brokerium/internal/auth"
@@ -27,17 +28,45 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
+// unknownUserHash is checked for unknown users, so response times do not reveal which
+// usernames exist.
+var unknownUserHash = sync.OnceValue(func() string {
+	h, _ := auth.HashPassword("brokerium-unknown-user")
+	return h
+})
+
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	if !Decode(w, r, &req) {
 		return
 	}
+	key := loginKey(r, req.Username)
+	if d := s.logins.retryAfter(key); d > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(int(d.Seconds())+1))
+		WriteError(w, http.StatusTooManyRequests, "too_many_attempts", "too many failed logins, try again later")
+		return
+	}
 	u, err := s.Store.GetUserByUsername(r.Context(), req.Username)
-	if err != nil || u.Disabled || !auth.VerifyPassword(u.PasswordHash, req.Password) {
+	passwordHash := unknownUserHash()
+	if err == nil {
+		passwordHash = u.PasswordHash
+	}
+	ok, cerr := s.logins.check(r.Context(), func() bool { return auth.VerifyPassword(passwordHash, req.Password) })
+	if cerr != nil {
+		return
+	}
+	if err != nil || u.Disabled || !ok {
+		s.logins.fail(key)
+		name := req.Username
+		if len(name) > 64 {
+			name = name[:64]
+		}
+		s.Log.Warn("failed login", "user", name, "remote", r.RemoteAddr)
 		time.Sleep(300 * time.Millisecond)
 		WriteError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
 		return
 	}
+	s.logins.succeed(key)
 	token, hash := auth.NewToken()
 	expires := time.Now().Add(s.SessionTTL)
 	if err := s.Store.CreateSession(r.Context(), hash, u.ID, expires); err != nil {
@@ -140,6 +169,10 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = s.Store.UpdateUser(r.Context(), u)
+	if err == nil && (req.Password != "" || u.Disabled) {
+		// A new password or a disabled account ends the user's other sessions.
+		err = s.Store.DeleteUserSessions(r.Context(), u.ID, auth.HashToken(sessionToken(r)))
+	}
 	s.Audit(r, "user.update", "", u.Username, map[string]any{"role": u.Role, "disabled": u.Disabled, "passwordChanged": req.Password != ""}, err)
 	if err != nil {
 		WriteStoreError(w, err)

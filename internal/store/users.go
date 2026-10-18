@@ -120,6 +120,12 @@ func (s *Store) SessionUser(ctx context.Context, tokenHash string) (*User, error
 		WHERE s.token_hash=$1 AND s.expires_at > now() AND NOT u.disabled`, tokenHash))
 }
 
+// DeleteUserSessions removes the sessions of a user except the one with keepHash.
+func (s *Store) DeleteUserSessions(ctx context.Context, userID, keepHash string) error {
+	_, err := s.Pool.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2`, userID, keepHash)
+	return err
+}
+
 // DeleteSession removes a session.
 func (s *Store) DeleteSession(ctx context.Context, tokenHash string) error {
 	_, err := s.Pool.Exec(ctx, `DELETE FROM sessions WHERE token_hash=$1`, tokenHash)
