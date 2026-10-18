@@ -6,7 +6,7 @@ All notable changes to Brokerium are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-10-15
+## [0.1.0] - 2026-10-18
 
 First public alpha. Every lab scenario of the roadmap runs as an automated end-to-end test.
 
@@ -40,10 +40,21 @@ First public alpha. Every lab scenario of the roadmap runs as an automated end-t
 - Repository foundation: PolyForm Shield 1.0.0 license, CLA, contribution and governance
   policies.
 
+### Security
+
+- Failed logins are limited per user and address, password checks run at most four at a time,
+  and unknown usernames take as long to reject as known ones.
+- A new password or a disabled account ends the user's other sessions.
+- Strict Content-Security-Policy for the dashboard.
+- The agent install script verifies the binary against the checksums of its release.
+- Findings and accepted risks:
+  [security review](https://github.com/bvaliev/brokerium/blob/v0.1.0/docs/security-review-0.1.0.md).
+
 ### Known limitations
 
 - Controller quorum changes are not offered for Strimzi clusters; Strimzi owns the quorum.
 - The Helm chart installs from a checkout; it is not published to a chart repository yet.
+- Agent certificates are valid for one year and are not renewed automatically yet.
 
 [Unreleased]: https://github.com/bvaliev/brokerium/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/bvaliev/brokerium/releases/tag/v0.1.0
