@@ -4,8 +4,8 @@ Last updated: 2026-10-18
 
 ## Current phase
 
-Phase 7: public release v0.1.0 (see [ROADMAP.md](ROADMAP.md)). Phases 0-6 are done; the
-release is tagged once CI and the e2e workflow pass on `main`.
+v0.1.0 is released (https://github.com/bvaliev/brokerium/releases/tag/v0.1.0). Phases 0-7 of
+the [roadmap](ROADMAP.md) are done; the next work is the 0.2.0 list under "Next".
 
 ## Done
 
@@ -40,6 +40,11 @@ release is tagged once CI and the e2e workflow pass on `main`.
   login limits and bounded argon2id checks, equal timing for unknown users, session revocation
   on password changes, generic `/readyz` errors, strict CSP, checksum verification in the agent
   installer. Accepted risks are listed in the review.
+- **Release v0.1.0** (tag on 45fa1274, after green CI and e2e): binaries for Linux and macOS,
+  `SHA256SUMS`, SBOM; images `bvaliev/brokerium-server` and `bvaliev/brokerium-agent` with tags
+  `0.1.0`, `0.1`, `latest`, `edge` for amd64 and arm64. Checked after publishing: checksums,
+  the installer's download path through `releases/latest`, and the README Docker quick start
+  with the published image (including a restart with a named volume).
 
 ## End-to-end coverage
 
@@ -69,22 +74,23 @@ nightly); the Strimzi and VM labs run locally before a release.
 
 ## In progress
 
-- Release v0.1.0: push to `main`, green CI and e2e, tag `v0.1.0` (issue #26).
-- Container images in Docker Hub (issue #8): waiting for the `DOCKERHUB_TOKEN` secret.
+Nothing.
 
 ## Next
 
-1. After the token is set: check `bvaliev/brokerium-server` and `bvaliev/brokerium-agent` for
-   both architectures and run the Docker and Helm quick starts against the published images.
-2. Automatic renewal of agent certificates (valid for one year; must ship before 2027-10).
-3. Publish the Helm chart (OCI on Docker Hub or GitHub Pages).
-4. Run the Strimzi lab (kind) in the e2e workflow.
-5. Commercial layer from the roadmap: SSO (OIDC), audit export, scheduled rebalancing.
+1. Automatic renewal of agent certificates (valid for one year; must ship before 2027-10).
+2. Publish the Helm chart (OCI on Docker Hub or GitHub Pages) and run the Helm quick start
+   against the published image.
+3. Run the Strimzi lab (kind) in the e2e workflow.
+4. Commercial layer from the roadmap: SSO (OIDC), audit export, scheduled rebalancing.
 
 ## Owner tasks (manual)
 
-- Create a Docker Hub access token (Read & Write) and store it:
-  `gh secret set DOCKERHUB_TOKEN --repo bvaliev/brokerium`.
+- Rotate the Docker Hub token used by CI: it was shared in a chat on 2026-10-18. Create a new
+  one (Read & Write), store it with `gh secret set DOCKERHUB_TOKEN --repo bvaliev/brokerium`
+  in your own terminal, then revoke the old one on Docker Hub.
+- Docker Desktop on the Mac fails Docker Hub pulls with "incorrect username or password":
+  sign out and in again in Docker Desktop (cached images still work).
 - Reserve the GitHub organization `brokerium` (free plan) to protect the name.
 - Check and buy domains `brokerium.dev` / `brokerium.io`; then create a contact address for
   licensing and corporate CLAs.
@@ -93,5 +99,4 @@ nightly); the Strimzi and VM labs run locally before a release.
 
 ## Blockers
 
-- Image publishing needs `DOCKERHUB_TOKEN`; until then the Docker and Helm quick starts need
-  `make images`.
+None.

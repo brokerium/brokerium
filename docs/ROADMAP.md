@@ -56,7 +56,7 @@ the lab scenarios with the Kafka CLI, code skeleton, CI and the first container 
 - Strimzi provider: node pool scaling, our rebalancing, upgrades through Strimzi.
 - Amazon MSK (IAM), Confluent Cloud and Aiven connection profiles and capability presets.
 
-## Phase 7: Public release v0.1.0 (in progress)
+## Phase 7: Public release v0.1.0 (done, 2026-10-18)
 
 - Documentation, server and agent installers, Helm chart, end-to-end tests in CI, security review.
 
