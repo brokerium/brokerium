@@ -67,11 +67,41 @@ Attribution of this form is required ([ASF Trademark Policy](https://www.apache.
 
 - A small AGPL project "Brokr" exists (`night-slayer18/brokr-platform`, 2 stars); low confusion risk. Report C also lists Brokr (AGPL-3.0) among the small projects in the [market landscape](market-landscape.md).
 
+## Trademark search (2026-10-18)
+
+Preliminary search by the agent, not a legal clearance. Sources:
+[TMview](https://www.tmdn.org/tmview/) (EUIPO, EU national offices, USPTO, WIPO and others),
+[WIPO Madrid Monitor](https://www3.wipo.int/madrid/monitor/en/), web search. TMview rejects
+automated requests, so the search ran in a browser; a control search for "kafka" returned
+results from EUIPO, CNIPA and INPI, so the empty result below is real.
+
+- **"brokerium" (contains): no trademarks** in any office covered by TMview.
+- **"brokeri" (contains): 110 marks**, mostly insurance and real-estate brokers in class 36.
+  Earlier rights in classes 9 or 42 worth an attorney's look before filing in the EU:
+
+| Mark | Office, number | Classes | Holder | Status |
+| --- | --- | --- | --- | --- |
+| BROKERIA the best way for you (figurative) | WIPO IR [1346458](https://www3.wipo.int/madrid/monitor/en/showData.jsp?ID=ROM.1346458), designates the EU; also SKIPO 1289-2016 | 9 (incl. "software (recorded programs)"), 16, 35, 36, 38, 39, 41 | Brokeria, a. s., Bratislava (insurance broker) | Expired 2026-06-10, within the 6-month renewal grace period (until about 2026-12-10) |
+| brokerize | DPMA 3020222074889 | 9, 36, 42 | Guidants Trading GmbH | Registered |
+
+- Not relevant: BROKERIQ (Australia, class 42, filed 2026), Brokeris (Chile, class 42),
+  brokerito (EUIPO, classes 35-36), Brokerix (Switzerland, class 35), and the real-estate
+  agency brokerium.shop in Mexico (class 36 business, no trademark found).
+- Assessment for the owner: "broker" is descriptive for both brokerage and Kafka software, the
+  endings differ, and the BROKERIA registration has been protected in the EU for more than five
+  years, so in an opposition its holder would have to prove genuine use for software. Filing
+  after the BROKERIA grace period ends shows whether it is renewed at all.
+
 ## Remaining before public launch
 
-- [ ] Trademark search in WIPO, EUIPO and USPTO.
-- [ ] Buy a domain (brokerium.dev / brokerium.io).
-- [ ] Optional: email trademarks@apache.org to confirm the "for Apache Kafka" form.
+- [x] Trademark search in WIPO, EUIPO and USPTO (preliminary, see above).
+- [x] Domain: `brokerium.kaufen` bought by the owner (Cloudflare DNS); `brokerium.dev`, `.io`
+      and `.app` were still free on 2026-10-18; `brokerium.com` is registered since 2015.
+- [x] GitHub organization `brokerium` created by the owner (2026-10-18).
+- [ ] EU trademark application, plan in [ADR 0014](../adr/0014-name-protection-and-business-setup.md).
+- [ ] Optional, deferred until the paid edition launches: email trademarks@apache.org to confirm
+      the "for Apache Kafka" form. The form is used by Amazon Managed Streaming for Apache Kafka,
+      Aiven for Apache Kafka and Kpow for Apache Kafka.
 
 ## Related points from the licensing research
 

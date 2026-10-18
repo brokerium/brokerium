@@ -74,7 +74,10 @@ nightly); the Strimzi and VM labs run locally before a release.
 
 ## In progress
 
-Nothing.
+- Brand and organization ([ADR 0014](adr/0014-name-protection-and-business-setup.md)): logo
+  concepts are with the owner; then the profile of the GitHub organization `brokerium`, its
+  profile README and the move of this repository into it.
+- Website: plan for a private repository `brokerium/website` hosted on Cloudflare Pages.
 
 ## Next
 
@@ -86,16 +89,19 @@ Nothing.
 
 ## Owner tasks (manual)
 
-- Rotate the Docker Hub token used by CI: it was shared in a chat on 2026-10-18. Create a new
-  one (Read & Write), store it with `gh secret set DOCKERHUB_TOKEN --repo bvaliev/brokerium`
-  in your own terminal, then revoke the old one on Docker Hub.
-- Docker Desktop on the Mac fails Docker Hub pulls with "incorrect username or password":
-  sign out and in again in Docker Desktop (cached images still work).
-- Reserve the GitHub organization `brokerium` (free plan) to protect the name.
-- Check and buy domains `brokerium.dev` / `brokerium.io`; then create a contact address for
-  licensing and corporate CLAs.
-- Trademark search (WIPO, EUIPO, USPTO) before the public launch.
-- If employed: check the employment contract for IP clauses (see `docs/legal/sale-readiness.md`).
+Done on 2026-10-18: the Docker Hub token was rotated (CI publishes with it), Docker Desktop pulls
+work again, the GitHub organization `brokerium` and the domain `brokerium.kaufen` exist, the
+employer has no connection to Kafka tooling, so no consent under § 304 of the Labour Code is
+needed.
+
+- Cloudflare Email Routing for `licensing@brokerium.kaufen` to the owner's mailbox (steps in the
+  chat of 2026-10-18; Compute > Email Service > Email Routing). Then the licensing links in
+  `LICENSING.md`, `CCLA.md` and `TRADEMARKS.md` switch from Discussions to this address.
+- Register as an OSVČ (trade notification, 800 CZK online) before the first paid contract and
+  before applying to the SME Fund 2027.
+- After 2026-12-10: check whether the BROKERIA mark (WIPO 1346458) was renewed; in early 2027
+  apply for the SME Fund voucher, have an attorney review the similar marks, and file the EU
+  trade mark (classes 9 and 42).
 
 ## Blockers
 

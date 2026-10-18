@@ -17,6 +17,7 @@ The notes are English translations of four research reports (A–D, originally w
 - [naming-and-trademarks.md](naming-and-trademarks.md): ASF trademark rules for "Kafka", allowed name forms, CMAK precedent, required attribution, the Brokerium naming record and pre-launch to-dos (report C, section 4, plus the naming record).
 - [franz-go-controller-access.md](franz-go-controller-access.md): spike on talking to KRaft controllers directly with franz-go (seed requests work, Metadata is not served, the 41 APIs a controller listener serves, stale controller registrations in 4.3.1).
 - [lab-findings.md](lab-findings.md): behavior observed in the Brokerium Docker lab on Kafka 4.3.1 while validating the runbooks (rack constraints, throttling with dead brokers, cordon gaps, stale controller observers) and what each means for Brokerium.
+- [czech-business-setup.md](czech-business-setup.md): OSVČ versus s.r.o., who owns the code under Czech copyright law, side business while employed, trademark offices, fees and the SME Fund.
 - [security-review-0.1.0.md](security-review-0.1.0.md): security review before the first release: what was fixed (login limits, session revocation, CSP, installer checksums), what was checked, and the accepted risks of 0.1.0.
 - [licensing-research.md](licensing-research.md): the license decision (PolyForm Shield 1.0.0 + CLA), license comparison, open-core structures, precedents 2018–2026, CLA vs DCO, GitHub enforcement, acquirer due diligence, relicensing mechanics, and the AGPL recommendation that was not adopted (report D).
 
