@@ -74,21 +74,34 @@ nightly); the Strimzi and VM labs run locally before a release.
 
 ## In progress
 
-- Brand and organization ([ADR 0014](adr/0014-name-protection-and-business-setup.md)): the
-  repository moved to `brokerium/brokerium` on 2026-10-18 (Go module renamed, links updated, old
-  URLs redirect; the ruleset lost its bypass in the move and got the repository admin bypass
-  back). Open: the logo (the owner asked for other concepts), the organization profile (needs
-  the `admin:org` scope for `gh`) and its profile README.
 - Website: plan in the private repository `brokerium/website` (`PLAN.md`); dark-first design,
-  English only at launch, hosted on Cloudflare Pages.
+  English only at launch, hosted on Cloudflare Pages. Phase 1 (brand) is done; next is phase 2,
+  the mock-ups of the home page.
+
+Done on 2026-10-18 ([ADR 0014](adr/0014-name-protection-and-business-setup.md)):
+
+- The repository moved to `brokerium/brokerium` (Go module renamed, links updated, old URLs
+  redirect, CI and e2e green). The move dropped the ruleset bypass; the repository admin bypass
+  is back.
+- Logo "Balance" (three equal brokers in a ring, indigo-to-violet): files and rules in
+  [brand/](brand/), used in the dashboard (header, sign-in page, favicon) and the README.
+- Organization profile: name, description, website, location, and the profile README in the
+  public repository `brokerium/.github`.
+- Dependabot: #27 merged; #28 (Node 26 image) and #29 (TypeScript 7, `@types/node` 26)
+  closed, and major updates of Node and TypeScript are ignored until they are adopted on
+  purpose.
 
 ## Next
 
-1. Automatic renewal of agent certificates (valid for one year; must ship before 2027-10).
-2. Publish the Helm chart (OCI on Docker Hub or GitHub Pages) and run the Helm quick start
+1. After 2026-10-28, when Node 26 becomes LTS: move `.mise.toml`, the web stage of
+   `deploy/docker/server.Dockerfile` and `@types/node` to Node 26 in one change.
+2. Website phase 2: dark and light mock-ups of the home page for the owner's review, then the
+   Astro build (`brokerium/website`, `PLAN.md`).
+3. Automatic renewal of agent certificates (valid for one year; must ship before 2027-10).
+4. Publish the Helm chart (OCI on Docker Hub or GitHub Pages) and run the Helm quick start
    against the published image.
-3. Run the Strimzi lab (kind) in the e2e workflow.
-4. Commercial layer from the roadmap: SSO (OIDC), audit export, scheduled rebalancing.
+5. Run the Strimzi lab (kind) in the e2e workflow.
+6. Commercial layer from the roadmap: SSO (OIDC), audit export, scheduled rebalancing.
 
 ## Owner tasks (manual)
 
@@ -97,6 +110,10 @@ work again, the GitHub organization `brokerium` and the domain `brokerium.kaufen
 employer has no connection to Kafka tooling, so no consent under § 304 of the Labour Code is
 needed.
 
+- Upload `docs/brand/brokerium-avatar-512.png` as the organization avatar
+  (https://github.com/organizations/brokerium/settings/profile) and
+  `docs/brand/brokerium-social.png` as the social preview of the repository (Settings, General,
+  Social preview); GitHub allows both only in the browser.
 - Cloudflare Email Routing for `licensing@brokerium.kaufen` to the owner's mailbox (steps in the
   chat of 2026-10-18; Compute > Email Service > Email Routing). Then the licensing links in
   `LICENSING.md`, `CCLA.md` and `TRADEMARKS.md` switch from Discussions to this address.
