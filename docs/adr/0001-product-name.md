@@ -17,6 +17,9 @@ descriptive forms are "<Name> for Apache Kafka" and "<Name>, Powered by Apache K
   `bvaliev/brokerium-agent`. Go module: `github.com/brokerium/brokerium` (it was
   `github.com/bvaliev/brokerium` until the repository moved to the `brokerium` organization on
   2026-10-18).
+- Logo (added 2026-10-18): three brokers of equal height in a ring with a partition being
+  placed, in the dashboard's indigo-to-violet gradient; the name in Inter Display Bold as
+  outlines. Files and rules: [docs/brand](../brand/).
 - Every user-facing page that mentions Apache Kafka carries the ASF attribution sentence
   (see [TRADEMARKS.md](../../TRADEMARKS.md)). The Kafka logo is never used.
 

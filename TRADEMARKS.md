@@ -11,6 +11,8 @@ these trademarks. This policy explains what is allowed.
 - Redistributing unmodified official releases under the Brokerium name, as permitted
   by the license.
 - Writing articles, tutorials, talks and reviews about Brokerium.
+- Showing the unmodified logo from [docs/brand](docs/brand/) next to such references,
+  following the rules there.
 
 ## Not allowed
 

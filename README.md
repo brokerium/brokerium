@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/brokerium-logo-white.svg">
+    <img alt="Brokerium" src="docs/brand/brokerium-logo.svg" height="64">
+  </picture>
+</p>
+
 # Brokerium for Apache Kafka
 
 Brokerium is a control plane and web dashboard for Apache Kafka® clusters, in the
