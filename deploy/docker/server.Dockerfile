@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 
-FROM --platform=$BUILDPLATFORM node:24.22.0-alpine AS web
+FROM --platform=$BUILDPLATFORM node:26.12.0-alpine AS web
 WORKDIR /src/web
 RUN npm install -g pnpm@12.11.2
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
