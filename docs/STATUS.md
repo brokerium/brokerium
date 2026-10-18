@@ -96,7 +96,8 @@ Done on 2026-10-18 ([ADR 0014](adr/0014-name-protection-and-business-setup.md)):
 1. After 2026-10-28, when Node 26 becomes LTS: move `.mise.toml`, the web stage of
    `deploy/docker/server.Dockerfile` and `@types/node` to Node 26 in one change.
 2. Website phase 2: dark and light mock-ups of the home page for the owner's review, then the
-   Astro build (`brokerium/website`, `PLAN.md`).
+   Astro build (`brokerium/website`, `PLAN.md`). Take new dashboard screenshots with demo data
+   for the site and replace `docs/images/*.png` in the README, which still show the old icon.
 3. Automatic renewal of agent certificates (valid for one year; must ship before 2027-10).
 4. Publish the Helm chart (OCI on Docker Hub or GitHub Pages) and run the Helm quick start
    against the published image.
