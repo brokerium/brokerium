@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-10-15
+Last updated: 2026-10-18
 
 ## Current phase
 
@@ -36,6 +36,10 @@ release is tagged once CI and the e2e workflow pass on `main`.
   validated on systemd hosts, e2e workflow (beta and Docker clusters, on `main` and nightly),
   release workflow (binaries, checksums, SBOM, notes from `CHANGELOG.md`),
   [ADR 0013](adr/0013-distribution.md).
+- **Security review** ([research/security-review-0.1.0.md](research/security-review-0.1.0.md)):
+  login limits and bounded argon2id checks, equal timing for unknown users, session revocation
+  on password changes, generic `/readyz` errors, strict CSP, checksum verification in the agent
+  installer. Accepted risks are listed in the review.
 
 ## End-to-end coverage
 
@@ -50,15 +54,18 @@ All lab scenarios run as tests in `test/e2e` (build tag `e2e`); mapping in
 | `TestStrimzi` | `deploy/lab/strimzi/strimzi.sh up`, `BROKERIUM_E2E_STRIMZI_KUBECONFIG=.data/kind.kubeconfig` |
 | `TestAgentVMs` | `deploy/lab/vm/vm.sh up`, `BROKERIUM_E2E_VM=1 BROKERIUM_E2E_URL=http://localhost:18080` |
 
-The e2e workflow in CI covers the first two rows; the Strimzi and VM labs run locally before a
-release.
+The e2e workflow in CI covers the first two rows (about 10 minutes on GitHub runners, also
+nightly); the Strimzi and VM labs run locally before a release.
 
 ## Lab state
 
 - Running: PostgreSQL, beta (registered as external, SASL and SSL listeners, authorizer),
-  delta (Docker cluster with the share group `e2e-share`), the host server from `bin/`.
+  delta (Docker cluster with the share group `e2e-share`), the host server from `bin/`
+  (log in `.data/server.log`). Docker Desktop does not restart PostgreSQL and beta after a
+  restart: `docker compose -f deploy/lab/compose.yaml --profile beta up -d --wait postgres beta-c1 beta-b1`.
 - Stopped: alpha, gamma, the containers of epsilon (its registration remains).
-- Removed: the kind cluster of the Strimzi lab, the VM lab, the Helm release.
+- Removed: the kind cluster of the Strimzi lab and the `kube-lab` registration, the VM lab,
+  the Helm release.
 
 ## In progress
 
@@ -69,9 +76,9 @@ release.
 
 1. After the token is set: check `bvaliev/brokerium-server` and `bvaliev/brokerium-agent` for
    both architectures and run the Docker and Helm quick starts against the published images.
-2. Publish the Helm chart (OCI on Docker Hub or GitHub Pages).
-3. Run the Strimzi lab (kind) in the e2e workflow.
-4. Verify `SHA256SUMS` in the agent install script.
+2. Automatic renewal of agent certificates (valid for one year; must ship before 2027-10).
+3. Publish the Helm chart (OCI on Docker Hub or GitHub Pages).
+4. Run the Strimzi lab (kind) in the e2e workflow.
 5. Commercial layer from the roadmap: SSO (OIDC), audit export, scheduled rebalancing.
 
 ## Owner tasks (manual)
