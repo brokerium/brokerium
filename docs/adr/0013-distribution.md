@@ -17,8 +17,8 @@ releases must be verifiable.
   matching `CHANGELOG.md` section.
 - **Images** `bvaliev/brokerium-server` and `bvaliev/brokerium-agent` are built for
   `linux/amd64` and `linux/arm64` by the CI workflow: `edge` and `sha-<commit>` from `main`,
-  `<major>.<minor>.<patch>` and `<major>.<minor>` from tags. They run as UID 65532 on distroless
-  bases.
+  `<major>.<minor>.<patch>`, `<major>.<minor>` and `latest` from release tags. They run as
+  UID 65532 on distroless bases.
 - **Kubernetes:** the Helm chart lives in `deploy/helm/brokerium`. It runs one replica with the
   `Recreate` strategy (one operations engine), keeps the generated sealing key across upgrades
   and can bundle a single PostgreSQL for evaluations.
@@ -33,6 +33,9 @@ releases must be verifiable.
 
 ## Consequences
 
-- Image publishing depends on the `DOCKERHUB_TOKEN` repository secret; without it, CI skips the
-  images job and the Docker and Helm quick starts need `make images`.
+- Image publishing depends on the `DOCKERHUB_TOKEN` repository secret (a Docker Hub access
+  token with Read & Write) and the `DOCKERHUB_USERNAME` variable; without the token, CI skips
+  the images job.
+- Release tags are not marked as pre-releases: the installer downloads from
+  `releases/latest`, which GitHub resolves only to full releases.
 - The Helm chart is not yet published to a chart repository; it installs from a checkout.
