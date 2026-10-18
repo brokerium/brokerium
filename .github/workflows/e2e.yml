@@ -64,7 +64,7 @@ jobs:
         run: |
           tail -n 200 server.log
           docker ps -a
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: e2e-logs
