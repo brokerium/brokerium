@@ -14,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bvaliev/brokerium/internal/auth"
-	"github.com/bvaliev/brokerium/internal/cluster"
-	"github.com/bvaliev/brokerium/internal/secrets"
-	"github.com/bvaliev/brokerium/internal/store"
-	"github.com/bvaliev/brokerium/internal/version"
-	"github.com/bvaliev/brokerium/internal/webui"
+	"github.com/brokerium/brokerium/internal/auth"
+	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/secrets"
+	"github.com/brokerium/brokerium/internal/store"
+	"github.com/brokerium/brokerium/internal/version"
+	"github.com/brokerium/brokerium/internal/webui"
 )
 
 // SessionCookie is the name of the session cookie.

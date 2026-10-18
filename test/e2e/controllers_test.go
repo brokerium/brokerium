@@ -14,7 +14,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kmsg"
 
-	"github.com/bvaliev/brokerium/internal/kafka"
+	"github.com/brokerium/brokerium/internal/kafka"
 )
 
 // TestControllersDirect checks that Brokerium can read the quorum from the controller listeners

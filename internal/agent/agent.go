@@ -30,8 +30,8 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/bvaliev/brokerium/internal/version"
-	agentv1 "github.com/bvaliev/brokerium/proto/brokerium/agent/v1"
+	"github.com/brokerium/brokerium/internal/version"
+	agentv1 "github.com/brokerium/brokerium/proto/brokerium/agent/v1"
 )
 
 // Config of the agent.

@@ -2,7 +2,7 @@
 
 Research date: 2026-10-15
 
-Research notes for Brokerium ("Brokerium for Apache Kafka"), a source-available control plane and web dashboard for Apache Kafka KRaft clusters: Go server and agent, React/TypeScript dashboard, PostgreSQL. Repository: [github.com/bvaliev/brokerium](https://github.com/bvaliev/brokerium).
+Research notes for Brokerium ("Brokerium for Apache Kafka"), a source-available control plane and web dashboard for Apache Kafka KRaft clusters: Go server and agent, React/TypeScript dashboard, PostgreSQL. Repository: [github.com/brokerium/brokerium](https://github.com/brokerium/brokerium).
 
 The notes are English translations of four research reports (A–D, originally written in Russian), regrouped by topic. Source URLs sit next to the facts they support.
 

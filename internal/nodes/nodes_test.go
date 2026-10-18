@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bvaliev/brokerium/internal/store"
+	"github.com/brokerium/brokerium/internal/store"
 )
 
 func TestRenderController(t *testing.T) {

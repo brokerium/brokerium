@@ -10,7 +10,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kerr"
 
-	"github.com/bvaliev/brokerium/internal/store"
+	"github.com/brokerium/brokerium/internal/store"
 )
 
 func TestUUID(t *testing.T) {

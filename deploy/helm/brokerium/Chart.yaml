@@ -5,9 +5,9 @@ description: Brokerium control plane and dashboard for Apache Kafka clusters
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
-home: https://github.com/bvaliev/brokerium
+home: https://github.com/brokerium/brokerium
 sources:
-  - https://github.com/bvaliev/brokerium
+  - https://github.com/brokerium/brokerium
 keywords: [kafka, kraft, strimzi, rebalancing, dashboard]
 maintainers:
   - name: Bulat Valiev

@@ -22,8 +22,8 @@ import (
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 
-	"github.com/bvaliev/brokerium/internal/store"
-	"github.com/bvaliev/brokerium/internal/version"
+	"github.com/brokerium/brokerium/internal/store"
+	"github.com/brokerium/brokerium/internal/version"
 )
 
 // Security protocols.

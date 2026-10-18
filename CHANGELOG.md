@@ -48,7 +48,7 @@ First public alpha. Every lab scenario of the roadmap runs as an automated end-t
 - Strict Content-Security-Policy for the dashboard.
 - The agent install script verifies the binary against the checksums of its release.
 - Findings and accepted risks:
-  [security review](https://github.com/bvaliev/brokerium/blob/v0.1.0/docs/research/security-review-0.1.0.md).
+  [security review](https://github.com/brokerium/brokerium/blob/v0.1.0/docs/research/security-review-0.1.0.md).
 
 ### Known limitations
 
@@ -56,5 +56,5 @@ First public alpha. Every lab scenario of the roadmap runs as an automated end-t
 - The Helm chart installs from a checkout; it is not published to a chart repository yet.
 - Agent certificates are valid for one year and are not renewed automatically yet.
 
-[Unreleased]: https://github.com/bvaliev/brokerium/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/bvaliev/brokerium/releases/tag/v0.1.0
+[Unreleased]: https://github.com/brokerium/brokerium/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/brokerium/brokerium/releases/tag/v0.1.0

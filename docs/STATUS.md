@@ -4,12 +4,12 @@ Last updated: 2026-10-18
 
 ## Current phase
 
-v0.1.0 is released (https://github.com/bvaliev/brokerium/releases/tag/v0.1.0). Phases 0-7 of
+v0.1.0 is released (https://github.com/brokerium/brokerium/releases/tag/v0.1.0). Phases 0-7 of
 the [roadmap](ROADMAP.md) are done; the next work is the 0.2.0 list under "Next".
 
 ## Done
 
-- **Phase 0, foundation:** public repository https://github.com/bvaliev/brokerium (PolyForm
+- **Phase 0, foundation:** public repository https://github.com/brokerium/brokerium (PolyForm
   Shield 1.0.0, CLA with CLA Assistant, policies, ruleset "main protection" requiring the `go`,
   `web` and `cla` checks, admins bypass), GitHub project "Brokerium Roadmap"
   (https://github.com/users/bvaliev/projects/2), agent memory, ADRs, research notes, owner
@@ -74,10 +74,13 @@ nightly); the Strimzi and VM labs run locally before a release.
 
 ## In progress
 
-- Brand and organization ([ADR 0014](adr/0014-name-protection-and-business-setup.md)): logo
-  concepts are with the owner; then the profile of the GitHub organization `brokerium`, its
-  profile README and the move of this repository into it.
-- Website: plan for a private repository `brokerium/website` hosted on Cloudflare Pages.
+- Brand and organization ([ADR 0014](adr/0014-name-protection-and-business-setup.md)): the
+  repository moved to `brokerium/brokerium` on 2026-10-18 (Go module renamed, links updated, old
+  URLs redirect; the ruleset lost its bypass in the move and got the repository admin bypass
+  back). Open: the logo (the owner asked for other concepts), the organization profile (needs
+  the `admin:org` scope for `gh`) and its profile README.
+- Website: plan in the private repository `brokerium/website` (`PLAN.md`); dark-first design,
+  English only at launch, hosted on Cloudflare Pages.
 
 ## Next
 

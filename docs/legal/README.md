@@ -38,13 +38,17 @@
 - [CONTRIBUTING.md](../../CONTRIBUTING.md), [SECURITY.md](../../SECURITY.md) и
   [NOTICE](../../NOTICE).
 
-## Текущее положение на 15.10.2026
+## Текущее положение на 18.10.2026
 
-- Лицензиар и владелец всех прав — Bulat Valiev как частное лицо; юрлица пока нет.
-- Код лежит в личном репозитории `bvaliev/brokerium`, образы — в личном Docker Hub
-  (`bvaliev/brokerium-server`, `bvaliev/brokerium-agent`).
+- Лицензиар и владелец всех прав — Bulat Valiev как частное лицо; юрлица пока нет. План:
+  сначала OSVČ, позже s.r.o. ([ADR 0014](../adr/0014-name-protection-and-business-setup.md)).
+- Код лежит в репозитории `brokerium/brokerium` организации `brokerium` на GitHub (владелец
+  организации — `bvaliev`), образы — в личном Docker Hub (`bvaliev/brokerium-server`,
+  `bvaliev/brokerium-agent`).
+- Домен `brokerium.kaufen` куплен на имя владельца, DNS в Cloudflare.
 - Подписи CLA собирает CLA Assistant Lite в ветку `cla-signatures` того же репозитория.
-- Имя Brokerium используется как товарный знак, но не зарегистрировано.
+- Имя Brokerium используется как товарный знак, но не зарегистрировано; заявка в EUIPO
+  запланирована на начало 2027 года.
 
 ## Как поддерживать плейбуки
 

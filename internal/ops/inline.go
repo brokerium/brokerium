@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/bvaliev/brokerium/internal/balancer"
-	"github.com/bvaliev/brokerium/internal/cluster"
-	"github.com/bvaliev/brokerium/internal/kafka"
+	"github.com/brokerium/brokerium/internal/balancer"
+	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/kafka"
 )
 
 // ClusterState is a refreshed view with the set of live brokers.

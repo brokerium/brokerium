@@ -1,7 +1,7 @@
 # Direct franz-go access to KRaft controllers (spike)
 
 Research date: 2026-10-15. Kafka 4.3.1, franz-go v1.22.2, lab cluster `delta` (3 controllers,
-4 brokers, dynamic quorum). Issue: [#14](https://github.com/bvaliev/brokerium/issues/14).
+4 brokers, dynamic quorum). Issue: [#14](https://github.com/brokerium/brokerium/issues/14).
 
 ## Question
 

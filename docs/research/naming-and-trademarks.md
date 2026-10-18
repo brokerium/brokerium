@@ -9,7 +9,7 @@ Sources: research report C, section 4 (ASF trademark rules, translated from Russ
 ## Summary
 
 - "Kafka" cannot be used in the product name. Acceptable forms: `<Name> for Apache Kafka` (at the ASF's discretion) and `<Name>, Powered by Apache Kafka`.
-- The product is named **Brokerium**, full form "Brokerium for Apache Kafka" ([repository](https://github.com/bvaliev/brokerium)).
+- The product is named **Brokerium**, full form "Brokerium for Apache Kafka" ([repository](https://github.com/brokerium/brokerium)).
 
 ## ASF trademark rules for "Kafka"
 
@@ -41,7 +41,7 @@ Attribution of this form is required ([ASF Trademark Policy](https://www.apache.
 ### Decision
 
 - Name: **Brokerium**. Product name: "Brokerium for Apache Kafka", following the `<Name> for Apache Kafka` form.
-- Repository: [github.com/bvaliev/brokerium](https://github.com/bvaliev/brokerium).
+- Repository: [github.com/brokerium/brokerium](https://github.com/brokerium/brokerium).
 - Chosen on 2026-10-15.
 
 ### Checks performed

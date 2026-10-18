@@ -10,9 +10,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bvaliev/brokerium/internal/balancer"
-	"github.com/bvaliev/brokerium/internal/cluster"
-	"github.com/bvaliev/brokerium/internal/kafka"
+	"github.com/brokerium/brokerium/internal/balancer"
+	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/kafka"
 )
 
 // PlanDoc is the plan shown to the user before confirmation.

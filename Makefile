@@ -7,9 +7,9 @@ PROFILES ?= alpha
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-LDFLAGS := -s -w -X github.com/bvaliev/brokerium/internal/version.Version=$(VERSION) \
-	-X github.com/bvaliev/brokerium/internal/version.Commit=$(COMMIT) \
-	-X github.com/bvaliev/brokerium/internal/version.Date=$(DATE)
+LDFLAGS := -s -w -X github.com/brokerium/brokerium/internal/version.Version=$(VERSION) \
+	-X github.com/brokerium/brokerium/internal/version.Commit=$(COMMIT) \
+	-X github.com/brokerium/brokerium/internal/version.Date=$(DATE)
 IMAGE_REPO ?= bvaliev
 
 .PHONY: help build build-go web-build web-dev dev test test-go test-web lint proto e2e images \
@@ -54,7 +54,7 @@ proto: ## Regenerate the agent protocol code
 licenses: ## Check dependency licenses against the allowlist
 	$(MISE) go run github.com/google/go-licenses@v1.6.0 check ./... \
 		--allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0 \
-		--ignore github.com/bvaliev/brokerium
+		--ignore github.com/brokerium/brokerium
 	cd web && $(MISE) node scripts/check-licenses.mjs
 
 e2e: ## End-to-end scenarios against a running lab and server

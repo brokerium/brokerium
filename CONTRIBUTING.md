@@ -6,11 +6,11 @@ The fastest way to influence Brokerium is to tell us what you need.
 
 ## Ask for what you want
 
-- **Bug reports:** open an [issue](https://github.com/bvaliev/brokerium/issues/new/choose)
+- **Bug reports:** open an [issue](https://github.com/brokerium/brokerium/issues/new/choose)
   using the bug template. Include the Brokerium version, the Kafka version, the
   cluster type (VM, Kubernetes, managed) and steps to reproduce.
 - **Feature requests and ideas:** open an issue with the feature template or start a
-  [discussion](https://github.com/bvaliev/brokerium/discussions). Describe the
+  [discussion](https://github.com/brokerium/brokerium/discussions). Describe the
   problem you are solving; the maintainer may implement it in a different way.
 - **Security issues:** never open a public issue. Follow [SECURITY.md](SECURITY.md).
 

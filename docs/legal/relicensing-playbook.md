@@ -38,7 +38,7 @@ CLA, параллельно продавать коммерческие лице
    ```bash
    git log --format='%aN <%aE>' | sort -u > authors.txt
    git log --format='%(trailers:key=Co-authored-by,valueonly)' | sort -u >> authors.txt
-   gh pr list --repo bvaliev/brokerium --state merged --limit 1000 \
+   gh pr list --repo brokerium/brokerium --state merged --limit 1000 \
      --json number,author --jq '.[] | "\(.author.login) #\(.number)"' > pr-authors.txt
    git fetch origin cla-signatures
    git show origin/cla-signatures:signatures/version1/cla.json \

@@ -6,7 +6,7 @@ alwaysApply: false
 
 # Go backend conventions
 
-- Go 1.27, `CGO_ENABLED=0`, module `github.com/bvaliev/brokerium`. Run Go through `mise exec --`.
+- Go 1.27, `CGO_ENABLED=0`, module `github.com/brokerium/brokerium`. Run Go through `mise exec --`.
 - First line of every file: `// SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0`.
 - HTTP: standard library `net/http` with method patterns (`mux.HandleFunc("GET /api/v1/...", h)`).
   JSON errors use `{"error": {"code": "...", "message": "..."}}`.

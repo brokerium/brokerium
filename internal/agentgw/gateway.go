@@ -24,9 +24,9 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
-	"github.com/bvaliev/brokerium/internal/auth"
-	"github.com/bvaliev/brokerium/internal/store"
-	agentv1 "github.com/bvaliev/brokerium/proto/brokerium/agent/v1"
+	"github.com/brokerium/brokerium/internal/auth"
+	"github.com/brokerium/brokerium/internal/store"
+	agentv1 "github.com/brokerium/brokerium/proto/brokerium/agent/v1"
 )
 
 // TokenPrefix starts every join token: brk1.<secret>.<CA fingerprint>.

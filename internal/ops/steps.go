@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bvaliev/brokerium/internal/cluster"
-	"github.com/bvaliev/brokerium/internal/kafka"
+	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/kafka"
 )
 
 // Step kinds.

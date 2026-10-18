@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/bvaliev/brokerium/internal/metrics"
-	"github.com/bvaliev/brokerium/internal/ops"
-	"github.com/bvaliev/brokerium/internal/store"
+	"github.com/brokerium/brokerium/internal/metrics"
+	"github.com/brokerium/brokerium/internal/ops"
+	"github.com/brokerium/brokerium/internal/store"
 )
 
 // OperationsAPI exposes the operations engine and traffic estimates.

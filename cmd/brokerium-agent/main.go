@@ -13,8 +13,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/bvaliev/brokerium/internal/agent"
-	"github.com/bvaliev/brokerium/internal/version"
+	"github.com/brokerium/brokerium/internal/agent"
+	"github.com/brokerium/brokerium/internal/version"
 )
 
 func env(name, def string) string {

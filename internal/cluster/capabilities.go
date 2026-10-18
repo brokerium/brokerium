@@ -2,7 +2,7 @@
 
 package cluster
 
-import "github.com/bvaliev/brokerium/internal/store"
+import "github.com/brokerium/brokerium/internal/store"
 
 // Capabilities tell the API and the dashboard which actions a cluster supports (ADR 0004).
 type Capabilities struct {

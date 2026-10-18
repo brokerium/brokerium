@@ -3,6 +3,9 @@
 Brokerium ("Brokerium for Apache Kafka") is a source-available control plane and web dashboard
 for Apache Kafka KRaft clusters: multi-cluster view, broker and controller lifecycle, rebalancing,
 rolling upgrades, and data-plane management. Owner and sole maintainer: Bulat Valiev (`bvaliev`).
+Repository: https://github.com/brokerium/brokerium (GitHub organization `brokerium`; Go module
+`github.com/brokerium/brokerium`). Website: https://brokerium.kaufen (private repository
+`brokerium/website`).
 
 ## Working protocol
 

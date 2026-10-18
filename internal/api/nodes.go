@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bvaliev/brokerium/internal/agentgw"
-	"github.com/bvaliev/brokerium/internal/provider/strimzi"
-	"github.com/bvaliev/brokerium/internal/store"
+	"github.com/brokerium/brokerium/internal/agentgw"
+	"github.com/brokerium/brokerium/internal/provider/strimzi"
+	"github.com/brokerium/brokerium/internal/store"
 )
 
 var nodeNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,62}$`)
@@ -182,9 +182,9 @@ esac
 if [ -n "${BROKERIUM_AGENT_URL:-}" ]; then
   URL="$BROKERIUM_AGENT_URL"
 elif [ "$VERSION" = latest ]; then
-  URL="https://github.com/bvaliev/brokerium/releases/latest/download/brokerium-agent-linux-${ARCH}"
+  URL="https://github.com/brokerium/brokerium/releases/latest/download/brokerium-agent-linux-${ARCH}"
 else
-  URL="https://github.com/bvaliev/brokerium/releases/download/${VERSION}/brokerium-agent-linux-${ARCH}"
+  URL="https://github.com/brokerium/brokerium/releases/download/${VERSION}/brokerium-agent-linux-${ARCH}"
 fi
 id kafka >/dev/null 2>&1 || useradd --system --home-dir /var/lib/kafka --shell /usr/sbin/nologin kafka
 # The agent state holds its private key; kafka may only traverse it to read server.properties.

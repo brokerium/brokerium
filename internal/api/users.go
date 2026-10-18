@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bvaliev/brokerium/internal/auth"
-	"github.com/bvaliev/brokerium/internal/store"
+	"github.com/brokerium/brokerium/internal/auth"
+	"github.com/brokerium/brokerium/internal/store"
 )
 
 func (s *Server) registerUsers() {

@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bvaliev/brokerium/internal/cluster"
-	"github.com/bvaliev/brokerium/internal/kafka"
-	"github.com/bvaliev/brokerium/internal/metrics"
-	"github.com/bvaliev/brokerium/internal/store"
+	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/kafka"
+	"github.com/brokerium/brokerium/internal/metrics"
+	"github.com/brokerium/brokerium/internal/store"
 )
 
 // Errors returned to the API.

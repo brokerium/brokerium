@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bvaliev/brokerium/internal/cluster"
-	"github.com/bvaliev/brokerium/internal/kafka"
-	"github.com/bvaliev/brokerium/internal/ops"
-	"github.com/bvaliev/brokerium/internal/provider/docker"
-	"github.com/bvaliev/brokerium/internal/store"
-	agentv1 "github.com/bvaliev/brokerium/proto/brokerium/agent/v1"
+	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/kafka"
+	"github.com/brokerium/brokerium/internal/ops"
+	"github.com/brokerium/brokerium/internal/provider/docker"
+	"github.com/brokerium/brokerium/internal/store"
+	agentv1 "github.com/brokerium/brokerium/proto/brokerium/agent/v1"
 )
 
 // Step kinds of node lifecycle operations.

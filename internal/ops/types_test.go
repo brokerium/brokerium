@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/bvaliev/brokerium/internal/balancer"
-	"github.com/bvaliev/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/balancer"
+	"github.com/brokerium/brokerium/internal/cluster"
 )
 
 func kinds(steps []StepSpec) []string {

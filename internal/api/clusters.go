@@ -14,9 +14,9 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kadm"
 
-	"github.com/bvaliev/brokerium/internal/cluster"
-	"github.com/bvaliev/brokerium/internal/kafka"
-	"github.com/bvaliev/brokerium/internal/store"
+	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/kafka"
+	"github.com/brokerium/brokerium/internal/store"
 )
 
 var clusterNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)

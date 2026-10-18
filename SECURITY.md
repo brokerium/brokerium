@@ -6,7 +6,7 @@ handled with priority.
 ## Reporting a vulnerability
 
 Do not open a public issue. Report privately through GitHub:
-[Report a vulnerability](https://github.com/bvaliev/brokerium/security/advisories/new).
+[Report a vulnerability](https://github.com/brokerium/brokerium/security/advisories/new).
 
 Please include:
 

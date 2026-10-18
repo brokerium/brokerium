@@ -37,7 +37,7 @@ jobs:
         run: |
           go run github.com/google/go-licenses@v1.6.0 check ./... \
             --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0 \
-            --ignore github.com/bvaliev/brokerium
+            --ignore github.com/brokerium/brokerium
       - name: Helm chart (helm is preinstalled on GitHub runners)
         run: |
           helm lint deploy/helm/brokerium
