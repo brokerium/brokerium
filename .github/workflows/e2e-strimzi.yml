@@ -1,0 +1,72 @@
+name: e2e-strimzi
+
+# TestStrimzi against the Strimzi lab (deploy/lab/strimzi): a kind cluster with the Strimzi
+# operator and the Kafka cluster "lab", driven by a server on the runner. Covers node pool
+# scaling with rebalancing, a rolling restart, an upgrade and its finalization. Runs nightly, on
+# demand and on pull requests that change the Strimzi support. Not a required check.
+on:
+  pull_request:
+    paths:
+      - internal/provider/strimzi/**
+      - internal/nodes/strimzi*.go
+      - deploy/lab/strimzi/**
+      - test/e2e/strimzi_test.go
+      - .github/workflows/e2e-strimzi.yml
+  workflow_dispatch:
+  schedule:
+    - cron: "41 2 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-strimzi-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  strimzi:
+    name: strimzi
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      BROKERIUM_ADMIN_PASSWORD: brokerium-admin
+      BROKERIUM_SNAPSHOT_INTERVAL: 10s
+      BROKERIUM_E2E_STRIMZI_KUBECONFIG: ${{ github.workspace }}/.data/kind.kubeconfig
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: jdx/mise-action@v5.2.0
+        with:
+          install: true
+          install_args: go node pnpm
+      - name: Kind cluster with Strimzi
+        run: deploy/lab/strimzi/strimzi.sh up
+      - name: PostgreSQL
+        run: docker compose -f deploy/lab/compose.yaml up -d --wait postgres
+      - name: Build
+        run: make build
+      - name: Start the server
+        run: |
+          nohup ./bin/brokerium-server > server.log 2>&1 &
+          for i in $(seq 1 60); do curl -fs localhost:8080/readyz && break; sleep 1; done
+      - name: TestStrimzi
+        run: go test -tags e2e -count=1 -timeout 75m -run TestStrimzi -v ./test/e2e
+      - name: Diagnostics
+        if: failure()
+        env:
+          KUBECONFIG: ${{ env.BROKERIUM_E2E_STRIMZI_KUBECONFIG }}
+        run: |
+          mkdir -p logs
+          cp server.log logs/ || true
+          kubectl -n kafka get kafka,kafkanodepools,pods -o wide > logs/resources.txt 2>&1 || true
+          kubectl -n kafka get events --sort-by=.lastTimestamp > logs/events.txt 2>&1 || true
+          kubectl -n kafka logs deployment/strimzi-cluster-operator --tail=-1 > logs/operator.log 2>&1 || true
+          for pod in $(kubectl -n kafka get pods -l strimzi.io/cluster=lab -o name); do
+            kubectl -n kafka logs "$pod" --tail=1000 > "logs/${pod#pod/}.log" 2>&1 || true
+          done
+          cat logs/resources.txt
+          tail -n 200 server.log || true
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: e2e-strimzi-logs
+          path: logs/
