@@ -42,7 +42,20 @@ never returned by the API. Back up the key together with the database.
 - On hosts the agent runs as root to manage the Kafka unit; Kafka runs as the `kafka` account.
   The join token lives in `/etc/brokerium-agent.env` (mode 0600).
 - The install script checks the agent binary against the `SHA256SUMS` of its release.
-- Agent certificates are valid for one year; automatic renewal is planned for 0.2.0.
+- Agent certificates and the certificate of the agent gateway are valid for
+  `BROKERIUM_AGENT_CERT_LIFETIME` (one year by default). After two thirds of the lifetime the
+  agent creates a new key and requests a new certificate over its mutual TLS connection; the
+  connection and Kafka keep running, and the next connection uses the new certificate. The
+  certificate the renewal was requested with stays valid until the agent connects with the new
+  one, so a lost response does not lock the agent out. The server replaces its own gateway
+  certificate the same way.
+- The **Nodes** page shows when each agent certificate expires. A certificate that was not
+  renewed in time (within 30 days of its expiry, or a sixth of a short lifetime) is a warning
+  in the health of its cluster, an expired one is critical. Agents older than 0.2.0 do not
+  renew: upgrade them before their certificates expire.
+- An agent with an expired certificate cannot connect. Run the install command with a new
+  join token on the host: the agent enrolls again under the same node name and Kafka is not
+  touched.
 
 ## Reporting vulnerabilities
 

@@ -521,7 +521,13 @@ export interface AgentNode {
   lastSeenAt: string | null;
   createdAt: string;
   connected: boolean;
+  /** Expiry of the current agent certificate; unknown until the agent connects. */
+  certNotAfter: string | null;
+  certificateState: CertificateState;
 }
+
+/** expiring: close to its expiry and not renewed; empty when the expiry is unknown. */
+export type CertificateState = '' | 'ok' | 'expiring' | 'expired';
 
 /** POST /join-tokens */
 export interface JoinTokenResponse {

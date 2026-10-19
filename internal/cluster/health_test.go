@@ -4,6 +4,7 @@ package cluster
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -173,5 +174,34 @@ func TestCapabilitiesFor(t *testing.T) {
 		if got := CapabilitiesFor(&tc.c, tc.static); !tc.check(got) {
 			t.Errorf("%s: %+v", tc.name, got)
 		}
+	}
+}
+
+func TestCertificateIssues(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	at := func(d time.Duration) *time.Time { v := now.Add(d); return &v }
+	nodes := []*store.Node{
+		{Name: "alpha-b101", CertNotAfter: at(200 * 24 * time.Hour)},
+		{Name: "alpha-b102", CertNotAfter: at(10 * 24 * time.Hour)},
+		{Name: "alpha-b103", CertNotAfter: at(-time.Hour)},
+		{Name: "alpha-b104"},
+	}
+	got := map[string]string{}
+	for _, i := range CertificateIssues(nodes, now, 30*24*time.Hour) {
+		got[i.Code] += i.Severity
+		if !strings.Contains(i.Message, "alpha-b10") {
+			t.Errorf("issue %q does not name the node", i.Message)
+		}
+	}
+	want := map[string]string{"agent_certificate_expiring": HealthWarning, "agent_certificate_expired": HealthCritical}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("CertificateIssues = %v, want %v", got, want)
+	}
+
+	h := Health{Status: HealthOK, Issues: CertificateIssues(nodes[:2], now, 30*24*time.Hour)}
+	h.settle()
+	if h.Status != HealthWarning {
+		t.Errorf("status %s with an expiring certificate, want %s", h.Status, HealthWarning)
 	}
 }

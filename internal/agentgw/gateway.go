@@ -52,6 +52,8 @@ type Gateway struct {
 	Store *store.Store
 	CA    *CA
 	Log   *slog.Logger
+	// CertLifetime of agent certificates and of the certificate the gateway serves.
+	CertLifetime time.Duration
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -60,7 +62,7 @@ type Gateway struct {
 
 // New creates a gateway.
 func New(st *store.Store, ca *CA, log *slog.Logger) *Gateway {
-	return &Gateway{Store: st, CA: ca, Log: log, sessions: map[string]*session{}}
+	return &Gateway{Store: st, CA: ca, Log: log, CertLifetime: DefaultCertLifetime, sessions: map[string]*session{}}
 }
 
 // NewJoinToken creates a single-use token for a node name.
@@ -76,15 +78,15 @@ func (g *Gateway) NewJoinToken(ctx context.Context, nodeName string, clusterID *
 
 // Serve starts the gRPC server on addr until ctx ends.
 func (g *Gateway) Serve(ctx context.Context, addr string, serverNames []string) error {
-	cert, err := g.CA.ServerCertificate(serverNames)
-	if err != nil {
+	serving := &servingCert{issue: func() (tls.Certificate, error) { return g.CA.ServerCertificate(serverNames, g.CertLifetime) }}
+	if _, err := serving.get(nil); err != nil {
 		return err
 	}
 	tlsCfg := &tls.Config{
-		MinVersion:   tls.VersionTLS13,
-		Certificates: []tls.Certificate{cert},
-		ClientAuth:   tls.VerifyClientCertIfGiven,
-		ClientCAs:    g.CA.Pool(),
+		MinVersion:     tls.VersionTLS13,
+		GetCertificate: serving.get,
+		ClientAuth:     tls.VerifyClientCertIfGiven,
+		ClientCAs:      g.CA.Pool(),
 	}
 	srv := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(tlsCfg)),
@@ -123,35 +125,56 @@ func (g *Gateway) Enroll(ctx context.Context, req *agentv1.EnrollRequest) (*agen
 	} else if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	der, fp, err := g.CA.SignAgent(req.GetCsrDer(), node.ID)
+	cert, err := g.CA.SignAgent(req.GetCsrDer(), node.ID, g.CertLifetime)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if err := g.Store.UpdateNodeEnrollment(ctx, node.ID, fp, req.GetHostname(), req.GetAgentVersion()); err != nil {
+	if err := g.Store.UpdateNodeEnrollment(ctx, node.ID, cert.Fingerprint, cert.NotAfter, req.GetHostname(), req.GetAgentVersion()); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	g.Log.Info("agent enrolled", "node", node.Name, "id", node.ID, "hostname", req.GetHostname())
-	return &agentv1.EnrollResponse{NodeId: node.ID, NodeName: node.Name, CertDer: der, CaCertDer: g.CA.DER}, nil
+	return &agentv1.EnrollResponse{NodeId: node.ID, NodeName: node.Name, CertDer: cert.DER, CaCertDer: g.CA.DER}, nil
 }
 
-func (g *Gateway) authenticate(ctx context.Context) (*store.Node, error) {
+// RenewCertificate signs a new certificate for the node of the calling certificate. The calling
+// certificate stays valid until the agent connects with the new one, so a lost response or a
+// failed write on the agent does not lock it out.
+func (g *Gateway) RenewCertificate(ctx context.Context, req *agentv1.RenewCertificateRequest) (*agentv1.RenewCertificateResponse, error) {
+	node, leaf, err := g.authenticate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cert, err := g.CA.SignAgent(req.GetCsrDer(), node.ID, g.CertLifetime)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if err := g.Store.RenewNodeCertificate(ctx, node.ID, fingerprint(leaf), cert.Fingerprint, cert.NotAfter); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	g.Log.Info("agent certificate renewed", "node", node.Name, "notAfter", cert.NotAfter)
+	return &agentv1.RenewCertificateResponse{CertDer: cert.DER, CaCertDer: g.CA.DER}, nil
+}
+
+// authenticate accepts the current certificate of a node and, after a renewal, the certificate
+// the renewal was requested with.
+func (g *Gateway) authenticate(ctx context.Context) (*store.Node, *x509.Certificate, error) {
 	p, ok := peer.FromContext(ctx)
 	if !ok {
-		return nil, status.Error(codes.Unauthenticated, "no peer")
+		return nil, nil, status.Error(codes.Unauthenticated, "no peer")
 	}
 	info, ok := p.AuthInfo.(credentials.TLSInfo)
 	if !ok || len(info.State.VerifiedChains) == 0 || len(info.State.PeerCertificates) == 0 {
-		return nil, status.Error(codes.Unauthenticated, "client certificate required")
+		return nil, nil, status.Error(codes.Unauthenticated, "client certificate required")
 	}
 	leaf := info.State.PeerCertificates[0]
 	node, err := g.Store.GetNode(ctx, leaf.Subject.CommonName)
 	if err != nil {
-		return nil, status.Error(codes.PermissionDenied, "unknown node")
+		return nil, nil, status.Error(codes.PermissionDenied, "unknown node")
 	}
-	if fingerprint(leaf) != node.CertFingerprint {
-		return nil, status.Error(codes.PermissionDenied, "certificate was replaced by a newer enrollment")
+	if fp := fingerprint(leaf); fp != node.CertFingerprint && (node.PrevCertFingerprint == "" || fp != node.PrevCertFingerprint) {
+		return nil, nil, status.Error(codes.PermissionDenied, "certificate was replaced by a newer enrollment")
 	}
-	return node, nil
+	return node, leaf, nil
 }
 
 func fingerprint(c *x509.Certificate) string {
@@ -161,9 +184,15 @@ func fingerprint(c *x509.Certificate) string {
 
 // Connect is the long-lived command stream of an agent.
 func (g *Gateway) Connect(stream agentv1.AgentService_ConnectServer) error {
-	node, err := g.authenticate(stream.Context())
+	node, leaf, err := g.authenticate(stream.Context())
 	if err != nil {
 		return err
+	}
+	if fp := fingerprint(leaf); fp == node.CertFingerprint &&
+		(node.PrevCertFingerprint != "" || node.CertNotAfter == nil || !node.CertNotAfter.Equal(leaf.NotAfter)) {
+		if err := g.Store.ConfirmNodeCertificate(stream.Context(), node.ID, fp, leaf.NotAfter); err != nil {
+			g.Log.Warn("recording the agent certificate", "node", node.Name, "error", err)
+		}
 	}
 	s := &session{nodeID: node.ID, send: make(chan *agentv1.ServerMessage, 16), done: make(chan struct{}),
 		waiters: map[string]chan *agentv1.CommandResult{}}

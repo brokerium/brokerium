@@ -75,7 +75,9 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	certWarning := agentgw.WarningPeriod(cfg.AgentCertLifetime)
 	clusters := cluster.New(st, box, log)
+	clusters.CertificateWarning = certWarning
 	sampler := metrics.NewSampler(5 * time.Minute)
 	clusters.OnRefresh(func(v *cluster.View) {
 		if v.Snapshot != nil {
@@ -90,6 +92,7 @@ func run(log *slog.Logger) error {
 			"set BROKERIUM_SECRET_KEY to that key or keep BROKERIUM_DATA_DIR on a persistent volume)", err)
 	}
 	gateway := agentgw.New(st, ca, log)
+	gateway.CertLifetime = cfg.AgentCertLifetime
 	dockerClient, err := docker.New(cfg.DockerHost)
 	if err != nil {
 		log.Info("docker provider disabled", "reason", err)
@@ -109,7 +112,8 @@ func run(log *slog.Logger) error {
 		Addr: cfg.HTTPAddr,
 		Handler: srv.Handler(
 			&api.OperationsAPI{Engine: engine, Sampler: sampler},
-			&api.NodesAPI{Gateway: gateway, Pools: nodeManager, PublicURL: cfg.PublicURL, AgentEndpoint: cfg.AgentEndpoint},
+			&api.NodesAPI{Gateway: gateway, Pools: nodeManager, PublicURL: cfg.PublicURL, AgentEndpoint: cfg.AgentEndpoint,
+				CertificateWarning: certWarning},
 		),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

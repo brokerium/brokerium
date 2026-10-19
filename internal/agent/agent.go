@@ -75,13 +75,19 @@ func New(cfg Config, log *slog.Logger) (*Agent, error) {
 
 func (a *Agent) path(name string) string { return filepath.Join(a.cfg.DataDir, name) }
 
-// Run enrolls if needed and keeps the command stream open until ctx ends.
+// Run enrolls if needed and keeps the command stream open until ctx ends. An agent whose
+// certificate expired enrolls again when it is given a join token.
 func (a *Agent) Run(ctx context.Context) error {
-	if err := a.loadIdentity(); err != nil {
+	enrolled := a.loadIdentity() == nil
+	expired := enrolled && a.cfg.Token != "" && a.certificateExpired()
+	if !enrolled || expired {
 		if a.cfg.Token == "" {
 			return errors.New("not enrolled and no join token given (BROKERIUM_AGENT_TOKEN)")
 		}
 		if err := a.enroll(ctx); err != nil {
+			if expired {
+				return fmt.Errorf("the agent certificate expired; enrolling again needs a new join token: %w", err)
+			}
 			return fmt.Errorf("enrolling: %w", err)
 		}
 	}
@@ -115,8 +121,9 @@ func (a *Agent) loadIdentity() error {
 	if err := json.Unmarshal(raw, &a.node); err != nil {
 		return err
 	}
-	for _, f := range []string{"agent.crt", "agent.key", "ca.crt"} {
-		if _, err := os.Stat(a.path(f)); err != nil {
+	certFile, keyFile := a.credentialPaths()
+	for _, f := range []string{certFile, keyFile, a.path("ca.crt")} {
+		if _, err := os.Stat(f); err != nil {
 			return err
 		}
 	}
@@ -164,23 +171,16 @@ func (a *Agent) enroll(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	keyDER, err := x509.MarshalECPrivateKey(key)
-	if err != nil {
+	if err := a.saveCredentials(resp.GetCertDer(), key); err != nil {
 		return err
 	}
-	files := map[string][]byte{
-		"agent.key": pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}),
-		"agent.crt": pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: resp.GetCertDer()}),
-		"ca.crt":    pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: resp.GetCaCertDer()}),
-	}
-	for name, data := range files {
-		if err := os.WriteFile(a.path(name), data, 0o600); err != nil {
-			return err
-		}
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: resp.GetCaCertDer()})
+	if err := writeFileAtomic(a.path("ca.crt"), caPEM, 0o600); err != nil {
+		return err
 	}
 	a.node = identity{NodeID: resp.GetNodeId(), NodeName: resp.GetNodeName()}
 	raw, _ := json.Marshal(a.node)
-	return os.WriteFile(a.path("node.json"), raw, 0o600)
+	return writeFileAtomic(a.path("node.json"), raw, 0o600)
 }
 
 func verifyChain(raw [][]byte, wantCA string) error {
@@ -208,9 +208,13 @@ func verifyChain(raw [][]byte, wantCA string) error {
 }
 
 func (a *Agent) session(ctx context.Context) error {
-	cert, err := tls.LoadX509KeyPair(a.path("agent.crt"), a.path("agent.key"))
+	cert, err := tls.LoadX509KeyPair(a.credentialPaths())
 	if err != nil {
 		return err
+	}
+	if time.Now().After(cert.Leaf.NotAfter) {
+		return fmt.Errorf("the agent certificate expired at %s; run the install command with a new join token",
+			cert.Leaf.NotAfter.UTC().Format(time.RFC3339))
 	}
 	caPEM, err := os.ReadFile(a.path("ca.crt"))
 	if err != nil {
@@ -246,6 +250,7 @@ func (a *Agent) session(ctx context.Context) error {
 		return err
 	}
 	a.log.Info("connected to server", "server", a.cfg.Server)
+	go a.keepCertificateRenewed(sctx, conn, cert.Leaf, pool)
 	go func() {
 		t := time.NewTicker(15 * time.Second)
 		defer t.Stop()

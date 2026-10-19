@@ -13,6 +13,18 @@ service AgentService {
   // Connect is the long-lived mTLS stream: the server sends commands, the agent answers
   // with results and periodic status reports.
   rpc Connect(stream AgentMessage) returns (stream ServerMessage);
+  // RenewCertificate signs a new client certificate for the node of the calling mTLS client
+  // certificate. Agents call it after two thirds of the lifetime of their certificate.
+  rpc RenewCertificate(RenewCertificateRequest) returns (RenewCertificateResponse);
+}
+
+message RenewCertificateRequest {
+  bytes csr_der = 1;
+}
+
+message RenewCertificateResponse {
+  bytes cert_der = 1;
+  bytes ca_cert_der = 2;
 }
 
 message EnrollRequest {

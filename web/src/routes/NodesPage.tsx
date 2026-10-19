@@ -25,7 +25,7 @@ import { Link } from 'react-router';
 
 import { useOverview } from '../api/clusters';
 import { useCreateJoinToken, useDeleteNode, useNodes } from '../api/nodes';
-import type { JoinTokenResponse } from '../api/types';
+import type { AgentNode, JoinTokenResponse } from '../api/types';
 import { confirmAction } from '../components/confirm';
 import { CopyIcon } from '../components/CopyText';
 import { notifySuccess } from '../components/notify';
@@ -33,7 +33,47 @@ import { PageHeader } from '../components/PageHeader';
 import { PageLoader, QueryError } from '../components/QueryState';
 import { RelativeTime } from '../components/RelativeTime';
 import { usePermissions } from '../hooks/usePermissions';
-import { formatBytes, formatDateTime } from '../lib/format';
+import { formatBytes, formatDateTime, formatRelativeTime } from '../lib/format';
+
+/** Expiry of the agent certificate; agents renew it after two thirds of its lifetime. */
+function Certificate({ node }: { node: AgentNode }) {
+  const state = node.certificateState;
+  switch (state) {
+    case '':
+      return (
+        <Text size="sm" c="dimmed">
+          —
+        </Text>
+      );
+    case 'ok':
+      return <RelativeTime value={node.certNotAfter} />;
+    case 'expiring':
+      return (
+        <Tooltip
+          label="Not renewed in time: check that the agent is connected and runs version 0.2.0 or later."
+          withArrow
+          multiline
+          maw={280}
+        >
+          <Badge size="sm" variant="light" color="yellow">
+            expires {formatRelativeTime(node.certNotAfter)}
+          </Badge>
+        </Tooltip>
+      );
+    case 'expired':
+      return (
+        <Tooltip label="Enroll the node again with a new join token." withArrow>
+          <Badge size="sm" variant="light" color="red">
+            expired
+          </Badge>
+        </Tooltip>
+      );
+    default: {
+      const unhandled: never = state;
+      return unhandled;
+    }
+  }
+}
 
 function AddNodeModal({ opened, onClose }: { opened: boolean; onClose: () => void }) {
   const { data: clusters } = useOverview();
@@ -170,7 +210,7 @@ export default function NodesPage() {
               description="Add a node to install brokerium-agent on a Kafka host with a one-time join token."
             />
           ) : (
-            <Table.ScrollContainer minWidth={1100}>
+            <Table.ScrollContainer minWidth={1220}>
               <Table highlightOnHover verticalSpacing="sm">
                 <Table.Thead>
                   <Table.Tr>
@@ -182,6 +222,7 @@ export default function NodesPage() {
                     <Table.Th>Agent</Table.Th>
                     <Table.Th>Connection</Table.Th>
                     <Table.Th>Last seen</Table.Th>
+                    <Table.Th>Certificate</Table.Th>
                     <Table.Th>Kafka</Table.Th>
                     <Table.Th w={48} />
                   </Table.Tr>
@@ -241,6 +282,9 @@ export default function NodesPage() {
                         </Table.Td>
                         <Table.Td>
                           <RelativeTime value={n.lastSeenAt} fallback="never" />
+                        </Table.Td>
+                        <Table.Td>
+                          <Certificate node={n} />
                         </Table.Td>
                         <Table.Td>
                           <Tooltip

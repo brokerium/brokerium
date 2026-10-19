@@ -33,30 +33,36 @@ type Server struct {
 	DockerHost       string
 	LabNetwork       string
 	AgentImage       string
-	SnapshotInterval time.Duration
-	SecureCookies    bool
-	WorkerInterval   time.Duration
+	// AgentCertLifetime of agent certificates and the agent gateway certificate.
+	AgentCertLifetime time.Duration
+	SnapshotInterval  time.Duration
+	SecureCookies     bool
+	WorkerInterval    time.Duration
 }
 
 // LoadServer reads BROKERIUM_* environment variables and applies defaults suitable for the lab.
 func LoadServer() (Server, error) {
 	c := Server{
-		HTTPAddr:         env("BROKERIUM_HTTP_ADDR", ":8080"),
-		GRPCAddr:         env("BROKERIUM_GRPC_ADDR", ":8443"),
-		DatabaseURL:      env("BROKERIUM_DATABASE_URL", "postgres://brokerium:brokerium@localhost:55432/brokerium?sslmode=disable"),
-		DataDir:          env("BROKERIUM_DATA_DIR", ".data/server"),
-		AdminUsername:    env("BROKERIUM_ADMIN_USERNAME", "admin"),
-		AdminPassword:    os.Getenv("BROKERIUM_ADMIN_PASSWORD"),
-		PublicURL:        env("BROKERIUM_PUBLIC_URL", "http://localhost:8080"),
-		AgentEndpoint:    env("BROKERIUM_AGENT_ENDPOINT", "host.docker.internal:8443"),
-		DockerHost:       env("BROKERIUM_DOCKER_HOST", "unix:///var/run/docker.sock"),
-		LabNetwork:       env("BROKERIUM_LAB_NETWORK", "brokerium-lab"),
-		AgentImage:       env("BROKERIUM_AGENT_IMAGE", defaultAgentImage(version.Version)),
-		SecureCookies:    envBool("BROKERIUM_SECURE_COOKIES", false),
-		SnapshotInterval: envDuration("BROKERIUM_SNAPSHOT_INTERVAL", 15*time.Second),
-		WorkerInterval:   envDuration("BROKERIUM_WORKER_INTERVAL", time.Second),
+		HTTPAddr:          env("BROKERIUM_HTTP_ADDR", ":8080"),
+		GRPCAddr:          env("BROKERIUM_GRPC_ADDR", ":8443"),
+		DatabaseURL:       env("BROKERIUM_DATABASE_URL", "postgres://brokerium:brokerium@localhost:55432/brokerium?sslmode=disable"),
+		DataDir:           env("BROKERIUM_DATA_DIR", ".data/server"),
+		AdminUsername:     env("BROKERIUM_ADMIN_USERNAME", "admin"),
+		AdminPassword:     os.Getenv("BROKERIUM_ADMIN_PASSWORD"),
+		PublicURL:         env("BROKERIUM_PUBLIC_URL", "http://localhost:8080"),
+		AgentEndpoint:     env("BROKERIUM_AGENT_ENDPOINT", "host.docker.internal:8443"),
+		DockerHost:        env("BROKERIUM_DOCKER_HOST", "unix:///var/run/docker.sock"),
+		LabNetwork:        env("BROKERIUM_LAB_NETWORK", "brokerium-lab"),
+		AgentImage:        env("BROKERIUM_AGENT_IMAGE", defaultAgentImage(version.Version)),
+		AgentCertLifetime: envDuration("BROKERIUM_AGENT_CERT_LIFETIME", 365*24*time.Hour),
+		SecureCookies:     envBool("BROKERIUM_SECURE_COOKIES", false),
+		SnapshotInterval:  envDuration("BROKERIUM_SNAPSHOT_INTERVAL", 15*time.Second),
+		WorkerInterval:    envDuration("BROKERIUM_WORKER_INTERVAL", time.Second),
 	}
 	c.AgentServerNames = splitList(env("BROKERIUM_AGENT_SERVER_NAMES", "localhost,host.docker.internal,brokerium,brokerium-server"))
+	if c.AgentCertLifetime < time.Minute {
+		return c, errors.New("BROKERIUM_AGENT_CERT_LIFETIME must be at least 1m")
+	}
 
 	if err := os.MkdirAll(c.DataDir, 0o700); err != nil {
 		return c, fmt.Errorf("creating data dir: %w", err)

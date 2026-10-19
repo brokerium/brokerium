@@ -14,6 +14,7 @@
 | [0010](0010-metrics.md) | Agentless metrics first |
 | [0012](0012-strimzi-provider.md) | Strimzi provider through the Kubernetes REST API |
 | [0013](0013-distribution.md) | Releases, images, Helm chart and the agent installer |
+| [0014](0014-agent-certificate-renewal.md) | Agent certificate renewal over the mutual TLS connection |
 
 New ADRs use the next free number and the same structure: status, date, context, decision,
 consequences. Superseded ADRs stay in place with their status changed.

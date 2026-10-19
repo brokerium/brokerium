@@ -28,7 +28,9 @@ type NodesAPI struct {
 	Pools         NodePooler
 	PublicURL     string
 	AgentEndpoint string
-	srv           *Server
+	// CertificateWarning is how long before expiry an agent certificate counts as expiring.
+	CertificateWarning time.Duration
+	srv                *Server
 }
 
 // Register adds the routes.
@@ -45,6 +47,22 @@ func (a *NodesAPI) Register(s *Server) {
 type NodeView struct {
 	*store.Node
 	Connected bool `json:"connected"`
+	// CertificateState of the agent certificate: ok, expiring (not renewed in time), expired or
+	// empty when unknown.
+	CertificateState string `json:"certificateState"`
+}
+
+func certificateState(n *store.Node, now time.Time, warning time.Duration) string {
+	switch {
+	case n.CertNotAfter == nil:
+		return ""
+	case !now.Before(*n.CertNotAfter):
+		return "expired"
+	case n.CertNotAfter.Sub(now) <= warning:
+		return "expiring"
+	default:
+		return "ok"
+	}
 }
 
 // NodePoolView is a Strimzi node pool as the dashboard shows it.
@@ -90,7 +108,8 @@ func (a *NodesAPI) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]NodeView, 0, len(nodes))
 	for _, n := range nodes {
-		out = append(out, NodeView{Node: n, Connected: a.Gateway.Connected(n.ID)})
+		out = append(out, NodeView{Node: n, Connected: a.Gateway.Connected(n.ID),
+			CertificateState: certificateState(n, time.Now(), a.CertificateWarning)})
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{"nodes": out})
 }
