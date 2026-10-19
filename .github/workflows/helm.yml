@@ -60,8 +60,9 @@ jobs:
             kubectl apply --dry-run=server -f "$file"
           done
       - uses: helm/chart-testing-action@v2.9.0
+      # The image of main: the release of a new appVersion is published after the chart change.
       - name: Install
-        run: ct install --charts "$CHART" --helm-extra-args "--timeout 600s"
+        run: ct install --charts "$CHART" --helm-extra-args "--timeout 600s" --helm-extra-set-args "--set=image.tag=edge"
       - name: Diagnostics
         if: failure()
         run: |

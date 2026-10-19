@@ -20,7 +20,7 @@ COPY --from=bvaliev/brokerium-agent:latest /usr/local/bin/brokerium-agent /usr/l
 
 | Tag | Meaning |
 | --- | --- |
-| `latest`, `0.1`, `0.1.0` | The latest release, the latest patch of a minor version, an exact release |
+| `latest`, `0.2`, `0.2.0` | The latest release, the latest patch of a minor version, an exact release |
 | `edge` | The current `main` branch, for testing |
 | `sha-<commit>` | The build of one commit |
 | `0.2.0-lab`, `lab` | Lab node image of a release and of `main`: Apache Kafka with the agent as the main process, for the Docker provider of the server |

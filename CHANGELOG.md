@@ -6,6 +6,51 @@ All notable changes to Brokerium are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-19
+
+Agents renew their certificates, and the Helm chart gets Gateway API routes, a LoadBalancer
+service and its own chart repository.
+
+### Added
+
+- Agent certificate renewal: after two thirds of its lifetime an agent renews its certificate
+  over the existing mutual TLS connection, without restarting Kafka. The **Nodes** page shows
+  when each certificate expires, and a certificate that was not renewed in time becomes a
+  health issue of its cluster. The server renews the certificate of the agent gateway as well.
+  `BROKERIUM_AGENT_CERT_LIFETIME` sets both lifetimes (one year by default).
+- Helm chart networking: an optional `LoadBalancer` service with both ports and an external-dns
+  host name, and Gateway API routes on a created or an existing Gateway: an `HTTPRoute` for the
+  dashboard with HTTPS at the gateway and a `TLSRoute` in passthrough mode for agents. The
+  chart derives the public URL, the agent endpoint and the gateway certificate names from these
+  settings and validates its values with a JSON schema.
+- Helm chart repository: `helm repo add brokerium https://charts.brokerium.kaufen`. The chart is
+  also published as `oci://ghcr.io/brokerium/charts/brokerium` and attached to the release.
+- Lab node image for the Docker provider: `bvaliev/brokerium-agent:0.2.0-lab`, and `:lab` from
+  `main`. A release of the server uses the lab image of its own version by default.
+
+### Changed
+
+- The Brokerium logo in the dashboard, the README and the chart icon.
+- The repository, the images and the agent downloads moved to the `brokerium` organization.
+- On narrow screens the cluster overview keeps the cluster column in view and hides secondary
+  columns.
+- End-to-end scenarios run on every pull request, the Strimzi scenario runs on kind nightly, and
+  the Helm chart is linted, validated and installed on kind when it changes.
+
+### Fixed
+
+- Storage formatting failed for generated cluster ids that start with `-`. New ids never start
+  with a dash, and clusters with such an id format as well.
+- Scaling a Strimzi node pool could start the rebalance before the new brokers accepted
+  connections. The operation now waits until every broker of the pool answers on its listener,
+  and the rebalance retries transient network errors while it plans.
+- The distribution and topic views round the rate window.
+
+### Removed
+
+- The Ingress of the Helm chart and the `service.type` and `service.grpcType` values. Use
+  `gateway.*` or `loadBalancer.*`; the chart README describes the upgrade from chart 0.1.
+
 ## [0.1.0] - 2026-10-18
 
 First public alpha. Every lab scenario of the roadmap runs as an automated end-to-end test.
@@ -56,5 +101,6 @@ First public alpha. Every lab scenario of the roadmap runs as an automated end-t
 - The Helm chart installs from a checkout; it is not published to a chart repository yet.
 - Agent certificates are valid for one year and are not renewed automatically yet.
 
-[Unreleased]: https://github.com/brokerium/brokerium/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/brokerium/brokerium/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/brokerium/brokerium/releases/tag/v0.2.0
 [0.1.0]: https://github.com/brokerium/brokerium/releases/tag/v0.1.0

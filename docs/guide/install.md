@@ -61,7 +61,7 @@ docker run -d --name brokerium -p 8080:8080 -p 8443:8443 \
   -v brokerium-data:/var/lib/brokerium \
   -e BROKERIUM_ADMIN_PASSWORD=change-me \
   -e BROKERIUM_DATABASE_URL='postgres://brokerium:secret@db.example.com:5432/brokerium?sslmode=require' \
-  bvaliev/brokerium-server:0.1.0
+  bvaliev/brokerium-server:0.2.0
 ```
 
 Keep `/var/lib/brokerium` on a volume or set `BROKERIUM_SECRET_KEY`: the server refuses to
@@ -69,7 +69,7 @@ start when the database was sealed with another key.
 
 Images are published to Docker Hub as `bvaliev/brokerium-server` and `bvaliev/brokerium-agent`
 for `linux/amd64` and `linux/arm64`. To build them from source, run
-`make images VERSION=0.1.0`.
+`make images VERSION=0.2.0`.
 
 ### Binary
 
