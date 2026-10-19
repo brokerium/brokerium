@@ -7,5 +7,5 @@ contact_links:
     url: https://github.com/brokerium/brokerium/security/advisories/new
     about: Report vulnerabilities privately, never in a public issue.
   - name: Commercial license or corporate CLA
-    url: https://github.com/brokerium/brokerium/discussions
-    about: Start a discussion titled "[Licensing] ..."; the maintainer follows up privately.
+    url: https://github.com/brokerium/brokerium/blob/main/LICENSING.md#frequently-asked-questions
+    about: Write to licensing@brokerium.kaufen; the maintainer replies personally.
