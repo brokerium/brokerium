@@ -13,6 +13,7 @@ import {
   Text,
   TextInput,
   Tooltip,
+  useMatches,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { IconPlus, IconSearch, IconServer2 } from '@tabler/icons-react';
@@ -36,6 +37,8 @@ function topIssue(summary: ClusterSummary): { text: string; color: string } | nu
   const issue = [...(summary.health.issues ?? [])].sort(bySeverity)[0];
   return issue ? { text: issue.message, color: severityColor(issue.severity) } : null;
 }
+
+const stickyColumn = { position: 'sticky', left: 0, zIndex: 1, background: 'var(--mantine-color-body)' } as const;
 
 function Count({ value, danger }: { value: number; danger?: boolean }) {
   return (
@@ -91,6 +94,7 @@ export default function OverviewPage() {
   const { canOperate } = usePermissions();
   const [adding, { open, close }] = useDisclosure(false);
   const [search, setSearch] = useState('');
+  const tableWidth = useMatches({ base: 760, md: 1000, lg: 1200 });
 
   const clusters = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -170,21 +174,21 @@ export default function OverviewPage() {
             />
           </Group>
 
-          <Paper withBorder radius="md">
-            <Table.ScrollContainer minWidth={1200}>
+          <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
+            <Table.ScrollContainer minWidth={tableWidth}>
               <Table highlightOnHover verticalSpacing="sm">
                 <Table.Thead>
                   <Table.Tr>
-                    <Table.Th>Cluster</Table.Th>
-                    <Table.Th>Type</Table.Th>
+                    <Table.Th style={stickyColumn}>Cluster</Table.Th>
+                    <Table.Th visibleFrom="lg">Type</Table.Th>
                     <Table.Th>Health</Table.Th>
                     <Table.Th>Brokers</Table.Th>
-                    <Table.Th>Controllers</Table.Th>
-                    <Table.Th>metadata.version</Table.Th>
-                    <Table.Th>Partitions</Table.Th>
+                    <Table.Th visibleFrom="md">Controllers</Table.Th>
+                    <Table.Th visibleFrom="lg">metadata.version</Table.Th>
+                    <Table.Th visibleFrom="lg">Partitions</Table.Th>
                     <Table.Th>Under-replicated</Table.Th>
                     <Table.Th>Offline</Table.Th>
-                    <Table.Th>Under min ISR</Table.Th>
+                    <Table.Th visibleFrom="md">Under min ISR</Table.Th>
                     <Table.Th>Top issue</Table.Th>
                   </Table.Tr>
                 </Table.Thead>
@@ -194,7 +198,7 @@ export default function OverviewPage() {
                     const issue = topIssue(summary);
                     return (
                       <Table.Tr key={cluster.id}>
-                        <Table.Td>
+                        <Table.Td style={stickyColumn}>
                           <Stack gap={0}>
                             <Anchor component={Link} to={`/clusters/${encodeURIComponent(cluster.id)}`} fw={600}>
                               {cluster.name}
@@ -204,7 +208,7 @@ export default function OverviewPage() {
                             </Text>
                           </Stack>
                         </Table.Td>
-                        <Table.Td>
+                        <Table.Td visibleFrom="lg">
                           <Group gap={4} wrap="nowrap">
                             <ProviderBadge provider={cluster.provider} />
                             <FlavorBadge flavor={cluster.flavor} />
@@ -216,15 +220,15 @@ export default function OverviewPage() {
                         <Table.Td>
                           <Brokers health={health} />
                         </Table.Td>
-                        <Table.Td>
+                        <Table.Td visibleFrom="md">
                           <Controllers health={health} />
                         </Table.Td>
-                        <Table.Td>
+                        <Table.Td visibleFrom="lg">
                           <Text size="sm" ff="monospace">
                             {health.metadataVersion || '—'}
                           </Text>
                         </Table.Td>
-                        <Table.Td>
+                        <Table.Td visibleFrom="lg">
                           <Count value={health.partitions} />
                         </Table.Td>
                         <Table.Td>
@@ -233,7 +237,7 @@ export default function OverviewPage() {
                         <Table.Td>
                           <Count value={health.offlinePartitions} danger />
                         </Table.Td>
-                        <Table.Td>
+                        <Table.Td visibleFrom="md">
                           <Count value={health.underMinIsr} danger />
                         </Table.Td>
                         <Table.Td maw={320}>
