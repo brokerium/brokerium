@@ -93,8 +93,28 @@ jobs:
         include:
           - image: brokerium-server
             dockerfile: deploy/docker/server.Dockerfile
+            cache: brokerium-server
+            tags: |
+              type=raw,value=edge,enable={{is_default_branch}}
+              type=sha,prefix=sha-
+              type=semver,pattern={{version}}
+              type=semver,pattern={{major}}.{{minor}}
           - image: brokerium-agent
             dockerfile: deploy/docker/agent.Dockerfile
+            cache: brokerium-agent
+            tags: |
+              type=raw,value=edge,enable={{is_default_branch}}
+              type=sha,prefix=sha-
+              type=semver,pattern={{version}}
+              type=semver,pattern={{major}}.{{minor}}
+          # Lab node image for the Docker provider; it must never take the latest tag of the agent.
+          - image: brokerium-agent
+            dockerfile: deploy/docker/agent-lab.Dockerfile
+            cache: brokerium-agent-lab
+            flavor: latest=false
+            tags: |
+              type=raw,value=lab,enable={{is_default_branch}}
+              type=semver,pattern={{version}},suffix=-lab
     steps:
       - uses: actions/checkout@v7.0.1
         if: env.HAS_DOCKERHUB_TOKEN == 'true'
@@ -112,11 +132,8 @@ jobs:
         if: env.HAS_DOCKERHUB_TOKEN == 'true'
         with:
           images: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image }}
-          tags: |
-            type=raw,value=edge,enable={{is_default_branch}}
-            type=sha,prefix=sha-
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+          flavor: ${{ matrix.flavor }}
+          tags: ${{ matrix.tags }}
       - uses: docker/build-push-action@v7.4.0
         if: env.HAS_DOCKERHUB_TOKEN == 'true'
         with:
@@ -130,8 +147,8 @@ jobs:
             VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('edge-{0}', github.sha) }}
             COMMIT=${{ github.sha }}
             DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          cache-from: type=gha,scope=${{ matrix.cache }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache }}
       - name: Skipped
         if: env.HAS_DOCKERHUB_TOKEN != 'true'
         run: echo "DOCKERHUB_TOKEN is not set; skipping image publishing."

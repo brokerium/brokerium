@@ -69,3 +69,20 @@ Brokerium runs in the same Kubernetes cluster (Helm value `rbac.strimzi`). Strim
 **Add cluster → Create a cluster in Docker** builds a cluster from the agent image on the
 server's Docker host (labs and tests). **Settings → Delete cluster nodes** removes the
 containers and volumes again.
+
+The Docker provider has these requirements:
+
+- The server runs directly on the Docker host. The provider publishes the client listener of
+  every node on a port of the host and advertises it as `localhost:<port>`, so a server in a
+  container (unless it uses the host network), on another machine or in Kubernetes cannot reach
+  the nodes.
+- The server reaches the Docker API at `BROKERIUM_DOCKER_HOST` (by default
+  `unix:///var/run/docker.sock`).
+- The Docker network `BROKERIUM_LAB_NETWORK` (by default `brokerium-lab`) exists. The lab
+  creates it; elsewhere run `docker network create brokerium-lab`.
+- Nodes run the lab node image `BROKERIUM_AGENT_IMAGE`: Apache Kafka with the agent as the main
+  process. A release of the server defaults to `bvaliev/brokerium-agent:<version>-lab`, other
+  builds to `bvaliev/brokerium-agent:lab`, published from `main`. `make images` builds the image
+  locally after agent changes.
+- Nodes connect back to the agent gateway at `BROKERIUM_AGENT_ENDPOINT`, by default
+  `host.docker.internal:8443`.

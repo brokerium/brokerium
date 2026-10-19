@@ -62,7 +62,7 @@ Release assets contain `brokerium-server-<os>-<arch>` with the dashboard built i
 | `BROKERIUM_AGENT_SERVER_NAMES` | `localhost,host.docker.internal,brokerium,brokerium-server` | Names in the gateway certificate. |
 | `BROKERIUM_SECURE_COOKIES` | `false` | Set `true` behind HTTPS. |
 | `BROKERIUM_SNAPSHOT_INTERVAL` | `15s` | How often clusters are polled. |
-| `BROKERIUM_DOCKER_HOST`, `BROKERIUM_LAB_NETWORK`, `BROKERIUM_AGENT_IMAGE` | lab values | Docker provider (labs only). |
+| `BROKERIUM_DOCKER_HOST`, `BROKERIUM_LAB_NETWORK`, `BROKERIUM_AGENT_IMAGE` | lab values | Docker provider (labs only, see [Docker lab clusters](clusters.md#docker-lab-clusters)). |
 | `BROKERIUM_DEBUG` | `0` | `1` logs every API request. |
 
 ## Agents on virtual machines and bare metal
