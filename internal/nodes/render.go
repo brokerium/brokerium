@@ -80,11 +80,16 @@ func NodeName(cluster, role string, id int32) string {
 	return fmt.Sprintf("%s-b%d", cluster, id)
 }
 
-// RandomUUID returns a Kafka-style UUID string.
+// RandomUUID returns a Kafka-style UUID string. Like Kafka's Uuid.randomUuid, it never starts
+// with "-", which command-line parsers read as an option.
 func RandomUUID() string {
 	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return base64.RawURLEncoding.EncodeToString(b)
+	for {
+		_, _ = rand.Read(b)
+		if s := base64.RawURLEncoding.EncodeToString(b); !strings.HasPrefix(s, "-") {
+			return s
+		}
+	}
 }
 
 type managed struct {

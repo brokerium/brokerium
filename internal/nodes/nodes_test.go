@@ -3,6 +3,7 @@
 package nodes
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -133,5 +134,19 @@ func TestJavaMajor(t *testing.T) {
 	}
 	if javaMajor(&store.Node{}) != 0 {
 		t.Error("a node without status must report 0")
+	}
+}
+
+func TestRandomUUID(t *testing.T) {
+	t.Parallel()
+	// One random value in 32 starts with "-", so 10000 values cover that case.
+	for range 10000 {
+		id := RandomUUID()
+		if strings.HasPrefix(id, "-") {
+			t.Fatalf("RandomUUID() = %q starts with a dash", id)
+		}
+		if b, err := base64.RawURLEncoding.DecodeString(id); err != nil || len(b) != 16 {
+			t.Fatalf("RandomUUID() = %q does not decode to 16 bytes: %v", id, err)
+		}
 	}
 }
