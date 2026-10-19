@@ -10,12 +10,17 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"strings"
+	"syscall"
 	"time"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/kmsg"
 	"github.com/twmb/franz-go/pkg/sasl"
 	"github.com/twmb/franz-go/pkg/sasl/aws"
 	"github.com/twmb/franz-go/pkg/sasl/oauth"
@@ -94,6 +99,33 @@ func (c *Client) Close() { c.KGO.Close() }
 // Ping verifies that at least one broker answers.
 func (c *Client) Ping(ctx context.Context) error {
 	return c.KGO.Ping(ctx)
+}
+
+// PingBroker sends ApiVersions to one broker on its advertised listener.
+func (c *Client) PingBroker(ctx context.Context, id int32) error {
+	resp, err := kmsg.NewPtrApiVersionsRequest().RequestWith(ctx, c.KGO.Broker(int(id)))
+	if err == nil {
+		err = kerr.ErrorForCode(resp.ErrorCode)
+	}
+	if err != nil {
+		return fmt.Errorf("broker %d: %w", id, err)
+	}
+	return nil
+}
+
+// IsTransient reports whether err is a network or retriable Kafka error that can clear up on its
+// own, such as a broker whose listener does not accept connections yet.
+func IsTransient(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	var (
+		netErr  net.Error
+		readEOF *kgo.ErrFirstReadEOF
+	)
+	return errors.As(err, &readEOF) || errors.As(err, &netErr) || kerr.IsRetriable(err) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET)
 }
 
 func tlsConfig(p Profile) (*tls.Config, error) {

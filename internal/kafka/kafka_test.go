@@ -3,15 +3,41 @@
 package kafka
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"os"
 	"reflect"
+	"syscall"
 	"testing"
 
 	"github.com/twmb/franz-go/pkg/kerr"
 
 	"github.com/brokerium/brokerium/internal/store"
 )
+
+func TestIsTransient(t *testing.T) {
+	t.Parallel()
+	tests := map[string]struct {
+		err  error
+		want bool
+	}{
+		"nil":                {nil, false},
+		"closed connection":  {fmt.Errorf("broker 103: %w", io.EOF), true},
+		"refused connection": {&net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}, true},
+		"retriable kafka":    {fmt.Errorf("alter configs: %w", kerr.NotLeaderForPartition), true},
+		"authorization":      {kerr.ClusterAuthorizationFailed, false},
+		"canceled":           {fmt.Errorf("refresh: %w", context.Canceled), false},
+		"other":              {errors.New("invalid plan"), false},
+	}
+	for name, tt := range tests {
+		if got := IsTransient(tt.err); got != tt.want {
+			t.Errorf("%s: IsTransient(%v) = %v, want %v", name, tt.err, got, tt.want)
+		}
+	}
+}
 
 func TestUUID(t *testing.T) {
 	t.Parallel()

@@ -42,13 +42,18 @@ func (x *Exec) RunStep(ctx context.Context, kind string, args any) (any, error) 
 
 // InlineRebalance plans a rebalance from the current state and executes it within one step:
 // throttle, batches with health gates, cleanup of throttles in every case, preferred election.
+// The plan and the throttle are retried on transient errors; reassignment errors fail the step.
 func InlineRebalance(ctx context.Context, x *Exec, mode string, throttle int64) (any, error) {
-	v, err := x.view(ctx)
-	if err != nil {
-		return nil, err
-	}
-	p := &Planner{Engine: x.Engine, Cluster: x.Cluster, Client: x.Client, View: v}
-	plan, err := balancer.Compute(modelFrom(p, nil), balancer.Options{Mode: mode, RackAware: racksKnown(v)})
+	var plan *balancer.Plan
+	err := transientRetry.run(ctx, x, "the rebalance plan", func() error {
+		v, err := x.view(ctx)
+		if err != nil {
+			return err
+		}
+		p := &Planner{Engine: x.Engine, Cluster: x.Cluster, Client: x.Client, View: v}
+		plan, err = balancer.Compute(modelFrom(p, nil), balancer.Options{Mode: mode, RackAware: racksKnown(v)})
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +72,10 @@ func InlineRebalance(ctx context.Context, x *Exec, mode string, throttle int64) 
 		cctx := context.WithoutCancel(ctx)
 		_, _ = x.RunStep(cctx, KindClearThrottle, targs)
 	}()
-	if _, err := x.RunStep(ctx, KindThrottle, targs); err != nil {
+	if err := transientRetry.run(ctx, x, "the replication throttle", func() error {
+		_, err := x.RunStep(ctx, KindThrottle, targs)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	for i := 0; i < len(assignments); i += DefaultBatchSize {
