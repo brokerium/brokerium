@@ -16,7 +16,10 @@ upgrade Kafka versions, and manage topics, users, ACLs and messages.
 > but interfaces and storage formats may still change between releases. Try it on test
 > clusters before production ones.
 
-![Partition distribution and one-click balancing](docs/images/distribution.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/distribution-dark.png">
+  <img alt="Partition distribution and one-click balancing" src="docs/images/distribution-light.png">
+</picture>
 
 ## Why Brokerium
 
@@ -111,7 +114,10 @@ make dev         # Brokerium server on http://localhost:8080
 - [Runbooks](docs/runbooks/) and the lab scenarios they automate
 - [Architecture decisions](docs/adr/) and the [roadmap](docs/ROADMAP.md)
 
-![Rebalance plan with a before and after preview](docs/images/rebalance-plan.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/rebalance-plan-dark.png">
+  <img alt="Rebalance plan with a before and after preview" src="docs/images/rebalance-plan-light.png">
+</picture>
 
 ## License
 

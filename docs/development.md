@@ -51,6 +51,7 @@ activate mise in your shell.
 | `make lab-certs` | Throwaway CA and certificates for the SASL and SSL listeners of beta |
 | `make images` | Build the server, agent and lab node images locally |
 | `make e2e` | End-to-end scenarios against a running lab and server |
+| `make screenshots` | Recreate cluster alpha with demo data and capture the dashboard into `docs/images` in both themes |
 | `deploy/lab/strimzi/strimzi.sh up\|down` | kind cluster with Strimzi and Kafka "lab"; kubeconfig `.data/kind.kubeconfig` |
 | `deploy/lab/vm/vm.sh up\|down` | Containerized server on port 18080 and systemd hosts for the agent installer |
 
