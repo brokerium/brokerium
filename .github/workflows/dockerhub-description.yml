@@ -1,0 +1,35 @@
+name: Docker Hub description
+
+# Keeps the overview and the short description of the images on Docker Hub in sync with
+# deploy/docker/hub. The Docker Hub token needs the Read, Write, Delete scope for this.
+on:
+  push:
+    branches: [main]
+    paths:
+      - deploy/docker/hub/**
+      - .github/workflows/dockerhub-description.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  description:
+    name: description
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: brokerium-server
+            summary: Control plane and dashboard for Apache Kafka® KRaft clusters
+          - image: brokerium-agent
+            summary: Agent of Brokerium for Apache Kafka® hosts
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: peter-evans/dockerhub-description@v5.0.0
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image }}
+          short-description: ${{ matrix.summary }}
+          readme-filepath: deploy/docker/hub/${{ matrix.image }}.md
