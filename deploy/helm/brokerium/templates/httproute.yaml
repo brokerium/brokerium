@@ -1,0 +1,31 @@
+{{/* SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0 */}}
+{{- if .Values.gateway.http.enabled }}
+{{- $name := include "brokerium.fullname" . }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $name }}
+  labels: {{- include "brokerium.labels" . | nindent 4 }}
+spec:
+  parentRefs: {{- include "brokerium.parentRefs" (dict "root" . "listener" "https") | nindent 4 }}
+  hostnames: [{{ .Values.gateway.http.hostname | quote }}]
+  rules:
+    - backendRefs:
+        - name: {{ $name }}
+          port: {{ .Values.service.http }}
+{{- if and .Values.gateway.create .Values.gateway.http.redirect }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $name }}-redirect
+  labels: {{- include "brokerium.labels" . | nindent 4 }}
+spec:
+  parentRefs: {{- include "brokerium.parentRefs" (dict "root" . "listener" "http") | nindent 4 }}
+  hostnames: [{{ .Values.gateway.http.hostname | quote }}]
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect: { scheme: https, port: 443, statusCode: 301 }
+{{- end }}
+{{- end }}

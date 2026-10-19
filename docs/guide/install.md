@@ -9,20 +9,47 @@ Brokerium to manage at the node level.
 ### Kubernetes with Helm
 
 ```bash
-helm install brokerium deploy/helm/brokerium -n brokerium --create-namespace \
-  --set publicURL=https://brokerium.example.com
+helm repo add brokerium https://charts.brokerium.kaufen
+helm install brokerium brokerium/brokerium -n brokerium --create-namespace
 kubectl -n brokerium get secret brokerium -o jsonpath='{.data.admin-password}' | base64 -d
+kubectl -n brokerium port-forward svc/brokerium 8080:8080
 ```
 
-Values worth setting (see [values.yaml](../../deploy/helm/brokerium/values.yaml)):
+The chart is also published as `oci://ghcr.io/brokerium/charts/brokerium`. Upgrade with
+`helm repo update` and `helm upgrade brokerium brokerium/brokerium -n brokerium`.
+
+Values worth setting (see the [chart README](../../deploy/helm/brokerium/README.md) and
+[values.yaml](../../deploy/helm/brokerium/values.yaml)):
 
 | Value | Purpose |
 | --- | --- |
 | `postgresql.enabled` | Bundled single PostgreSQL for evaluations (default). Set `false` and `database.url` for a managed database. |
 | `secretKey`, `existingSecret` | The key that seals stored cluster credentials. Generated on install and kept on upgrades; back up the Secret. |
-| `agents.endpoint`, `service.grpcType` | Address agents on VMs dial, for example a LoadBalancer for the gRPC port 8443. |
+| `gateway.*` | Gateway API routes: an `HTTPRoute` for the dashboard with HTTPS at the gateway and a `TLSRoute` in passthrough mode for agents. Needs Gateway API 1.5 and Kubernetes 1.31 or later. |
+| `loadBalancer.*` | A `LoadBalancer` service with the dashboard port, the agent port or both, and a host name for external-dns. |
+| `publicURL`, `agents.endpoint` | The dashboard URL and the address agents dial. Derived from `gateway.*` or `loadBalancer.hostname` when empty. |
 | `rbac.strimzi` | ClusterRole for managing Strimzi clusters in the same Kubernetes cluster with the pod's service account. |
-| `ingress.*` | Ingress for the dashboard. |
+
+The agent port (8443) uses mutual TLS with the server's own CA, so a proxy in front of it must
+pass TLS through instead of terminating it. A dashboard with an HTTPS Gateway and agents on
+virtual machines:
+
+```yaml
+gateway:
+  create: true
+  className: eg
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  http:
+    enabled: true
+    hostname: brokerium.example.com
+  agents:
+    enabled: true
+    hostname: agents.brokerium.example.com
+```
+
+Chart 0.2 removed the Ingress: use `gateway.http`, or an Ingress of your own in front of the
+`brokerium` service. `service.type` and `service.grpcType` became `loadBalancer.*`.
 
 The chart runs one replica with the `Recreate` strategy: the operations engine must not run
 twice.

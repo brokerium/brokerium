@@ -3,9 +3,10 @@ apiVersion: v2
 name: brokerium
 description: Brokerium control plane and dashboard for Apache Kafka clusters
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "0.1.0"
-home: https://github.com/brokerium/brokerium
+home: https://brokerium.kaufen
+icon: https://raw.githubusercontent.com/brokerium/brokerium/main/docs/brand/brokerium-mark.svg
 sources:
   - https://github.com/brokerium/brokerium
 keywords: [kafka, kraft, strimzi, rebalancing, dashboard]
@@ -14,3 +15,10 @@ maintainers:
     url: https://github.com/bvaliev
 annotations:
   licenses: LicenseRef-PolyForm-Shield-1.0.0
+  artifacthub.io/license: LicenseRef-PolyForm-Shield-1.0.0
+  artifacthub.io/category: streaming-messaging
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://brokerium.kaufen/docs/
+    - name: Source code
+      url: https://github.com/brokerium/brokerium

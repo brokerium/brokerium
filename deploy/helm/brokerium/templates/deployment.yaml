@@ -44,13 +44,13 @@ spec:
             - name: BROKERIUM_ADMIN_PASSWORD
               valueFrom: { secretKeyRef: { name: {{ $secret }}, key: admin-password } }
             - name: BROKERIUM_PUBLIC_URL
-              value: {{ .Values.publicURL | quote }}
+              value: {{ include "brokerium.publicURL" . | quote }}
             - name: BROKERIUM_AGENT_ENDPOINT
               value: {{ include "brokerium.agentEndpoint" . | quote }}
             - name: BROKERIUM_AGENT_SERVER_NAMES
-              value: {{ concat (list $name (printf "%s.%s.svc" $name .Release.Namespace) (include "brokerium.agentEndpoint" . | splitList ":" | first)) .Values.agents.serverNames | uniq | join "," | quote }}
+              value: {{ include "brokerium.agentServerNames" . | quote }}
             - name: BROKERIUM_SECURE_COOKIES
-              value: {{ .Values.secureCookies | quote }}
+              value: {{ or .Values.secureCookies (hasPrefix "https://" (include "brokerium.publicURL" .)) | quote }}
             - name: BROKERIUM_SNAPSHOT_INTERVAL
               value: {{ .Values.snapshotInterval | quote }}
             - name: BROKERIUM_DEBUG
