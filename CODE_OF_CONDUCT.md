@@ -24,8 +24,7 @@ conversation about it to be useful, respectful and safe.
 The maintainer may edit or remove comments, lock discussions, and block people who
 violate this code, temporarily or permanently. To report a problem privately, use
 [GitHub's reporting tools](https://docs.github.com/en/communities/maintaining-your-safety-on-github/reporting-abuse-or-spam)
-or contact the maintainer through a discussion marked "Moderation request" without
-sharing details publicly.
+or write to the maintainer at [hello@brokerium.kaufen](mailto:hello@brokerium.kaufen).
 
 This code applies to all project spaces: issues, pull requests, discussions and any
 other channel run by the project.

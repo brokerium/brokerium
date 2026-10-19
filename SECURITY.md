@@ -7,6 +7,8 @@ handled with priority.
 
 Do not open a public issue. Report privately through GitHub:
 [Report a vulnerability](https://github.com/brokerium/brokerium/security/advisories/new).
+If you cannot use GitHub, write to
+[security@brokerium.kaufen](mailto:security@brokerium.kaufen).
 
 Please include:
 
