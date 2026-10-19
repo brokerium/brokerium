@@ -29,6 +29,10 @@ Pull requests are welcome, with a few rules:
 5. **The maintainer decides.** A pull request may be declined, or the maintainer may
    implement the idea independently instead of merging it. Only the maintainer merges.
 
+Every change to `main`, including the maintainer's own, goes through a pull request that
+passes the required checks (`go`, `web`, `cla`, `e2e`) and is merged as a single squashed
+commit.
+
 GitHub Actions do not run on pull requests from new contributors until the
 maintainer approves them.
 
