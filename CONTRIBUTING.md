@@ -48,6 +48,9 @@ make dev                   # Brokerium server and dashboard in development mode
 make test                  # unit tests
 ```
 
+See the [development guide](docs/development.md) for the repository layout, all commands and
+the lab.
+
 ## Conventions
 
 - Go code is formatted with `gofmt` and checked with `golangci-lint`.

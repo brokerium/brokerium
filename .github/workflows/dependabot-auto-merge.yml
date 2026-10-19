@@ -1,7 +1,8 @@
 name: dependabot auto-merge
 
 # Minor and patch updates from Dependabot merge on their own once the required checks pass;
-# major updates wait for a maintainer.
+# major updates wait for a maintainer. The squashed commit keeps Dependabot's commit message
+# rather than the long pull request description.
 on: pull_request
 
 permissions:
@@ -23,4 +24,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
-        run: gh pr merge --auto --squash "$PR_URL"
+        run: |
+          body=$(gh pr view "$PR_URL" --json commits --jq '.commits[0].messageBody')
+          gh pr merge --auto --squash --body "$body" "$PR_URL"
