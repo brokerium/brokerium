@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"reflect"
+	"regexp"
 	"syscall"
 	"testing"
 
@@ -17,6 +18,16 @@ import (
 
 	"github.com/brokerium/brokerium/internal/store"
 )
+
+func TestPingRequest(t *testing.T) {
+	t.Parallel()
+	// The pattern brokers apply to the client software fields of ApiVersions v3 and later.
+	valid := regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9\-.]*[a-zA-Z0-9])?$`)
+	req := pingRequest()
+	if !valid.MatchString(req.ClientSoftwareName) || !valid.MatchString(req.ClientSoftwareVersion) {
+		t.Errorf("software name %q and version %q must match %s", req.ClientSoftwareName, req.ClientSoftwareVersion, valid)
+	}
+}
 
 func TestIsTransient(t *testing.T) {
 	t.Parallel()

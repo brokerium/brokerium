@@ -67,6 +67,10 @@ activate mise in your shell.
 
 The Strimzi lab uses its own kubeconfig in `.data/` and never touches `~/.kube/config`.
 
+In CI, the `e2e` workflow runs the scenarios against the beta lab and Docker clusters on every
+pull request. The `e2e-strimzi` workflow runs `TestStrimzi` on a kind cluster nightly, on demand
+and on pull requests that change the Strimzi support.
+
 ## Lab
 
 The clusters, ports and node ids are described in [deploy/lab/README.md](../deploy/lab/README.md).

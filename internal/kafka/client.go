@@ -60,7 +60,7 @@ func NewClient(p Profile, extra ...kgo.Opt) (*Client, error) {
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(p.BootstrapServers...),
 		kgo.ClientID("brokerium"),
-		kgo.SoftwareNameAndVersion("brokerium", strings.TrimPrefix(version.Version, "v")),
+		kgo.SoftwareNameAndVersion(softwareName, softwareVersion()),
 		kgo.RequestTimeoutOverhead(10 * time.Second),
 		kgo.RetryTimeout(15 * time.Second),
 		kgo.DialTimeout(5 * time.Second),
@@ -101,9 +101,22 @@ func (c *Client) Ping(ctx context.Context) error {
 	return c.KGO.Ping(ctx)
 }
 
+const softwareName = "brokerium"
+
+func softwareVersion() string { return strings.TrimPrefix(version.Version, "v") }
+
+// pingRequest is an ApiVersions request. Brokers reject version 3 and later with
+// INVALID_REQUEST unless the client software name and version are set.
+func pingRequest() *kmsg.ApiVersionsRequest {
+	req := kmsg.NewPtrApiVersionsRequest()
+	req.ClientSoftwareName = softwareName
+	req.ClientSoftwareVersion = softwareVersion()
+	return req
+}
+
 // PingBroker sends ApiVersions to one broker on its advertised listener.
 func (c *Client) PingBroker(ctx context.Context, id int32) error {
-	resp, err := kmsg.NewPtrApiVersionsRequest().RequestWith(ctx, c.KGO.Broker(int(id)))
+	resp, err := pingRequest().RequestWith(ctx, c.KGO.Broker(int(id)))
 	if err == nil {
 		err = kerr.ErrorForCode(resp.ErrorCode)
 	}
