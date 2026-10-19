@@ -26,7 +26,7 @@ export default defineConfig([
     },
   },
   {
-    files: ['vite.config.ts'],
+    files: ['vite.config.ts', 'playwright.screenshots.config.ts', 'screenshots/**/*.ts'],
     languageOptions: { globals: globals.node },
   },
 ]);

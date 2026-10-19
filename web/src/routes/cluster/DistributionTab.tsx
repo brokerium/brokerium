@@ -179,7 +179,7 @@ export default function DistributionTab() {
         description={
           rateData ? (
             <>
-              Agentless estimates over {rateData.windowSeconds} s · sampled{' '}
+              Agentless estimates over {Math.round(rateData.windowSeconds)} s · sampled{' '}
               <RelativeTime value={rateData.sampledAt} size="sm" c="dimmed" />
             </>
           ) : undefined

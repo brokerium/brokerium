@@ -12,7 +12,7 @@ LDFLAGS := -s -w -X github.com/brokerium/brokerium/internal/version.Version=$(VE
 	-X github.com/brokerium/brokerium/internal/version.Date=$(DATE)
 IMAGE_REPO ?= bvaliev
 
-.PHONY: help build build-go web-build web-dev dev test test-go test-web lint proto e2e images \
+.PHONY: help build build-go web-build web-dev dev test test-go test-web lint proto e2e screenshots images \
 	lab-up lab-down lab-reset lab-certs lab-ps lab-quorum lab-load licenses
 
 help: ## Show targets
@@ -59,6 +59,10 @@ licenses: ## Check dependency licenses against the allowlist
 
 e2e: ## End-to-end scenarios against a running lab and server
 	$(MISE) go test -tags e2e -count=1 -timeout 60m ./test/e2e/...
+
+screenshots: build ## Capture dashboard screenshots into docs/images from the lab with demo data
+	cd web && $(MISE) pnpm exec playwright install chromium
+	deploy/lab/screenshots.sh
 
 images: ## Build container images locally
 	docker build -f deploy/docker/server.Dockerfile --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO)/brokerium-server:$(VERSION) .
