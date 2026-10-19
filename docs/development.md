@@ -81,3 +81,19 @@ A few facts that matter while developing:
 - Strimzi lab: kind cluster `brokerium`, Kafka `lab` with node pools `controllers` (ids 0-9)
   and `brokers` (ids 100+), node ports 32100-32105 on localhost.
 - VM lab: Debian containers with systemd and the server container on port 18080.
+
+## Releases
+
+A tag `vX.Y.Z` publishes a release:
+
+- the `release` workflow attaches the binaries, the Helm chart `brokerium-X.Y.Z.tgz`,
+  `SHA256SUMS` and an SBOM to the GitHub release, with the notes of the matching section of
+  `CHANGELOG.md`;
+- it pushes the chart to `oci://ghcr.io/brokerium/charts` and runs the `helm-repo` workflow,
+  which rebuilds the index of https://charts.brokerium.kaufen (GitHub Pages) from the charts of
+  all releases;
+- the `CI` workflow publishes `bvaliev/brokerium-server` and `bvaliev/brokerium-agent` as
+  `X.Y.Z`, `X.Y` and `latest`, and the lab node image as `bvaliev/brokerium-agent:X.Y.Z-lab`.
+
+The tag sets the chart version and `appVersion`. The `helm` workflow checks every change to the
+chart: lint, schema validation of each networking mode and an install on kind.

@@ -1,0 +1,46 @@
+name: helm-repo
+
+# Publishes the Helm repository https://charts.brokerium.kaufen on GitHub Pages. index.yaml lists
+# the chart of every release (deploy/helm/repo/build-index.sh). The release workflow calls this
+# workflow after a release; run it by hand to rebuild the index.
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: v4.3.1
+      - name: Index
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACTHUB_REPOSITORY_ID: ${{ vars.ARTIFACTHUB_REPOSITORY_ID }}
+        run: deploy/helm/repo/build-index.sh site
+      - uses: actions/upload-pages-artifact@v5.0.0
+        with:
+          path: site
+
+  deploy:
+    name: deploy
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5.0.1

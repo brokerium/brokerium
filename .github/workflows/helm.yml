@@ -1,0 +1,70 @@
+name: helm
+
+# Checks the Helm chart: lint, renders of every networking mode validated against the Kubernetes
+# and Gateway API schemas and by a kind API server with the Gateway API 1.5 CRDs, and an install
+# with the bundled PostgreSQL that waits until the server is ready. Runs when the chart changes.
+on:
+  pull_request:
+    paths:
+      - deploy/helm/**
+      - .github/workflows/helm.yml
+  push:
+    branches: [main]
+    paths:
+      - deploy/helm/**
+      - .github/workflows/helm.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CHART: deploy/helm/brokerium
+  GATEWAY_API_VERSION: v1.5.0
+  KUBECONFORM_VERSION: v0.8.0
+
+jobs:
+  chart:
+    name: chart
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: v4.3.1
+      - name: Lint
+        run: helm lint --strict "$CHART"
+      - name: Render
+        run: |
+          mkdir -p rendered
+          helm template brokerium "$CHART" > rendered/default.yaml
+          for values in deploy/helm/test-values/*.yaml; do
+            helm template brokerium "$CHART" -f "$values" > "rendered/$(basename "$values")"
+          done
+      - name: Validate against the schemas
+        run: |
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" |
+            tar -xz -C "$RUNNER_TEMP" kubeconform
+          "$RUNNER_TEMP/kubeconform" -strict -summary -kubernetes-version 1.31.0 \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            rendered/*.yaml
+      - uses: helm/kind-action@v1.15.1
+      - name: Validate with the API server
+        run: |
+          kubectl apply --server-side -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml" > /dev/null
+          kubectl wait --for condition=Established --timeout=60s crd --all > /dev/null
+          for file in rendered/*.yaml; do
+            echo "== $file"
+            kubectl apply --dry-run=server -f "$file"
+          done
+      - uses: helm/chart-testing-action@v2.9.0
+      - name: Install
+        run: ct install --charts "$CHART" --helm-extra-args "--timeout 600s"
+      - name: Diagnostics
+        if: failure()
+        run: |
+          kubectl get all -A
+          kubectl get events -A --sort-by=.lastTimestamp | tail -n 50
+          kubectl logs -A -l app.kubernetes.io/name=brokerium --tail=200 || true

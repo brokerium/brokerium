@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# Chart CI: render with a created Gateway, the dashboard route and the agent route.
+gateway:
+  create: true
+  className: example
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  http:
+    enabled: true
+    hostname: brokerium.example.com
+  agents:
+    enabled: true
+    hostname: agents.brokerium.example.com
