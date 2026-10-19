@@ -45,7 +45,7 @@ jobs:
             echo "Only documentation changed; skipping the lab."
           fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
-      - uses: jdx/mise-action@v5.1.2
+      - uses: jdx/mise-action@v5.2.0
         if: steps.changes.outputs.code == 'true'
         with:
           install: true
