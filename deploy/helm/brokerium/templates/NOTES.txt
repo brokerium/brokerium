@@ -1,14 +1,31 @@
+{{- $name := include "brokerium.fullname" . -}}
+{{- $lb := include "brokerium.lbHostname" . -}}
 Brokerium {{ .Chart.AppVersion }} is starting in namespace {{ .Release.Namespace }}.
 
-Dashboard:
-  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "brokerium.fullname" . }} 8080:{{ .Values.service.http }}
-  open http://localhost:8080
+Dashboard: {{ include "brokerium.publicURL" . }}
+{{- if .Values.gateway.http.enabled }}
+  served by the HTTPRoute {{ $name }}.
+{{- else if and .Values.loadBalancer.enabled (has "http" .Values.loadBalancer.ports) }}
+  served by the LoadBalancer service {{ $name }}-lb.
+{{- if not (or $lb .Values.publicURL) }}
+  Set publicURL (and agents.endpoint) to its external address:
+  kubectl -n {{ .Release.Namespace }} get svc {{ $name }}-lb
+{{- end }}
+{{- else }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ $name }} 8080:{{ .Values.service.http }}
+{{- end }}
 
 Administrator: {{ .Values.admin.username }}
   kubectl -n {{ .Release.Namespace }} get secret {{ include "brokerium.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
 
-Agents dial {{ include "brokerium.agentEndpoint" . }}; set agents.endpoint to an address reachable
-from your Kafka hosts. Strimzi clusters in this Kubernetes cluster can use in-cluster access
+Agents dial {{ include "brokerium.agentEndpoint" . }}
+{{- if .Values.agents.endpoint }}.
+{{- else if .Values.gateway.agents.enabled }} through the TLSRoute {{ $name }}-agents.
+{{- else if and $lb (has "grpc" .Values.loadBalancer.ports) }} through the LoadBalancer service {{ $name }}-lb.
+{{- else }}, which only works inside this Kubernetes cluster.
+  For agents on other hosts enable gateway.agents or loadBalancer, or set agents.endpoint.
+{{- end }}
+Strimzi clusters in this Kubernetes cluster can use in-cluster access
 {{- if not .Values.rbac.strimzi }} once rbac.strimzi is enabled{{ end }}.
 
 Keep the Secret {{ include "brokerium.secretName" . }}: its secret-key decrypts stored cluster credentials.

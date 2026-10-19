@@ -1,0 +1,52 @@
+{{/* SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0 */}}
+{{- if .Values.gateway.create }}
+{{- $name := include "brokerium.fullname" . }}
+{{- with .Values.gateway }}
+{{- if not (or .http.enabled .agents.enabled) }}
+{{- fail "gateway.create needs gateway.http.enabled, gateway.agents.enabled or both" }}
+{{- end }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ $name }}
+  labels: {{- include "brokerium.labels" $ | nindent 4 }}
+  {{- with .annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  gatewayClassName: {{ required "gateway.className is required when gateway.create is true" .className }}
+  listeners:
+    {{- if .http.enabled }}
+    {{- if .http.redirect }}
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: {{ .http.hostname | quote }}
+      allowedRoutes:
+        namespaces: { from: Same }
+    {{- end }}
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: {{ .http.hostname | quote }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: {{ .http.tlsSecretName | default (printf "%s-tls" $name) }}
+      allowedRoutes:
+        namespaces: { from: Same }
+    {{- end }}
+    {{- if .agents.enabled }}
+    - name: agents
+      protocol: TLS
+      port: {{ .agents.port }}
+      hostname: {{ .agents.hostname | quote }}
+      tls:
+        mode: Passthrough
+      allowedRoutes:
+        namespaces: { from: Same }
+        kinds: [{ kind: TLSRoute }]
+    {{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,39 @@
+{{/* SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0 */}}
+{{- with .Values.loadBalancer }}
+{{- if .enabled }}
+{{- if not .ports }}
+{{- fail "loadBalancer.ports needs http, grpc or both" }}
+{{- end }}
+{{- $annotations := .annotations | default dict }}
+{{- if .hostname }}
+{{- $annotations = merge (dict "external-dns.alpha.kubernetes.io/hostname" .hostname) $annotations }}
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "brokerium.fullname" $ }}-lb
+  labels: {{- include "brokerium.labels" $ | nindent 4 }}
+  {{- with $annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: LoadBalancer
+  {{- with .loadBalancerClass }}
+  loadBalancerClass: {{ . }}
+  {{- end }}
+  {{- with .sourceRanges }}
+  loadBalancerSourceRanges: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  selector: {{- include "brokerium.selectorLabels" $ | nindent 4 }}
+  ports:
+    {{- if has "http" .ports }}
+    - { name: http, port: {{ $.Values.service.http }}, targetPort: http }
+    {{- end }}
+    {{- if has "grpc" .ports }}
+    - { name: grpc, port: {{ $.Values.service.grpc }}, targetPort: grpc }
+    {{- end }}
+{{- end }}
+{{- end }}

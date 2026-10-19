@@ -32,29 +32,66 @@ postgresql:
   storage: 5Gi
   storageClass: ""
 
-# Public URL of the dashboard, used in links and in agent install commands.
-publicURL: "http://localhost:8080"
+# Public URL of the dashboard, used in links and in agent install commands. Empty means
+# https://<gateway.http.hostname> with the Gateway, http://<loadBalancer.hostname>:<service.http>
+# with a LoadBalancer host name, and http://localhost:8080 (port-forward) otherwise.
+publicURL: ""
 
 agents:
-  # host:port agents dial for the gRPC gateway. Agents outside the cluster need an external
-  # address (service type LoadBalancer or a TCP ingress) listed here.
+  # host:port agents dial for the agent gateway. Empty means <gateway.agents.hostname>:<port>
+  # with the Gateway, <loadBalancer.hostname>:<service.grpc> with a LoadBalancer host name, and
+  # the in-cluster service address otherwise.
   endpoint: ""
-  # Extra names in the gateway certificate, for example the external host name.
+  # Extra names in the agent gateway certificate. The service names, the endpoint host,
+  # gateway.agents.hostname and loadBalancer.hostname are added automatically.
   serverNames: []
 
+# ClusterIP service with both ports, always created.
 service:
-  type: ClusterIP
   http: 8080
   grpc: 8443
-  grpcType: ClusterIP
   annotations: {}
 
-ingress:
+# An additional service of type LoadBalancer, for example for agents on virtual machines. One
+# service carries both ports. Port http is plain HTTP: expose it only on internal networks, with
+# the TLS annotations of your provider, or serve the dashboard through the Gateway instead.
+loadBalancer:
   enabled: false
+  # http: dashboard and API; grpc: agent gateway (mutual TLS).
+  ports: [http, grpc]
+  # DNS name for external-dns (annotation external-dns.alpha.kubernetes.io/hostname).
+  hostname: ""
+  annotations: {}
+  loadBalancerClass: ""
+  sourceRanges: []
+  # Cluster or Local; empty keeps the Kubernetes default.
+  externalTrafficPolicy: ""
+
+# Gateway API routes (gateway.networking.k8s.io/v1): Gateway API 1.5 or later, Kubernetes 1.31 or
+# later.
+gateway:
+  # Create a Gateway for the routes. Otherwise the routes attach to parentRefs.
+  create: false
   className: ""
   annotations: {}
-  host: brokerium.example.com
-  tls: []
+  # Existing Gateway listeners for the routes when create is false, for example
+  # [{name: shared, namespace: gateways}].
+  parentRefs: []
+  # HTTPRoute for the dashboard and API; TLS terminates at the gateway.
+  http:
+    enabled: false
+    hostname: brokerium.example.com
+    # Certificate Secret of the HTTPS listener of a created Gateway; empty means <fullname>-tls,
+    # for example issued by cert-manager through gateway.annotations.
+    tlsSecretName: ""
+    # A created Gateway also listens on port 80 and redirects to HTTPS.
+    redirect: true
+  # TLSRoute for the agent gateway. TLS passes through to the server, which authenticates
+  # agents with mutual TLS.
+  agents:
+    enabled: false
+    hostname: agents.brokerium.example.com
+    port: 8443
 
 # Lets Brokerium manage Strimzi clusters in this Kubernetes cluster with its service account
 # (cluster setting "in-cluster access").
@@ -70,6 +107,7 @@ resources:
   requests: { cpu: 100m, memory: 256Mi }
   limits: { memory: 1Gi }
 
+# Secure session cookies; always on when the public URL uses HTTPS.
 secureCookies: false
 snapshotInterval: 15s
 # Debug logging of every API request.

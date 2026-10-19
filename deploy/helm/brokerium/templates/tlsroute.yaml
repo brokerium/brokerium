@@ -1,0 +1,16 @@
+{{/* SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0 */}}
+{{- if .Values.gateway.agents.enabled }}
+{{- $name := include "brokerium.fullname" . }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: TLSRoute
+metadata:
+  name: {{ $name }}-agents
+  labels: {{- include "brokerium.labels" . | nindent 4 }}
+spec:
+  parentRefs: {{- include "brokerium.parentRefs" (dict "root" . "listener" "agents") | nindent 4 }}
+  hostnames: [{{ .Values.gateway.agents.hostname | quote }}]
+  rules:
+    - backendRefs:
+        - name: {{ $name }}
+          port: {{ .Values.service.grpc }}
+{{- end }}

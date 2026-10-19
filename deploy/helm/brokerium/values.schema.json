@@ -1,0 +1,174 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Brokerium chart values",
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "hostname": { "type": "string", "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?\\.)*[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
+    "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+    "stringMap": { "type": "object", "additionalProperties": { "type": "string" } }
+  },
+  "properties": {
+    "global": { "type": "object" },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string", "description": "Defaults to the chart appVersion." },
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "One server runs the operations engine; several replicas are not supported."
+    },
+    "admin": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "username": { "type": "string", "minLength": 1 },
+        "password": { "type": "string", "description": "Empty generates a password into the Secret." }
+      }
+    },
+    "secretKey": { "type": "string", "description": "32 random bytes, base64-encoded; generated on install." },
+    "existingSecret": { "type": "string", "description": "Secret with the keys secret-key, admin-password and database-url." },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": { "type": "string", "description": "PostgreSQL URL; ignored when postgresql.enabled." }
+      }
+    },
+    "postgresql": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": { "type": "string", "minLength": 1 },
+        "storage": { "type": "string" },
+        "storageClass": { "type": "string" }
+      }
+    },
+    "publicURL": {
+      "type": "string",
+      "pattern": "^(https?://.+)?$",
+      "description": "Public URL of the dashboard; empty derives it from the Gateway or LoadBalancer settings."
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "pattern": "^(.+:[0-9]+)?$",
+          "description": "host:port agents dial; empty derives it from the Gateway or LoadBalancer settings."
+        },
+        "serverNames": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "ClusterIP service with both ports, always created.",
+      "properties": {
+        "http": { "$ref": "#/definitions/port" },
+        "grpc": { "$ref": "#/definitions/port" },
+        "annotations": { "$ref": "#/definitions/stringMap" }
+      }
+    },
+    "loadBalancer": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Additional service of type LoadBalancer with the selected ports.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "ports": {
+          "type": "array",
+          "items": { "enum": ["http", "grpc"] },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "hostname": {
+          "anyOf": [{ "const": "" }, { "$ref": "#/definitions/hostname" }],
+          "description": "DNS name for external-dns."
+        },
+        "annotations": { "$ref": "#/definitions/stringMap" },
+        "loadBalancerClass": { "type": "string" },
+        "sourceRanges": { "type": "array", "items": { "type": "string" } },
+        "externalTrafficPolicy": { "enum": ["", "Cluster", "Local"] }
+      }
+    },
+    "gateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Gateway API routes: an HTTPRoute for the dashboard and a TLSRoute in passthrough mode for agents.",
+      "properties": {
+        "create": { "type": "boolean" },
+        "className": { "type": "string" },
+        "annotations": { "$ref": "#/definitions/stringMap" },
+        "parentRefs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "group": { "type": "string" },
+              "kind": { "type": "string" },
+              "name": { "type": "string", "minLength": 1 },
+              "namespace": { "type": "string" },
+              "sectionName": { "type": "string" },
+              "port": { "$ref": "#/definitions/port" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "http": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "hostname": { "$ref": "#/definitions/hostname" },
+            "tlsSecretName": { "type": "string" },
+            "redirect": { "type": "boolean" }
+          }
+        },
+        "agents": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "hostname": { "$ref": "#/definitions/hostname" },
+            "port": { "$ref": "#/definitions/port" }
+          }
+        }
+      }
+    },
+    "rbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "strimzi": { "type": "boolean" }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "$ref": "#/definitions/stringMap" }
+      }
+    },
+    "resources": { "type": "object" },
+    "secureCookies": { "type": "boolean" },
+    "snapshotInterval": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$" },
+    "debug": { "type": "boolean" },
+    "nodeSelector": { "$ref": "#/definitions/stringMap" },
+    "tolerations": { "type": "array" },
+    "affinity": { "type": "object" },
+    "podAnnotations": { "$ref": "#/definitions/stringMap" }
+  }
+}
