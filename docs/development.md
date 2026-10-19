@@ -27,7 +27,7 @@ rules are in [CONTRIBUTING.md](../CONTRIBUTING.md).
 | `api/openapi.yaml` | Public REST API description |
 | `proto/brokerium/agent/v1` | Agent protocol (generated Go code is committed) |
 | `deploy/lab` | Docker Compose lab (alpha, beta, gamma), `strimzi/` (kind + Strimzi), `vm/` (systemd hosts), `gencerts/` |
-| `deploy/docker`, `deploy/helm` | Images (server, agent, lab node), Helm chart |
+| `deploy/docker`, `deploy/helm` | Images (server, agent, lab node) and their Docker Hub texts in `hub/`, Helm chart |
 | `docs/guide` | User guide: install, clusters, operations, security |
 | `docs/adr`, `docs/runbooks` | Architecture decisions, operating procedures |
 | `test/e2e` | End-to-end scenarios against the lab (build tag `e2e`) |
