@@ -201,7 +201,7 @@ export default function TopicsTab() {
       </Paper>
       <Text size="xs" c="dimmed">
         {rows.length} of {snapshot.topics.length} topics
-        {rates.data ? ` · rates are agentless estimates over ${rates.data.windowSeconds} s` : ''}
+        {rates.data ? ` · rates are agentless estimates over ${Math.round(rates.data.windowSeconds)} s` : ''}
       </Text>
 
       {creating && (
