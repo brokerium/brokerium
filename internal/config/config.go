@@ -10,9 +10,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/brokerium/brokerium/internal/version"
 )
 
 // Server holds all settings of brokerium-server.
@@ -48,7 +51,7 @@ func LoadServer() (Server, error) {
 		AgentEndpoint:    env("BROKERIUM_AGENT_ENDPOINT", "host.docker.internal:8443"),
 		DockerHost:       env("BROKERIUM_DOCKER_HOST", "unix:///var/run/docker.sock"),
 		LabNetwork:       env("BROKERIUM_LAB_NETWORK", "brokerium-lab"),
-		AgentImage:       env("BROKERIUM_AGENT_IMAGE", "bvaliev/brokerium-agent:lab"),
+		AgentImage:       env("BROKERIUM_AGENT_IMAGE", defaultAgentImage(version.Version)),
 		SecureCookies:    envBool("BROKERIUM_SECURE_COOKIES", false),
 		SnapshotInterval: envDuration("BROKERIUM_SNAPSHOT_INTERVAL", 15*time.Second),
 		WorkerInterval:   envDuration("BROKERIUM_WORKER_INTERVAL", time.Second),
@@ -113,6 +116,17 @@ func envDuration(name string, def time.Duration) time.Duration {
 		return def
 	}
 	return v
+}
+
+var releaseRe = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
+
+// defaultAgentImage is the lab node image published with this server version: <version>-lab for
+// releases and lab, built from main, for everything else.
+func defaultAgentImage(serverVersion string) string {
+	if releaseRe.MatchString(serverVersion) {
+		return "bvaliev/brokerium-agent:" + strings.TrimPrefix(serverVersion, "v") + "-lab"
+	}
+	return "bvaliev/brokerium-agent:lab"
 }
 
 func splitList(s string) []string {
