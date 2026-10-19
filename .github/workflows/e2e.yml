@@ -1,8 +1,11 @@
 name: e2e
 
 # Lab scenarios against a real server, PostgreSQL, the lab cluster beta and Docker clusters
-# created by the Docker provider. Runs on main and on demand; takes about 20 minutes.
+# created by the Docker provider. Runs on every pull request, on main, nightly and on demand;
+# takes about 10 minutes. Pull requests that change only documentation report success without
+# running the lab, because the check is required for merging.
 on:
+  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
@@ -27,23 +30,44 @@ jobs:
       BROKERIUM_E2E_HEAVY: "1"
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Changed files
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          code=true
+          if [ "$EVENT" = pull_request ] && ! git diff --name-only "$BASE" HEAD \
+            | grep -qvE '^(docs/|[^/]+\.md$|\.github/ISSUE_TEMPLATE/|\.github/PULL_REQUEST_TEMPLATE\.md$)'; then
+            code=false
+            echo "Only documentation changed; skipping the lab."
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
       - uses: jdx/mise-action@v5.1.2
+        if: steps.changes.outputs.code == 'true'
         with:
           install: true
           install_args: go node pnpm
       - name: Lab (PostgreSQL and beta)
+        if: steps.changes.outputs.code == 'true'
         run: |
           make lab-certs
           docker compose -f deploy/lab/compose.yaml --profile beta up -d --wait postgres beta-c1 beta-b1
       - name: Agent image for Docker clusters
+        if: steps.changes.outputs.code == 'true'
         run: docker build -f deploy/docker/agent-lab.Dockerfile --build-arg VERSION=ci -t bvaliev/brokerium-agent:lab .
       - name: Build
+        if: steps.changes.outputs.code == 'true'
         run: make build
       - name: Start the server
+        if: steps.changes.outputs.code == 'true'
         run: |
           nohup ./bin/brokerium-server > server.log 2>&1 &
           for i in $(seq 1 60); do curl -fs localhost:8080/readyz && break; sleep 1; done
       - name: Register beta and a small Docker cluster
+        if: steps.changes.outputs.code == 'true'
         run: |
           api() { curl -fsS -b jar -c jar -H 'Content-Type: application/json' -H 'X-Brokerium-Request: 1' "$@"; }
           api -d '{"username":"admin","password":"brokerium-admin"}' localhost:8080/api/v1/auth/login > /dev/null
@@ -58,6 +82,7 @@ jobs:
             sleep 2
           done
       - name: Scenarios
+        if: steps.changes.outputs.code == 'true'
         run: go test -tags e2e -count=1 -timeout 60m -v ./test/e2e
       - name: Diagnostics
         if: failure()
