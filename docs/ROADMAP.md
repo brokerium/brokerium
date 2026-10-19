@@ -60,6 +60,16 @@ the lab scenarios with the Kafka CLI, code skeleton, CI and the first container 
 
 - Documentation, server and agent installers, Helm chart, end-to-end tests in CI, security review.
 
+## Phase 8: v0.2.0 (done, 2026-10-19)
+
+- Agent certificate renewal, Gateway API routes and a LoadBalancer service in the Helm chart, the
+  chart repository https://charts.brokerium.kaufen, the published lab node image, the Strimzi
+  scenario in CI and fixes for cluster ids and Strimzi scale-ups.
+
+## Phase 9: v0.2.1 (next)
+
+- Node.js 26 LTS for the dashboard build.
+
 ## Later: commercial layer
 
 SSO, fine-grained roles, audit export, scheduled rebalancing and self-healing, an MCP / AI
