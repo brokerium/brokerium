@@ -37,6 +37,8 @@ type Service struct {
 	store *store.Store
 	box   *secrets.Box
 	log   *slog.Logger
+	// CertificateWarning is how long before expiry an agent certificate becomes a health issue.
+	CertificateWarning time.Duration
 
 	mu        sync.Mutex
 	clients   map[string]cachedClient
@@ -195,6 +197,10 @@ func (s *Service) Refresh(ctx context.Context, id string) (*View, error) {
 	} else {
 		v.Snapshot = snap
 		v.Health = Evaluate(snap, time.Now())
+		if nodes, err := s.store.ListNodes(ctx, c.ID); err == nil {
+			v.Health.Issues = append(v.Health.Issues, CertificateIssues(nodes, time.Now(), s.CertificateWarning)...)
+			v.Health.settle()
+		}
 		v.Capabilities = CapabilitiesFor(c, v.Health.KRaftVersion == 0 && snap.Quorum != nil)
 		if snap.ClusterID != "" && snap.ClusterID != c.KafkaClusterID {
 			if err := s.store.SetKafkaClusterID(ctx, c.ID, snap.ClusterID); err == nil {

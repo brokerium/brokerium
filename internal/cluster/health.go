@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/brokerium/brokerium/internal/kafka"
+	"github.com/brokerium/brokerium/internal/store"
 )
 
 // Health statuses.
@@ -185,7 +186,12 @@ func Evaluate(s *kafka.Snapshot, now time.Time) Health {
 	if len(s.Errors) > 0 {
 		add(HealthWarning, "partial_snapshot", "some information could not be collected: %s", strings.Join(s.Errors, "; "))
 	}
+	h.settle()
+	return h
+}
 
+// settle raises the status to the most severe issue and orders the issues by severity.
+func (h *Health) settle() {
 	for _, i := range h.Issues {
 		switch {
 		case i.Severity == HealthCritical:
@@ -195,7 +201,27 @@ func Evaluate(s *kafka.Snapshot, now time.Time) Health {
 		}
 	}
 	sort.SliceStable(h.Issues, func(i, j int) bool { return severityRank(h.Issues[i].Severity) > severityRank(h.Issues[j].Severity) })
-	return h
+}
+
+// CertificateIssues reports agent certificates of nodes that expired or expire within warning,
+// which means the agent did not renew them.
+func CertificateIssues(nodes []*store.Node, now time.Time, warning time.Duration) []Issue {
+	var out []Issue
+	for _, n := range nodes {
+		if n.CertNotAfter == nil {
+			continue
+		}
+		until := n.CertNotAfter.UTC().Format(time.DateTime) + " UTC"
+		switch left := n.CertNotAfter.Sub(now); {
+		case left <= 0:
+			out = append(out, Issue{Severity: HealthCritical, Code: "agent_certificate_expired",
+				Message: fmt.Sprintf("the agent certificate of node %s expired at %s; enroll the node again with a new join token", n.Name, until)})
+		case left <= warning:
+			out = append(out, Issue{Severity: HealthWarning, Code: "agent_certificate_expiring",
+				Message: fmt.Sprintf("the agent certificate of node %s expires at %s and was not renewed; check that the agent is connected and at least version 0.2.0", n.Name, until)})
+		}
+	}
+	return out
 }
 
 func severityRank(s string) int {

@@ -22,5 +22,6 @@ the agent can do on a Kafka host.
 
 ## Consequences
 
-- The server needs a reachable gRPC port and a CA; certificates rotate by re-enrolling.
+- The server needs a reachable gRPC port and a CA. Agents renew their certificates over the
+  mutual TLS connection (ADR 0014).
 - New capabilities on hosts require a new agent version, which is intentional.

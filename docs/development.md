@@ -64,6 +64,8 @@ activate mise in your shell.
 - `BROKERIUM_E2E_VM=1` with `BROKERIUM_E2E_URL` and `BROKERIUM_E2E_CONTROLLERS` runs the
   agent installer scenarios against the VM lab.
 - `BROKERIUM_E2E_KEEP=1` keeps the clusters a test created.
+- `BROKERIUM_E2E_CERT_LIFETIME=3m` waits for an agent certificate renewal; start the server
+  with the same `BROKERIUM_AGENT_CERT_LIFETIME`.
 
 The Strimzi lab uses its own kubeconfig in `.data/` and never touches `~/.kube/config`.
 

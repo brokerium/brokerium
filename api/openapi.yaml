@@ -1720,6 +1720,16 @@ components:
         lastSeenAt: { type: [string, "null"], format: date-time }
         createdAt: { type: string, format: date-time }
         connected: { type: boolean }
+        certNotAfter:
+          type: [string, "null"]
+          format: date-time
+          description: Expiry of the current agent certificate; unknown until the agent connects.
+        certificateState:
+          type: string
+          enum: ["", ok, expiring, expired]
+          description: >-
+            expiring means the certificate is close to its expiry and was not renewed; agents renew
+            it after two thirds of its lifetime. Empty when the expiry is unknown.
     AuditEntry:
       type: object
       properties:

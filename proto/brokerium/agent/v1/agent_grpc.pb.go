@@ -21,8 +21,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentService_Enroll_FullMethodName  = "/brokerium.agent.v1.AgentService/Enroll"
-	AgentService_Connect_FullMethodName = "/brokerium.agent.v1.AgentService/Connect"
+	AgentService_Enroll_FullMethodName           = "/brokerium.agent.v1.AgentService/Enroll"
+	AgentService_Connect_FullMethodName          = "/brokerium.agent.v1.AgentService/Connect"
+	AgentService_RenewCertificate_FullMethodName = "/brokerium.agent.v1.AgentService/RenewCertificate"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -36,6 +37,9 @@ type AgentServiceClient interface {
 	// Connect is the long-lived mTLS stream: the server sends commands, the agent answers
 	// with results and periodic status reports.
 	Connect(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[AgentMessage, ServerMessage], error)
+	// RenewCertificate signs a new client certificate for the node of the calling mTLS client
+	// certificate. Agents call it after two thirds of the lifetime of their certificate.
+	RenewCertificate(ctx context.Context, in *RenewCertificateRequest, opts ...grpc.CallOption) (*RenewCertificateResponse, error)
 }
 
 type agentServiceClient struct {
@@ -69,6 +73,16 @@ func (c *agentServiceClient) Connect(ctx context.Context, opts ...grpc.CallOptio
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentService_ConnectClient = grpc.BidiStreamingClient[AgentMessage, ServerMessage]
 
+func (c *agentServiceClient) RenewCertificate(ctx context.Context, in *RenewCertificateRequest, opts ...grpc.CallOption) (*RenewCertificateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RenewCertificateResponse)
+	err := c.cc.Invoke(ctx, AgentService_RenewCertificate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
@@ -80,6 +94,9 @@ type AgentServiceServer interface {
 	// Connect is the long-lived mTLS stream: the server sends commands, the agent answers
 	// with results and periodic status reports.
 	Connect(grpc.BidiStreamingServer[AgentMessage, ServerMessage]) error
+	// RenewCertificate signs a new client certificate for the node of the calling mTLS client
+	// certificate. Agents call it after two thirds of the lifetime of their certificate.
+	RenewCertificate(context.Context, *RenewCertificateRequest) (*RenewCertificateResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -95,6 +112,9 @@ func (UnimplementedAgentServiceServer) Enroll(context.Context, *EnrollRequest) (
 }
 func (UnimplementedAgentServiceServer) Connect(grpc.BidiStreamingServer[AgentMessage, ServerMessage]) error {
 	return status.Error(codes.Unimplemented, "method Connect not implemented")
+}
+func (UnimplementedAgentServiceServer) RenewCertificate(context.Context, *RenewCertificateRequest) (*RenewCertificateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RenewCertificate not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -142,6 +162,24 @@ func _AgentService_Connect_Handler(srv interface{}, stream grpc.ServerStream) er
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentService_ConnectServer = grpc.BidiStreamingServer[AgentMessage, ServerMessage]
 
+func _AgentService_RenewCertificate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenewCertificateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).RenewCertificate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_RenewCertificate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).RenewCertificate(ctx, req.(*RenewCertificateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +190,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Enroll",
 			Handler:    _AgentService_Enroll_Handler,
+		},
+		{
+			MethodName: "RenewCertificate",
+			Handler:    _AgentService_RenewCertificate_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

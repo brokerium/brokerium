@@ -10,29 +10,34 @@ import (
 
 // Node is a host running brokerium-agent.
 type Node struct {
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	ClusterID       *string           `json:"clusterId"`
-	Role            string            `json:"role"`
-	KafkaNodeID     *int32            `json:"kafkaNodeId"`
-	Hostname        string            `json:"hostname"`
-	AgentVersion    string            `json:"agentVersion"`
-	CertFingerprint string            `json:"-"`
-	Status          json.RawMessage   `json:"status"`
-	Labels          map[string]string `json:"labels"`
-	ProviderRef     string            `json:"providerRef"`
-	LastSeenAt      *time.Time        `json:"lastSeenAt"`
-	CreatedAt       time.Time         `json:"createdAt"`
+	ID              string  `json:"id"`
+	Name            string  `json:"name"`
+	ClusterID       *string `json:"clusterId"`
+	Role            string  `json:"role"`
+	KafkaNodeID     *int32  `json:"kafkaNodeId"`
+	Hostname        string  `json:"hostname"`
+	AgentVersion    string  `json:"agentVersion"`
+	CertFingerprint string  `json:"-"`
+	// PrevCertFingerprint is the certificate a renewal was requested with; it stays valid until
+	// the agent connects with the renewed certificate.
+	PrevCertFingerprint string            `json:"-"`
+	CertNotAfter        *time.Time        `json:"certNotAfter"`
+	Status              json.RawMessage   `json:"status"`
+	Labels              map[string]string `json:"labels"`
+	ProviderRef         string            `json:"providerRef"`
+	LastSeenAt          *time.Time        `json:"lastSeenAt"`
+	CreatedAt           time.Time         `json:"createdAt"`
 }
 
-const nodeColumns = `id, name, cluster_id, role, kafka_node_id, hostname, agent_version, cert_fingerprint, status, labels,
-	provider_ref, last_seen_at, created_at`
+const nodeColumns = `id, name, cluster_id, role, kafka_node_id, hostname, agent_version, cert_fingerprint,
+	prev_cert_fingerprint, cert_not_after, status, labels, provider_ref, last_seen_at, created_at`
 
 func scanNode(row scanner) (*Node, error) {
 	var n Node
 	var labels []byte
 	if err := row.Scan(&n.ID, &n.Name, &n.ClusterID, &n.Role, &n.KafkaNodeID, &n.Hostname, &n.AgentVersion,
-		&n.CertFingerprint, &n.Status, &labels, &n.ProviderRef, &n.LastSeenAt, &n.CreatedAt); err != nil {
+		&n.CertFingerprint, &n.PrevCertFingerprint, &n.CertNotAfter, &n.Status, &labels, &n.ProviderRef,
+		&n.LastSeenAt, &n.CreatedAt); err != nil {
 		return nil, notFound(err)
 	}
 	_ = json.Unmarshal(labels, &n.Labels)
@@ -81,9 +86,25 @@ func (s *Store) ListNodes(ctx context.Context, clusterID string) ([]*Node, error
 }
 
 // UpdateNodeEnrollment stores the certificate fingerprint and agent details after enrollment.
-func (s *Store) UpdateNodeEnrollment(ctx context.Context, id, fingerprint, hostname, agentVersion string) error {
-	_, err := s.Pool.Exec(ctx, `UPDATE nodes SET cert_fingerprint=$2, hostname=$3, agent_version=$4, last_seen_at=now()
-		WHERE id=$1`, id, fingerprint, hostname, agentVersion)
+func (s *Store) UpdateNodeEnrollment(ctx context.Context, id, fingerprint string, notAfter time.Time, hostname, agentVersion string) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE nodes SET cert_fingerprint=$2, cert_not_after=$3, prev_cert_fingerprint='',
+		hostname=$4, agent_version=$5, last_seen_at=now() WHERE id=$1`, id, fingerprint, notAfter, hostname, agentVersion)
+	return err
+}
+
+// RenewNodeCertificate makes a renewed certificate current and keeps the certificate the renewal
+// was requested with valid.
+func (s *Store) RenewNodeCertificate(ctx context.Context, id, previous, current string, notAfter time.Time) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE nodes SET prev_cert_fingerprint=$2, cert_fingerprint=$3, cert_not_after=$4
+		WHERE id=$1`, id, previous, current, notAfter)
+	return err
+}
+
+// ConfirmNodeCertificate records that the agent connected with its current certificate: the
+// previous one is no longer accepted.
+func (s *Store) ConfirmNodeCertificate(ctx context.Context, id, fingerprint string, notAfter time.Time) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE nodes SET prev_cert_fingerprint='', cert_not_after=$3
+		WHERE id=$1 AND cert_fingerprint=$2`, id, fingerprint, notAfter)
 	return err
 }
 

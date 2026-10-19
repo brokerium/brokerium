@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/brokerium/brokerium/internal/secrets"
@@ -98,17 +99,39 @@ func LoadOrCreateCA(ctx context.Context, st *store.Store, box *secrets.Box) (*CA
 	return LoadOrCreateCA(ctx, st, box)
 }
 
+// DefaultCertLifetime is the lifetime of agent and gateway certificates.
+const DefaultCertLifetime = 365 * 24 * time.Hour
+
+// validity is the validity period of a certificate issued now. NotBefore lies a little in the
+// past for clocks of agents that run behind the server.
+func validity(lifetime time.Duration) (notBefore, notAfter time.Time) {
+	now := time.Now()
+	return now.Add(-min(time.Hour, lifetime/10)), now.Add(lifetime)
+}
+
+// RenewalTime is when a certificate should be replaced: after two thirds of its validity.
+func RenewalTime(c *x509.Certificate) time.Time {
+	return c.NotBefore.Add(c.NotAfter.Sub(c.NotBefore) * 2 / 3)
+}
+
+// WarningPeriod is how long before its expiry an agent certificate counts as not renewed: 30
+// days, or a sixth of the lifetime for short lifetimes, half of the time left at renewal.
+func WarningPeriod(lifetime time.Duration) time.Duration {
+	return min(30*24*time.Hour, lifetime/6)
+}
+
 // ServerCertificate issues a TLS certificate for the gRPC endpoint with the chain attached.
-func (ca *CA) ServerCertificate(names []string) (tls.Certificate, error) {
+func (ca *CA) ServerCertificate(names []string, lifetime time.Duration) (tls.Certificate, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return tls.Certificate{}, err
 	}
+	notBefore, notAfter := validity(lifetime)
 	tmpl := &x509.Certificate{
 		SerialNumber: serial(),
 		Subject:      pkix.Name{CommonName: "brokerium-server"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().AddDate(1, 0, 0),
+		NotBefore:    notBefore,
+		NotAfter:     notAfter,
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
@@ -124,32 +147,70 @@ func (ca *CA) ServerCertificate(names []string) (tls.Certificate, error) {
 	if err != nil {
 		return tls.Certificate{}, err
 	}
-	return tls.Certificate{Certificate: [][]byte{der, ca.DER}, PrivateKey: key}, nil
+	leaf, err := x509.ParseCertificate(der)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	return tls.Certificate{Certificate: [][]byte{der, ca.DER}, PrivateKey: key, Leaf: leaf}, nil
+}
+
+// AgentCertificate is a signed agent certificate.
+type AgentCertificate struct {
+	DER         []byte
+	Fingerprint string
+	NotAfter    time.Time
 }
 
 // SignAgent signs an agent CSR; the certificate's common name is the node id.
-func (ca *CA) SignAgent(csrDER []byte, nodeID string) ([]byte, string, error) {
+func (ca *CA) SignAgent(csrDER []byte, nodeID string, lifetime time.Duration) (*AgentCertificate, error) {
 	csr, err := x509.ParseCertificateRequest(csrDER)
 	if err != nil {
-		return nil, "", fmt.Errorf("parsing CSR: %w", err)
+		return nil, fmt.Errorf("parsing CSR: %w", err)
 	}
 	if err := csr.CheckSignature(); err != nil {
-		return nil, "", fmt.Errorf("CSR signature: %w", err)
+		return nil, fmt.Errorf("CSR signature: %w", err)
 	}
+	notBefore, notAfter := validity(lifetime)
 	tmpl := &x509.Certificate{
 		SerialNumber: serial(),
 		Subject:      pkix.Name{CommonName: nodeID, Organization: []string{"Brokerium agents"}},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().AddDate(1, 0, 0),
+		NotBefore:    notBefore,
+		NotAfter:     notAfter,
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, csr.PublicKey, ca.Key)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	sum := sha256.Sum256(der)
-	return der, hex.EncodeToString(sum[:]), nil
+	return &AgentCertificate{DER: der, Fingerprint: hex.EncodeToString(sum[:]), NotAfter: notAfter.Truncate(time.Second)}, nil
+}
+
+// servingCert issues the certificate of the agent gateway and replaces it after two thirds of
+// its lifetime, so a long-running server never serves an expired certificate.
+type servingCert struct {
+	issue func() (tls.Certificate, error)
+
+	mu   sync.Mutex
+	cert *tls.Certificate
+}
+
+func (s *servingCert) get(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cert != nil && time.Now().Before(RenewalTime(s.cert.Leaf)) {
+		return s.cert, nil
+	}
+	cert, err := s.issue()
+	if err != nil {
+		if s.cert != nil {
+			return s.cert, nil
+		}
+		return nil, err
+	}
+	s.cert = &cert
+	return s.cert, nil
 }
 
 // Pool returns a cert pool with the CA.
