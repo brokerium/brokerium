@@ -1,18 +1,21 @@
 name: release
 
-# Builds release binaries for a version tag and publishes them with checksums and an SBOM.
+# Builds release binaries and the Helm chart for a version tag and publishes them with checksums
+# and an SBOM, pushes the chart to GHCR and updates the Helm repository on GitHub Pages.
 # Container images for the tag are built by the CI workflow.
 on:
   push:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
     name: release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -21,6 +24,9 @@ jobs:
         with:
           install: true
           install_args: go node pnpm
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: v4.3.1
       - name: Dashboard
         run: |
           cd web && pnpm install --frozen-lockfile && pnpm build && cd ..
@@ -40,7 +46,12 @@ jobs:
           for arch in amd64 arm64; do
             GOOS=linux GOARCH=$arch go build -trimpath -ldflags "$flags" -o "dist/brokerium-agent-linux-${arch}" ./cmd/brokerium-agent
           done
-          (cd dist && sha256sum brokerium-* > SHA256SUMS)
+      - name: Chart
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: helm package deploy/helm/brokerium --version "${VERSION#v}" --app-version "${VERSION#v}" -d dist
+      - name: Checksums
+        run: cd dist && sha256sum brokerium-* > SHA256SUMS
       - uses: anchore/sbom-action@v0.24.3
         with:
           path: .
@@ -58,3 +69,32 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ github.ref_name }}
         run: gh release create "$VERSION" dist/* --title "Brokerium $VERSION" --notes-file notes.md --verify-tag
+
+  chart:
+    name: chart
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: v4.3.1
+      - name: Push the chart to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          gh release download "$VERSION" --repo "$GITHUB_REPOSITORY" --pattern 'brokerium-*.tgz'
+          echo "$GH_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          helm push brokerium-*.tgz oci://ghcr.io/brokerium/charts
+
+  helm-repo:
+    name: helm-repo
+    needs: release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/helm-repo.yml

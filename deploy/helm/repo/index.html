@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0 -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brokerium Helm charts</title>
+    <meta name="description" content="Helm repository of Brokerium, the control plane for Apache Kafka KRaft clusters." />
+    <link rel="icon" href="https://brokerium.kaufen/favicon.svg" type="image/svg+xml" />
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.5; }
+      body { max-width: 44rem; margin: 3rem auto; padding: 0 1.25rem; }
+      pre { padding: 1rem; border-radius: 0.5rem; background: #8881; overflow-x: auto; }
+    </style>
+  </head>
+  <body>
+    <h1>Brokerium Helm charts</h1>
+    <p>
+      The Helm repository of <a href="https://brokerium.kaufen">Brokerium</a>, the control plane and
+      dashboard for Apache Kafka® KRaft clusters.
+    </p>
+    <pre><code>helm repo add brokerium https://charts.brokerium.kaufen
+helm install brokerium brokerium/brokerium -n brokerium --create-namespace</code></pre>
+    <p>
+      The same chart is published as <code>oci://ghcr.io/brokerium/charts/brokerium</code>.
+    </p>
+    <p>
+      <a href="https://brokerium.kaufen/docs/">Documentation</a> ·
+      <a href="https://github.com/brokerium/brokerium/tree/main/deploy/helm/brokerium">Chart source</a> ·
+      <a href="index.yaml">index.yaml</a>
+    </p>
+    <p>
+      <small>
+        Apache®, Apache Kafka® and Kafka® are either registered trademarks or trademarks of the
+        Apache Software Foundation in the United States and/or other countries.
+      </small>
+    </p>
+  </body>
+</html>

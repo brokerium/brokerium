@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# Chart CI: render with a LoadBalancer service for both ports and an external-dns host name.
+loadBalancer:
+  enabled: true
+  hostname: brokerium.example.com
+  loadBalancerClass: example.com/lb
+  sourceRanges: [10.0.0.0/8]
+  externalTrafficPolicy: Local
