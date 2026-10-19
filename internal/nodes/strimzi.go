@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/kafka"
 	"github.com/brokerium/brokerium/internal/ops"
 	"github.com/brokerium/brokerium/internal/provider/strimzi"
 	"github.com/brokerium/brokerium/internal/store"
@@ -275,24 +276,44 @@ func (m *Manager) stepStrimziWaitPool(ctx context.Context, x *ops.Exec, raw json
 		if err != nil {
 			return false, nil, nil
 		}
-		state := map[int32]bool{}
-		for _, b := range v.View.Snapshot.Brokers {
-			state[b.ID] = b.Alive && !b.Fenced
-		}
 		for _, id := range a.Remove {
-			if _, registered := state[id]; registered {
+			if slices.ContainsFunc(v.View.Snapshot.Brokers, func(b kafka.Broker) bool { return b.ID == id }) {
 				return false, map[string]any{"waitingForRemoval": id}, nil
 			}
 		}
 		if pool.Brokers() {
-			for _, id := range pool.Status.NodeIDs {
-				if !state[id] {
-					return false, map[string]any{"waitingForBroker": id}, nil
-				}
+			if ok, detail, err := brokersServing(ctx, v.View.Snapshot, pool.Status.NodeIDs, x.Client.PingBroker); !ok {
+				return false, detail, err
 			}
 		}
 		return true, map[string]any{"nodeIds": pool.Status.NodeIDs}, nil
 	})
+}
+
+// brokersServing reports whether every broker in ids is alive, unfenced, has its log dirs in the
+// snapshot and answers on its advertised listener. A broker registers before its listener is
+// reachable from outside Kubernetes, and a rebalance needs requests to every broker.
+func brokersServing(ctx context.Context, snap *kafka.Snapshot, ids []int32,
+	ping func(context.Context, int32) error) (bool, any, error) {
+	byID := map[int32]kafka.Broker{}
+	logDirsKnown := false
+	for _, b := range snap.Brokers {
+		byID[b.ID] = b
+		logDirsKnown = logDirsKnown || len(b.LogDirs) > 0
+	}
+	for _, id := range ids {
+		b, ok := byID[id]
+		switch {
+		case !ok || !b.Alive || b.Fenced:
+			return false, map[string]any{"waitingForBroker": id}, nil
+		case logDirsKnown && len(b.LogDirs) == 0:
+			return false, map[string]any{"waitingForLogDirs": id}, nil
+		}
+		if err := ping(ctx, id); err != nil {
+			return false, map[string]any{"waitingForListener": id}, err
+		}
+	}
+	return true, nil, nil
 }
 
 func (m *Manager) stepStrimziRoll(ctx context.Context, x *ops.Exec, raw json.RawMessage) (any, error) {
