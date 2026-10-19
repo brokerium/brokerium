@@ -7,8 +7,11 @@ import (
 	"compress/gzip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	agentv1 "github.com/brokerium/brokerium/proto/brokerium/agent/v1"
 )
 
 func writeArchive(t *testing.T, entries map[string]string) string {
@@ -79,5 +82,30 @@ func TestParseJavaVersion(t *testing.T) {
 		if got := parseJavaVersion(out); got != want {
 			t.Errorf("parseJavaVersion(%q) = %q, want %q", out, got, want)
 		}
+	}
+}
+
+func TestFormatArgs(t *testing.T) {
+	t.Parallel()
+	const id = "-T24WIV1qAW8jTuuHea1pw"
+	common := []string{"format", "--cluster-id=" + id, "--config", "/etc/kafka/server.properties", "--ignore-formatted"}
+	tests := []struct {
+		name    string
+		mode    agentv1.FormatMode
+		initial string
+		extra   []string
+	}{
+		{"initial", agentv1.FormatMode_FORMAT_MODE_INITIAL, "1@alpha-c1:9093:Vu6ZtOOWQmuTU2kZFGb5xw", []string{"--initial-controllers", "1@alpha-c1:9093:Vu6ZtOOWQmuTU2kZFGb5xw"}},
+		{"standalone", agentv1.FormatMode_FORMAT_MODE_STANDALONE, "", []string{"--standalone"}},
+		{"join", agentv1.FormatMode_FORMAT_MODE_JOIN, "", []string{"--no-initial-controllers"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := formatArgs(id, "/etc/kafka/server.properties", tt.mode, tt.initial)
+			if want := append(slices.Clone(common), tt.extra...); !slices.Equal(got, want) {
+				t.Errorf("formatArgs = %q, want %q", got, want)
+			}
+		})
 	}
 }

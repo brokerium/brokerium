@@ -357,15 +357,7 @@ func (k *Kafka) Format(ctx context.Context, clusterID string, mode agentv1.Forma
 	if err != nil {
 		return "", err
 	}
-	args := []string{"format", "--cluster-id", clusterID, "--config", k.configPath(), "--ignore-formatted"}
-	switch mode {
-	case agentv1.FormatMode_FORMAT_MODE_INITIAL:
-		args = append(args, "--initial-controllers", initial)
-	case agentv1.FormatMode_FORMAT_MODE_STANDALONE:
-		args = append(args, "--standalone")
-	case agentv1.FormatMode_FORMAT_MODE_JOIN:
-		args = append(args, "--no-initial-controllers")
-	}
+	args := formatArgs(clusterID, k.configPath(), mode, initial)
 	cmd := exec.CommandContext(ctx, filepath.Join(home, "bin", "kafka-storage.sh"), args...) //nolint:gosec // the installed Kafka release, typed arguments
 	cmd.Env = append(os.Environ(), "KAFKA_HEAP_OPTS=-Xmx256m")
 	out, err := cmd.CombinedOutput()
@@ -380,6 +372,21 @@ func (k *Kafka) Format(ctx context.Context, clusterID string, mode agentv1.Forma
 		}
 	}
 	return strings.TrimSpace(string(out)), err
+}
+
+// formatArgs builds the kafka-storage.sh format arguments. The cluster id is joined with "=" so
+// that an id starting with "-" is not read as an option.
+func formatArgs(clusterID, config string, mode agentv1.FormatMode, initial string) []string {
+	args := []string{"format", "--cluster-id=" + clusterID, "--config", config, "--ignore-formatted"}
+	switch mode {
+	case agentv1.FormatMode_FORMAT_MODE_INITIAL:
+		args = append(args, "--initial-controllers", initial)
+	case agentv1.FormatMode_FORMAT_MODE_STANDALONE:
+		args = append(args, "--standalone")
+	case agentv1.FormatMode_FORMAT_MODE_JOIN:
+		args = append(args, "--no-initial-controllers")
+	}
+	return args
 }
 
 // Start launches Kafka as a child process (or through systemd).
