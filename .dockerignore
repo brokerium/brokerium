@@ -1,9 +1,11 @@
-.git
-.data
-.pnpm-store
+.*
+**/*.md
+**/*.test
+bin
+docs
+test
+deploy/helm
+deploy/lab
 node_modules
 web/node_modules
 web/dist
-bin
-deploy/lab/.state
-**/*.test
