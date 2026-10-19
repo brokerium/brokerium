@@ -80,6 +80,8 @@ jobs:
           path: .
           format: spdx-json
           artifact-name: brokerium-sbom.spdx.json
+          # The release workflow attaches the SBOM of a release.
+          upload-release-assets: false
 
   images:
     name: images
