@@ -7,6 +7,13 @@
 
 # Brokerium for Apache Kafka
 
+<p align="center">
+  <a href="https://brokerium.kaufen">Website</a> ·
+  <a href="https://brokerium.kaufen/docs/">Documentation</a> ·
+  <a href="https://brokerium.kaufen/install/">Installation</a> ·
+  <a href="https://brokerium.kaufen/changelog/">Changelog</a>
+</p>
+
 Brokerium is a control plane and web dashboard for Apache Kafka® clusters, in the
 spirit of Rancher for Kubernetes. One place to see every cluster, scale brokers and
 KRaft controllers on the fly, drain and replace nodes, rebalance data across brokers,
