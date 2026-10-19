@@ -18,18 +18,21 @@ releases must be verifiable.
 - **Images** `bvaliev/brokerium-server` and `bvaliev/brokerium-agent` are built for
   `linux/amd64` and `linux/arm64` by the CI workflow: `edge` and `sha-<commit>` from `main`,
   `<major>.<minor>.<patch>`, `<major>.<minor>` and `latest` from release tags. They run as
-  UID 65532 on distroless bases.
+  UID 65532 on distroless bases. The lab node image for the Docker provider is published as
+  `bvaliev/brokerium-agent:lab` from `main` and `:<version>-lab` from release tags.
 - **Kubernetes:** the Helm chart lives in `deploy/helm/brokerium`. It runs one replica with the
   `Recreate` strategy (one operations engine), keeps the generated sealing key across upgrades
-  and can bundle a single PostgreSQL for evaluations.
+  and can bundle a single PostgreSQL for evaluations. Networking and the chart repository are
+  described in ADR 0015.
 - **Virtual machines:** the server serves `install.sh` at `/api/v1/agent/install.sh`. The
   script downloads the agent binary of a release (or `BROKERIUM_AGENT_URL` for air-gapped
   sites), creates the `kafka` account and installs `brokerium-agent.service`. Kafka itself runs
   as `brokerium-kafka.service` under the `kafka` account, so restarting or upgrading the agent
   never stops Kafka.
-- **End-to-end tests** run in GitHub Actions on every push to `main` and nightly against beta and
-  Docker clusters created by the Docker provider. Kubernetes and VM scenarios need local labs
-  (`deploy/lab/strimzi`, `deploy/lab/vm`) and run before releases.
+- **End-to-end tests** run in GitHub Actions on every pull request, on `main` and nightly
+  against beta and Docker clusters created by the Docker provider. The Strimzi scenario runs on
+  kind nightly and on pull requests that change the Strimzi support. VM scenarios need the local
+  lab (`deploy/lab/vm`) and run before releases.
 
 ## Consequences
 
@@ -38,4 +41,5 @@ releases must be verifiable.
   the images job.
 - Release tags are not marked as pre-releases: the installer downloads from
   `releases/latest`, which GitHub resolves only to full releases.
-- The Helm chart is not yet published to a chart repository; it installs from a checkout.
+- Since 0.2.0 the Helm chart is published to https://charts.brokerium.kaufen and GHCR
+  (ADR 0015).
