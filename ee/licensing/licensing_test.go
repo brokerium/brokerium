@@ -8,6 +8,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -250,5 +251,26 @@ func TestBuiltInKeys(t *testing.T) {
 		if pub, err := base64.StdEncoding.DecodeString(encoded); err != nil || len(pub) != ed25519.PublicKeySize {
 			t.Errorf("public key %q is not 32 bytes of standard base64", kid)
 		}
+	}
+	if _, ok := publicKeys["k1"]; !ok {
+		t.Error("the build does not trust the signing key k1")
+	}
+}
+
+// TestLicenseCenterVector parses a key that the license center signed with the vector seed and
+// its own field values, so both implementations of the format stay compatible.
+func TestLicenseCenterVector(t *testing.T) {
+	t.Parallel()
+	const text = "brk-lic-1.eyJ2IjoxLCJpZCI6ImxpY18wMTIzNDU2Nzg5YWJjZGVmIiwia2lkIjoiazEiLCJjdXN0b21lciI6IkV4YW1wbGUgR21iSCIsImVtYWlsIjoib3BzQGV4YW1wbGUuY29tIiwiZWRpdGlvbiI6ImVudGVycHJpc2UiLCJmZWF0dXJlcyI6WyJtZXNzYWdlLXRvb2xzIl0sImxpbWl0cyI6e30sImlzc3VlZEF0IjoiMjAyNi0xMC0yMFQxMjowMDowMFoiLCJub3RCZWZvcmUiOiIyMDI2LTEwLTIwVDEyOjAwOjAwWiIsImV4cGlyZXNBdCI6IjIwMjctMTAtMjBUMTI6MDA6MDBaIiwiZ3JhY2VEYXlzIjoxNH0.rclUFDDeHzcjUOm-7FgBC-mHf_jw7a7t0Aq9lkOCSkaw_MLmWM8s1fHNea-AjWe6TJLqtntTouFPsMYk7zWKBQ"
+	c, err := parse(text, vectorKeys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ID != "lic_0123456789abcdef" || c.Customer != "Example GmbH" || c.GraceDays != 14 ||
+		!c.ExpiresAt.Equal(time.Date(2027, 10, 20, 12, 0, 0, 0, time.UTC)) || !slices.Equal(c.Features, []string{"message-tools"}) {
+		t.Fatalf("parse = %+v", *c)
+	}
+	if _, err := parse(text, publicKeys); err == nil {
+		t.Fatal("a key signed with the vector seed verifies against the production key k1")
 	}
 }
