@@ -87,6 +87,7 @@ Release assets contain `brokerium-server-<os>-<arch>` with the dashboard built i
 | `BROKERIUM_PUBLIC_URL` | `http://localhost:8080` | Used in links and agent install commands. |
 | `BROKERIUM_AGENT_ENDPOINT` | `host.docker.internal:8443` | Address agents dial. |
 | `BROKERIUM_AGENT_SERVER_NAMES` | `localhost,host.docker.internal,brokerium,brokerium-server` | Names in the gateway certificate. |
+| `BROKERIUM_AGENT_PROXY`, `BROKERIUM_AGENT_NO_PROXY` | none | `HTTPS_PROXY` and `NO_PROXY` in the agent install command. |
 | `BROKERIUM_AGENT_CERT_LIFETIME` | `8760h` (one year) | Lifetime of agent certificates and the gateway certificate; they are renewed after two thirds of it. At least `1m`. |
 | `BROKERIUM_SECURE_COOKIES` | `false` | Set `true` behind HTTPS. |
 | `BROKERIUM_SNAPSHOT_INTERVAL` | `15s` | How often clusters are polled. |
@@ -120,6 +121,32 @@ Installer variables: `BROKERIUM_AGENT_VERSION` (release tag), `BROKERIUM_AGENT_U
 from your own mirror) with `BROKERIUM_AGENT_SHA256` (its expected checksum),
 `BROKERIUM_AGENT_KAFKA_DATA_DIR` (log.dirs, default `/var/lib/kafka/data`). Binaries from
 GitHub releases are always checked against the `SHA256SUMS` of the release.
+
+### Agents behind an HTTP proxy
+
+When hosts reach the server only through an HTTP proxy, pass `HTTPS_PROXY` (and `NO_PROXY`
+for names that go direct) after `sudo`, which drops the variables of the caller:
+
+```bash
+HTTPS_PROXY=http://proxy.example.com:3128 curl -fsSL https://brokerium.example.com/api/v1/agent/install.sh | \
+  sudo HTTPS_PROXY=http://proxy.example.com:3128 NO_PROXY=localhost,.internal \
+  BROKERIUM_AGENT_SERVER=brokerium.example.com:8443 BROKERIUM_AGENT_TOKEN=brk1.… sh
+```
+
+The script downloads through the proxy and writes both variables to `/etc/brokerium-agent.env`,
+so the agent and its Kafka downloads use it too. With `BROKERIUM_AGENT_PROXY` and
+`BROKERIUM_AGENT_NO_PROXY` on the server (Helm: `agents.proxy.https` and
+`agents.proxy.noProxy`) the command on the **Nodes** page contains them already.
+
+The agent opens an HTTP CONNECT tunnel, so mutual TLS stays end to end. The proxy has to:
+
+- allow CONNECT to the port of the agent gateway (Squid allows only 443 by default: add the port
+  to `SSL_ports`, or publish the gateway on 443 with `loadBalancer` or `gateway.agents.port`);
+- leave that connection uninspected (for Squid with SSL bump, `splice` it);
+- resolve the name of the server; the agent does not resolve it itself.
+
+Proxy URLs use `http://`, optionally with Basic credentials (`http://user:password@proxy:3128`).
+A proxy that terminates TLS for the agent gateway needs the insecure agent transport instead.
 
 ### Adopting running nodes
 

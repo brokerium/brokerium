@@ -28,6 +28,8 @@ type NodesAPI struct {
 	Pools         NodePooler
 	PublicURL     string
 	AgentEndpoint string
+	// Proxy and NoProxy go into the install command as HTTPS_PROXY and NO_PROXY.
+	Proxy, NoProxy string
 	// CertificateWarning is how long before expiry an agent certificate counts as expiring.
 	CertificateWarning time.Duration
 	srv                *Server
@@ -142,9 +144,26 @@ func (a *NodesAPI) handleJoinToken(w http.ResponseWriter, r *http.Request) {
 		WriteStoreError(w, err)
 		return
 	}
-	cmd := fmt.Sprintf("curl -fsSL %s/api/v1/agent/install.sh | sudo BROKERIUM_AGENT_SERVER=%s BROKERIUM_AGENT_TOKEN=%s sh",
-		strings.TrimRight(a.PublicURL, "/"), a.AgentEndpoint, token)
-	WriteJSON(w, http.StatusCreated, map[string]any{"token": token, "expiresAt": expires, "command": cmd})
+	WriteJSON(w, http.StatusCreated, map[string]any{"token": token, "expiresAt": expires, "command": a.installCommand(token)})
+}
+
+// installCommand is the command that installs the agent on a host. sudo drops the proxy
+// variables of the caller, so they are passed to curl and to the script explicitly.
+func (a *NodesAPI) installCommand(token string) string {
+	proxy := ""
+	if a.Proxy != "" {
+		proxy = "HTTPS_PROXY=" + shellQuote(a.Proxy) + " "
+		if a.NoProxy != "" {
+			proxy += "NO_PROXY=" + shellQuote(a.NoProxy) + " "
+		}
+	}
+	return fmt.Sprintf("%scurl -fsSL %s/api/v1/agent/install.sh | sudo %sBROKERIUM_AGENT_SERVER=%s BROKERIUM_AGENT_TOKEN=%s sh",
+		proxy, strings.TrimRight(a.PublicURL, "/"), proxy, a.AgentEndpoint, token)
+}
+
+// shellQuote quotes s for a POSIX shell.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func (a *NodesAPI) handleDelete(w http.ResponseWriter, r *http.Request) {
@@ -187,12 +206,20 @@ const installScript = `#!/bin/sh
 #   BROKERIUM_AGENT_KAFKA_DATA_DIR                 log.dirs of new nodes, default /var/lib/kafka/data
 #   BROKERIUM_AGENT_KAFKA_CONFIG                   adopt a running node: its server.properties
 #   BROKERIUM_AGENT_PREINSTALLED                   and its Kafka installation directory
+#   HTTPS_PROXY, NO_PROXY                          HTTP CONNECT proxy for the downloads and for the
+#                                                  agent; pass them after sudo, which drops them
 set -eu
 : "${BROKERIUM_AGENT_SERVER:?set BROKERIUM_AGENT_SERVER}"
 : "${BROKERIUM_AGENT_TOKEN:?set BROKERIUM_AGENT_TOKEN}"
 [ "$(id -u)" -eq 0 ] || { echo "run as root (sudo)" >&2; exit 1; }
 VERSION="${BROKERIUM_AGENT_VERSION:-latest}"
 DATA_DIR="${BROKERIUM_AGENT_KAFKA_DATA_DIR:-/var/lib/kafka/data}"
+PROXY="${HTTPS_PROXY:-${https_proxy:-}}"
+NOPROXY="${NO_PROXY:-${no_proxy:-}}"
+if [ -n "$PROXY" ]; then
+  export HTTPS_PROXY="$PROXY" https_proxy="$PROXY"
+  [ -z "$NOPROXY" ] || export NO_PROXY="$NOPROXY" no_proxy="$NOPROXY"
+fi
 case "$(uname -m)" in
   x86_64|amd64) ARCH=amd64 ;;
   aarch64|arm64) ARCH=arm64 ;;
@@ -233,6 +260,8 @@ umask 077
   echo "BROKERIUM_AGENT_KAFKA_DATA_DIR=${DATA_DIR}"
   [ -z "${BROKERIUM_AGENT_KAFKA_CONFIG:-}" ] || echo "BROKERIUM_AGENT_KAFKA_CONFIG=${BROKERIUM_AGENT_KAFKA_CONFIG}"
   [ -z "${BROKERIUM_AGENT_PREINSTALLED:-}" ] || echo "BROKERIUM_AGENT_PREINSTALLED=${BROKERIUM_AGENT_PREINSTALLED}"
+  [ -z "$PROXY" ] || echo "HTTPS_PROXY=${PROXY}"
+  [ -z "$PROXY" ] || [ -z "$NOPROXY" ] || echo "NO_PROXY=${NOPROXY}"
 } > /etc/brokerium-agent.env
 umask 022
 cat > /etc/systemd/system/brokerium-agent.service <<'EOF'

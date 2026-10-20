@@ -113,7 +113,7 @@ func run(log *slog.Logger) error {
 		Handler: srv.Handler(
 			&api.OperationsAPI{Engine: engine, Sampler: sampler},
 			&api.NodesAPI{Gateway: gateway, Pools: nodeManager, PublicURL: cfg.PublicURL, AgentEndpoint: cfg.AgentEndpoint,
-				CertificateWarning: certWarning},
+				Proxy: cfg.AgentProxy, NoProxy: cfg.AgentNoProxy, CertificateWarning: certWarning},
 		),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
