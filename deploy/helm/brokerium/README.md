@@ -31,6 +31,30 @@ Upgrade with `helm repo update` and `helm upgrade brokerium brokerium/brokerium 
 - The chart runs one replica with the `Recreate` strategy, because the operations engine must not
   run twice.
 
+## Enterprise
+
+`edition: enterprise` runs Brokerium Enterprise from the image
+`bvaliev/brokerium-server-enterprise`, which has the tags of the Community image. Its Enterprise
+features need a license key; everything in Community works without one.
+
+```bash
+kubectl -n brokerium create secret generic brokerium-license --from-file=license=./license.key
+helm upgrade --install brokerium brokerium/brokerium -n brokerium \
+  --set edition=enterprise --set license.existingSecret=brokerium-license
+```
+
+- `license.existingSecret` names a Secret with the key in the entry `license.secretKey` (default
+  `license`); the server reads it as `BROKERIUM_LICENSE` at startup. After you change the Secret,
+  restart the server: `kubectl -n brokerium rollout restart deployment/brokerium`.
+- `license.key` stores the key in the chart's Secret instead, and a change restarts the server. It
+  does not work together with `existingSecret`.
+- Without either, administrators add the key on the **License** page of the dashboard, which
+  stores it in the database. A key from the chart takes precedence and cannot be changed there.
+- `image.repository` replaces the image of the edition, for example with a mirror.
+
+Keys are verified offline and the server never reports usage. See
+[editions and license keys](https://github.com/brokerium/brokerium/blob/main/docs/guide/enterprise.md).
+
 ## Networking
 
 The server listens on two ports:
@@ -135,6 +159,7 @@ All values are described in [values.yaml](values.yaml) and validated by
 - [Source code and issues](https://github.com/brokerium/brokerium)
 
 Source-available under the PolyForm Shield License 1.0.0: free to use, including in production.
+The Enterprise features of the Enterprise image are under the Brokerium Commercial License.
 Apache®, Apache Kafka® and Kafka® are either registered trademarks or trademarks of the Apache
 Software Foundation in the United States and/or other countries. Brokerium is not affiliated
 with, endorsed by, or sponsored by the Apache Software Foundation.

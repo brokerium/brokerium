@@ -27,8 +27,21 @@ jobs:
         run: |
           go vet ./...
           go test -count=1 ./...
+      - name: Vet and test the Enterprise edition
+        run: |
+          go vet -tags enterprise,licensetest ./...
+          go test -count=1 -tags enterprise,licensetest ./...
+      - name: Community server without Enterprise packages
+        run: |
+          if go list -deps ./cmd/brokerium-server | grep -E '^github.com/brokerium/brokerium/ee(/|$)'; then
+            echo "The Community server depends on the Enterprise packages above." >&2
+            exit 1
+          fi
+          go list -deps -tags enterprise ./cmd/brokerium-server | grep -qx github.com/brokerium/brokerium/ee
       - name: golangci-lint
-        run: golangci-lint run --build-tags e2e ./...
+        run: |
+          golangci-lint run --build-tags e2e ./...
+          golangci-lint run --build-tags enterprise,licensetest ./...
       - name: buf lint
         run: buf lint
       - name: Vulnerabilities
@@ -63,6 +76,14 @@ jobs:
           pnpm typecheck
           pnpm test
           pnpm build
+          node scripts/check-edition.mjs community dist
+      - name: Enterprise dashboard
+        working-directory: web
+        env:
+          VITE_EDITION: enterprise
+        run: |
+          pnpm build
+          node scripts/check-edition.mjs enterprise dist
       - name: Dependency licenses
         working-directory: web
         run: node scripts/check-licenses.mjs
@@ -96,6 +117,18 @@ jobs:
           - image: brokerium-server
             dockerfile: deploy/docker/server.Dockerfile
             cache: brokerium-server
+            tags: |
+              type=raw,value=edge,enable={{is_default_branch}}
+              type=sha,prefix=sha-
+              type=semver,pattern={{version}}
+              type=semver,pattern={{major}}.{{minor}}
+          - image: brokerium-server-enterprise
+            dockerfile: deploy/docker/server.Dockerfile
+            cache: brokerium-server-enterprise
+            edition: enterprise
+            labels: |
+              org.opencontainers.image.title=brokerium-server-enterprise
+              org.opencontainers.image.licenses=LicenseRef-PolyForm-Shield-1.0.0 AND LicenseRef-Brokerium-Commercial
             tags: |
               type=raw,value=edge,enable={{is_default_branch}}
               type=sha,prefix=sha-
@@ -136,6 +169,7 @@ jobs:
           images: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image }}
           flavor: ${{ matrix.flavor }}
           tags: ${{ matrix.tags }}
+          labels: ${{ matrix.labels }}
       - uses: docker/build-push-action@v7.4.0
         if: env.HAS_DOCKERHUB_TOKEN == 'true'
         with:
@@ -149,6 +183,7 @@ jobs:
             VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('edge-{0}', github.sha) }}
             COMMIT=${{ github.sha }}
             DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+            ${{ matrix.edition && format('EDITION={0}', matrix.edition) || '' }}
           cache-from: type=gha,scope=${{ matrix.cache }}
           cache-to: type=gha,mode=max,scope=${{ matrix.cache }}
       - name: Skipped

@@ -11,6 +11,13 @@ LDFLAGS := -s -w -X github.com/brokerium/brokerium/internal/version.Version=$(VE
 	-X github.com/brokerium/brokerium/internal/version.Commit=$(COMMIT) \
 	-X github.com/brokerium/brokerium/internal/version.Date=$(DATE)
 IMAGE_REPO ?= bvaliev
+# community, or enterprise for Brokerium Enterprise (ADR 0016).
+EDITION ?= community
+ifeq ($(filter $(EDITION),community enterprise),)
+$(error EDITION must be community or enterprise)
+endif
+GO_TAGS := $(if $(filter enterprise,$(EDITION)),-tags enterprise)
+SERVER_NAME := $(if $(filter enterprise,$(EDITION)),brokerium-server-enterprise,brokerium-server)
 
 .PHONY: help build build-go web-build web-dev dev test test-go test-web lint proto e2e screenshots images \
 	lab-up lab-down lab-reset lab-certs lab-ps lab-quorum lab-load licenses
@@ -18,33 +25,36 @@ IMAGE_REPO ?= bvaliev
 help: ## Show targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
 
-build: web-build build-go ## Build the dashboard and both binaries into bin/
+build: web-build build-go ## Build the dashboard and both binaries into bin/ (EDITION=enterprise for Enterprise)
 
 build-go:
-	$(MISE) go build -trimpath -ldflags '$(LDFLAGS)' -o bin/brokerium-server ./cmd/brokerium-server
+	$(MISE) go build -trimpath $(GO_TAGS) -ldflags '$(LDFLAGS)' -o bin/$(SERVER_NAME) ./cmd/brokerium-server
 	$(MISE) go build -trimpath -ldflags '$(LDFLAGS)' -o bin/brokerium-agent ./cmd/brokerium-agent
 
-web-build: ## Build the dashboard into internal/webui/dist
-	cd web && $(MISE) pnpm install --frozen-lockfile && $(MISE) pnpm build
+web-build: ## Build the dashboard of EDITION into internal/webui/dist
+	cd web && $(MISE) pnpm install --frozen-lockfile && VITE_EDITION=$(EDITION) $(MISE) pnpm build && \
+		$(MISE) node scripts/check-edition.mjs $(EDITION) dist
 	find internal/webui/dist -mindepth 1 ! -name .gitkeep -delete
 	cp -R web/dist/. internal/webui/dist/
 
 web-dev: ## Vite dev server with API proxy to localhost:8080
-	cd web && $(MISE) pnpm dev
+	cd web && VITE_EDITION=$(EDITION) $(MISE) pnpm dev
 
 dev: ## Run the server on the host against the lab
-	BROKERIUM_ADMIN_PASSWORD=$${BROKERIUM_ADMIN_PASSWORD:-brokerium-admin} $(MISE) go run ./cmd/brokerium-server
+	BROKERIUM_ADMIN_PASSWORD=$${BROKERIUM_ADMIN_PASSWORD:-brokerium-admin} $(MISE) go run $(GO_TAGS) ./cmd/brokerium-server
 
 test: test-go test-web ## Unit tests
 
 test-go:
 	$(MISE) go test ./...
+	$(MISE) go test -tags enterprise,licensetest ./...
 
 test-web:
 	cd web && $(MISE) pnpm test
 
-lint: ## golangci-lint, buf lint and web typecheck
+lint: ## golangci-lint for both editions, buf lint and web typecheck
 	$(MISE) golangci-lint run ./...
+	$(MISE) golangci-lint run --build-tags enterprise,licensetest ./...
 	$(MISE) buf lint
 	cd web && $(MISE) pnpm typecheck
 
@@ -64,8 +74,9 @@ screenshots: build ## Capture dashboard screenshots into docs/images from the la
 	cd web && $(MISE) pnpm exec playwright install chromium
 	deploy/lab/screenshots.sh
 
-images: ## Build container images locally
-	docker build -f deploy/docker/server.Dockerfile --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO)/brokerium-server:$(VERSION) .
+images: ## Build container images locally (the server image of EDITION)
+	docker build -f deploy/docker/server.Dockerfile --build-arg VERSION=$(VERSION) --build-arg EDITION=$(EDITION) \
+		-t $(IMAGE_REPO)/$(SERVER_NAME):$(VERSION) .
 	docker build -f deploy/docker/agent.Dockerfile --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO)/brokerium-agent:$(VERSION) .
 	docker build -f deploy/docker/agent-lab.Dockerfile --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO)/brokerium-agent:lab .
 
