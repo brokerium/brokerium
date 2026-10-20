@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -43,9 +44,14 @@ type Server struct {
 	AgentInsecureEndpoint string
 	// AgentInsecureTLS is how they dial it: system, skip-verify or none.
 	AgentInsecureTLS string
-	DockerHost       string
-	LabNetwork       string
-	AgentImage       string
+	// DockerProvider offers Docker clusters: auto (in the Docker installation only), on or off.
+	DockerProvider string
+	DockerHost     string
+	LabNetwork     string
+	AgentImage     string
+	// DockerAgentEndpoint is the address the agents in the nodes of Docker clusters dial, by
+	// default AgentEndpoint, which goes into the install commands of agents on other hosts.
+	DockerAgentEndpoint string
 	// AgentCertLifetime of agent certificates and the agent gateway certificate.
 	AgentCertLifetime time.Duration
 	SnapshotInterval  time.Duration
@@ -74,9 +80,11 @@ func LoadServer() (Server, error) {
 		AgentTransport:        env("BROKERIUM_AGENT_TRANSPORT", "mtls"),
 		AgentInsecureEndpoint: os.Getenv("BROKERIUM_AGENT_INSECURE_ENDPOINT"),
 		AgentInsecureTLS:      env("BROKERIUM_AGENT_INSECURE_TLS", "system"),
+		DockerProvider:        env("BROKERIUM_DOCKER_PROVIDER", "auto"),
 		DockerHost:            env("BROKERIUM_DOCKER_HOST", "unix:///var/run/docker.sock"),
 		LabNetwork:            env("BROKERIUM_LAB_NETWORK", "brokerium-lab"),
 		AgentImage:            env("BROKERIUM_AGENT_IMAGE", defaultAgentImage(version.Version)),
+		DockerAgentEndpoint:   os.Getenv("BROKERIUM_DOCKER_AGENT_ENDPOINT"),
 		AgentCertLifetime:     envDuration("BROKERIUM_AGENT_CERT_LIFETIME", 365*24*time.Hour),
 		SecureCookies:         envBool("BROKERIUM_SECURE_COOKIES", false),
 		SnapshotInterval:      envDuration("BROKERIUM_SNAPSHOT_INTERVAL", 15*time.Second),
@@ -84,12 +92,24 @@ func LoadServer() (Server, error) {
 		License:               strings.TrimSpace(os.Getenv("BROKERIUM_LICENSE")),
 		LicenseFile:           os.Getenv("BROKERIUM_LICENSE_FILE"),
 	}
-	c.AgentServerNames = splitList(env("BROKERIUM_AGENT_SERVER_NAMES", "localhost,host.docker.internal,brokerium,brokerium-server"))
 	if c.AgentCertLifetime < time.Minute {
 		return c, errors.New("BROKERIUM_AGENT_CERT_LIFETIME must be at least 1m")
 	}
 	if err := c.checkAgentTransport(); err != nil {
 		return c, err
+	}
+	if err := c.checkDocker(); err != nil {
+		return c, err
+	}
+	if c.DockerAgentEndpoint == "" {
+		c.DockerAgentEndpoint = c.AgentEndpoint
+	}
+	c.AgentServerNames = splitList(env("BROKERIUM_AGENT_SERVER_NAMES", "localhost,host.docker.internal,brokerium,brokerium-server"))
+	// Agents check the gateway certificate against the host they dial.
+	for _, endpoint := range []string{c.AgentEndpoint, c.DockerAgentEndpoint} {
+		if host, _, err := net.SplitHostPort(endpoint); err == nil && host != "" && !slices.Contains(c.AgentServerNames, host) {
+			c.AgentServerNames = append(c.AgentServerNames, host)
+		}
 	}
 
 	if err := os.MkdirAll(c.DataDir, 0o700); err != nil {
@@ -117,6 +137,17 @@ func (c Server) checkAgentTransport() error {
 		return errors.New("BROKERIUM_AGENT_TRANSPORT=insecure needs the insecure listener, BROKERIUM_AGENT_INSECURE_ADDR")
 	case c.AgentTransport == "insecure" && c.AgentInsecureEndpoint == "":
 		return errors.New("BROKERIUM_AGENT_TRANSPORT=insecure needs BROKERIUM_AGENT_INSECURE_ENDPOINT, the address agents dial")
+	}
+	return nil
+}
+
+// checkDocker checks the settings of Docker clusters.
+func (c Server) checkDocker() error {
+	switch {
+	case c.DockerProvider != "auto" && c.DockerProvider != "on" && c.DockerProvider != "off":
+		return fmt.Errorf("BROKERIUM_DOCKER_PROVIDER must be auto, on or off, not %q", c.DockerProvider)
+	case c.DockerAgentEndpoint != "" && !hostPort(c.DockerAgentEndpoint):
+		return fmt.Errorf("BROKERIUM_DOCKER_AGENT_ENDPOINT must be host:port, not %q", c.DockerAgentEndpoint)
 	}
 	return nil
 }

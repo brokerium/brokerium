@@ -113,6 +113,15 @@ messages carry the authenticity instead ([ADR 0017](../adr/0017-agent-transport-
   rotates. Enrolling the node again with a new join token replaces it; enrolling with the other
   transport revokes the credentials of the old one.
 
+## Docker clusters
+
+A server with the Docker socket controls the Docker host, and operators can start containers of
+the lab node image there by creating Docker clusters. With the default
+`BROKERIUM_DOCKER_PROVIDER=auto` the server offers Docker clusters only in the
+[Docker installation](install.md#docker-clusters) and ignores a socket it finds in Kubernetes or
+on a host; the Helm chart turns them off. Give the server the socket only for evaluations and
+labs ([ADR 0019](../adr/0019-docker-clusters-for-docker-installations.md)).
+
 ## Reporting vulnerabilities
 
 See [SECURITY.md](../../SECURITY.md).

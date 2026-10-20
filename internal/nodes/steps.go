@@ -579,7 +579,7 @@ func (m *Manager) stepSyncBootstrap(ctx context.Context, x *ops.Exec, raw json.R
 	var servers []string
 	for _, b := range mn.brokers {
 		if b.KafkaNodeID != nil {
-			servers = append(servers, brokerAddress(s, docker, b.Name, *b.KafkaNodeID))
+			servers = append(servers, m.brokerAddress(s, docker, b.Name, *b.KafkaNodeID))
 		}
 	}
 	if len(servers) == 0 {
@@ -588,7 +588,7 @@ func (m *Manager) stepSyncBootstrap(ctx context.Context, x *ops.Exec, raw json.R
 	s.ControllerBootstrapServers = nil
 	for _, c := range mn.controllers {
 		if c.KafkaNodeID != nil {
-			s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, controllerAddress(s, docker, c.Name, *c.KafkaNodeID))
+			s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, m.controllerAddress(s, docker, c.Name, *c.KafkaNodeID))
 		}
 	}
 	return m.stepSetSettings(ctx, x, mustJSON(NodeArgs{BootstrapServers: servers, Settings: &s}))

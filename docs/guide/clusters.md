@@ -9,7 +9,7 @@ cluster cannot support are not shown.
 | `external` | you | everything over the Kafka protocol: health, topics, ACLs, quotas, groups, messages, rebalancing, leader elections, cordon and unregister brokers, remove controllers from dynamic quorums |
 | `agent` | `brokerium-agent` on your hosts | all of the above plus creating clusters, adding, replacing and decommissioning brokers, adding controllers, quorum migration, rolling restarts and upgrades |
 | `strimzi` | the Strimzi operator on Kubernetes | Kafka-protocol features plus node pool scaling with rebalancing, rolling restarts and upgrades through the operator |
-| `docker` | the Docker provider (labs) | everything, with nodes as containers on the server's Docker host |
+| `docker` | the Docker provider (Docker installation, labs) | everything, with nodes as containers on the server's Docker host |
 
 ## Connection profiles
 
@@ -66,23 +66,49 @@ Brokerium runs in the same Kubernetes cluster (Helm value `rbac.strimzi`). Strim
 
 ## Docker lab clusters
 
-**Add cluster → Create a cluster in Docker** builds a cluster from the agent image on the
-server's Docker host (labs and tests). **Settings → Delete cluster nodes** removes the
-containers and volumes again.
+**Add cluster → Create a cluster in Docker** builds a cluster from the lab node image as
+containers on the server's Docker host, for evaluations, labs and tests. **Settings → Delete
+cluster nodes** removes the containers and volumes again.
 
-The Docker provider has these requirements:
+The dashboard offers it only when the server offers Docker clusters, which
+`BROKERIUM_DOCKER_PROVIDER` decides
+([ADR 0019](../adr/0019-docker-clusters-for-docker-installations.md)):
 
-- The server runs directly on the Docker host. The provider publishes the client listener of
-  every node on a port of the host and advertises it as `localhost:<port>`, so a server in a
-  container (unless it uses the host network), on another machine or in Kubernetes cannot reach
-  the nodes.
-- The server reaches the Docker API at `BROKERIUM_DOCKER_HOST` (by default
-  `unix:///var/run/docker.sock`).
-- The Docker network `BROKERIUM_LAB_NETWORK` (by default `brokerium-lab`) exists. The lab
-  creates it; elsewhere run `docker network create brokerium-lab`.
-- Nodes run the lab node image `BROKERIUM_AGENT_IMAGE`: Apache Kafka with the agent as the main
-  process. A release of the server defaults to `bvaliev/brokerium-agent:<version>-lab`, other
-  builds to `bvaliev/brokerium-agent:lab`, published from `main`. `make images` builds the image
-  locally after agent changes.
-- Nodes connect back to the agent gateway at `BROKERIUM_AGENT_ENDPOINT`, by default
-  `host.docker.internal:8443`.
+| Value | Docker clusters |
+| --- | --- |
+| `auto` (default) | Only in the [Docker installation](install.md#docker-clusters): the server runs in a Docker container (`/.dockerenv` exists), not in Kubernetes (`KUBERNETES_SERVICE_HOST` is not set), and the Docker API at `BROKERIUM_DOCKER_HOST` answers. The server asks the Docker API again at most every 30 seconds, so a Docker daemon that starts later is found. |
+| `on` | Always, for development with the server on the Docker host (`make dev`, the end-to-end tests). |
+| `off` | Never. The Helm chart sets it. |
+
+`GET /api/v1/server` reports the result in `providers.docker`, with the reason when Docker
+clusters are unavailable. Creating a Docker cluster then fails with 409 `docker_unavailable`, and
+so do operations that change the nodes of an existing Docker cluster. Such clusters stay
+registered and monitored over the Kafka protocol, and Kafka-level operations such as rebalancing
+keep working.
+
+How the server reaches the nodes depends on where it runs:
+
+- **In a container** (the Docker installation): the server is attached to the network
+  `BROKERIUM_LAB_NETWORK` and reaches brokers at `<container>:9092` and controllers at
+  `<container>:9093`, the names Brokerium records as the bootstrap and controller servers of the
+  cluster.
+- **On the Docker host** (development): through the ports the nodes publish on `localhost`.
+
+In both cases every broker also publishes a listener on `localhost:<port base + node id>` for
+clients on the Docker host. Clusters keep the addresses recorded when they were created: after
+moving the server between the Docker host and a container, change the bootstrap servers of
+existing Docker clusters.
+
+The Docker provider also needs:
+
+- the Docker API at `BROKERIUM_DOCKER_HOST` (by default `unix:///var/run/docker.sock`);
+- the Docker network `BROKERIUM_LAB_NETWORK` (by default `brokerium-lab`). The lab creates it;
+  elsewhere run `docker network create brokerium-lab`;
+- the lab node image `BROKERIUM_AGENT_IMAGE`: Apache Kafka with the agent as the main process. A
+  release of the server defaults to `bvaliev/brokerium-agent:<version>-lab`, other builds to
+  `bvaliev/brokerium-agent:lab`, published from `main`. The provider pulls the image when it is
+  missing; `make images` builds it locally after agent changes;
+- the address of the agent gateway for the agents in the nodes, `BROKERIUM_DOCKER_AGENT_ENDPOINT`:
+  `brokerium:8443` in the Docker installation. It defaults to `BROKERIUM_AGENT_ENDPOINT`, whose
+  default `host.docker.internal:8443` suits a server on the Docker host. `BROKERIUM_AGENT_ENDPOINT`
+  itself is the address in the join commands for agents on other hosts.

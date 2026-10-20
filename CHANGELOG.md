@@ -6,10 +6,38 @@ All notable changes to Brokerium are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `GET /api/v1/server` reports the version, the edition and whether the server offers Docker
+  clusters, with the reason when it does not.
+- The Docker installation creates and manages Docker clusters: the server in its container
+  reaches the nodes by container name on the network `brokerium-lab`. The install guide shows
+  the `docker run` commands with the Docker socket. The Docker provider pulls a missing node
+  image.
+- `BROKERIUM_DOCKER_AGENT_ENDPOINT` is the address the agents in the nodes of Docker clusters
+  dial, `brokerium:8443` in the Docker installation. It defaults to `BROKERIUM_AGENT_ENDPOINT`,
+  which stays the address in the join commands for agents on other hosts.
+
+### Changed
+
+- Docker clusters are offered only where they work
+  ([ADR 0019](docs/adr/0019-docker-clusters-for-docker-installations.md)): with
+  `BROKERIUM_DOCKER_PROVIDER=auto`, the default, only by a server in a Docker container outside
+  Kubernetes that reaches the Docker API; `on` offers them for development on the Docker host and
+  `off` never, as set by the Helm chart. Otherwise creating a Docker cluster and operations that
+  change its nodes fail with 409 `docker_unavailable`; existing Docker clusters stay monitored.
+- The certificate of the agent gateway always includes the hosts of `BROKERIUM_AGENT_ENDPOINT` and
+  `BROKERIUM_DOCKER_AGENT_ENDPOINT`.
+
 ### Fixed
 
 - Kafka starts again after a host reboot: the agent starts `brokerium-kafka.service` when Kafka
   was running before, while a node stopped from Brokerium stays stopped.
+
+### Upgrading
+
+- A server that runs on the Docker host and creates Docker clusters, in development or tests,
+  needs `BROKERIUM_DOCKER_PROVIDER=on`; `make dev` sets it.
 
 ## [0.3.0] - 2026-10-20
 
