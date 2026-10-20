@@ -149,7 +149,7 @@ GitHub releases are always checked against the `SHA256SUMS` of the release.
 | `/var/lib/brokerium-agent` | `brokerium-agent`, 0711 | Agent state: identity, client certificate and key (0600), `server.properties`, `kafka.env`. Kafka writes its logs to `logs/`. |
 | `/opt/brokerium/kafka` | `brokerium-agent:kafka`, 0755 | Kafka releases the agent installed; `current` points at the active one. |
 | `/var/lib/kafka/data` | `kafka:kafka`, 2770 | Kafka data. New files belong to the `kafka` group, through which the agent formats and wipes storage. |
-| `brokerium-kafka.service` | root | `User=kafka`, `UMask=0007`, heap options from `kafka.env`, starts the release behind `current`. |
+| `brokerium-kafka.service` | root | `User=kafka`, `UMask=0007`, heap options from `kafka.env`, starts the release behind `current`. Not enabled: after a host reboot the agent starts it when Kafka was running before, and a node stopped from Brokerium stays stopped. |
 | `brokerium-agent.service` | root | `User=brokerium-agent`, `SupplementaryGroups=kafka`, `ProtectSystem=full`, `ProtectHome=yes`, `PrivateTmp=yes`. |
 | `/etc/sudoers.d/brokerium-agent` | root, 0440 | The sudo rule below. |
 

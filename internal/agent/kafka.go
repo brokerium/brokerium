@@ -724,16 +724,23 @@ func readProperty(path, name string) string {
 	return ""
 }
 
-// Resume restarts Kafka after an agent restart if it was running before.
+// Resume starts Kafka after an agent or host restart if it was running before. Kafka under
+// systemd outlives agent restarts, so its unit starts only when it is not active, as after a
+// host reboot: the unit is not enabled, because a node the server stopped must stay stopped.
 func (k *Kafka) Resume() error {
 	k.mu.Lock()
-	running := k.state.Running && k.cfg.Process != "systemd"
+	running, systemd := k.state.Running, k.cfg.Process == "systemd"
 	k.mu.Unlock()
 	if !running {
 		return nil
 	}
 	if _, err := os.Stat(k.configPath()); err != nil {
 		return nil
+	}
+	if systemd {
+		if _, err := k.run(context.Background(), nil, k.systemctl, "is-active", "--quiet", kafkaUnit); err == nil {
+			return nil
+		}
 	}
 	return k.Start("")
 }
