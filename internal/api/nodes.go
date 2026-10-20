@@ -298,7 +298,10 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable --now brokerium-agent.service
+systemctl enable brokerium-agent.service
+# A running agent picks up the new binary and settings, for example another transport; Kafka
+# runs in its own unit and keeps running.
+systemctl restart brokerium-agent.service
 echo "brokerium-agent installed; it enrolls with the server on first start."
 `
 
