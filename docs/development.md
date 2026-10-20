@@ -86,7 +86,9 @@ Release builds never use `licensetest`, and the release workflow refuses binarie
 - `BROKERIUM_E2E_HEAVY=1` enables scenarios that create Docker clusters.
 - `BROKERIUM_E2E_STRIMZI_KUBECONFIG` points to the kubeconfig of the Strimzi lab.
 - `BROKERIUM_E2E_VM=1` with `BROKERIUM_E2E_URL` and `BROKERIUM_E2E_CONTROLLERS` runs the
-  agent installer scenarios against the VM lab.
+  agent installer scenarios against the VM lab. With `BROKERIUM_E2E_VM_PREVIOUS` set to a
+  directory with the `install.sh` and the Linux `brokerium-agent` of an earlier release, the
+  hosts are installed with those first and then converted by the current installer.
 - `BROKERIUM_E2E_KEEP=1` keeps the clusters a test created.
 - `BROKERIUM_E2E_CERT_LIFETIME=3m` waits for an agent certificate renewal; start the server
   with the same `BROKERIUM_AGENT_CERT_LIFETIME`.
