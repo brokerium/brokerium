@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -127,9 +128,17 @@ func (s *Server) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
 	if !Decode(w, r, &req) {
 		return
 	}
-	if req.Name == "" || req.Partitions <= 0 || req.ReplicationFactor <= 0 {
-		WriteError(w, http.StatusBadRequest, "bad_request", "name, partitions and replicationFactor are required")
+	if req.Name == "" || req.Partitions < 0 || req.ReplicationFactor < 0 {
+		WriteError(w, http.StatusBadRequest, "bad_request", "name is required; partitions and replicationFactor must not be negative")
 		return
+	}
+	// -1 asks the broker for num.partitions and default.replication.factor (KIP-464).
+	partitions, replication := req.Partitions, req.ReplicationFactor
+	if partitions == 0 {
+		partitions = -1
+	}
+	if replication == 0 {
+		replication = -1
 	}
 	cfg := map[string]*string{}
 	for k, v := range req.Configs {
@@ -137,7 +146,7 @@ func (s *Server) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := timeout(r)
 	defer cancel()
-	resp, err := cl.Adm.CreateTopic(ctx, req.Partitions, req.ReplicationFactor, cfg, req.Name)
+	resp, err := cl.Adm.CreateTopic(ctx, partitions, replication, cfg, req.Name)
 	if err == nil {
 		err = resp.Err
 	}
@@ -166,6 +175,10 @@ func (s *Server) handleDeleteTopic(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		err = resp.Err
 	}
+	if errors.Is(err, kerr.UnknownTopicOrPartition) && s.knownTopic(ctx, r.PathValue("id"), topic) {
+		// The last snapshot has the topic: a retried request found it deleted by the first attempt.
+		err = nil
+	}
 	s.Audit(r, "topic.delete", r.PathValue("id"), topic, nil, err)
 	if err != nil {
 		kafkaErr(w, err)
@@ -173,6 +186,15 @@ func (s *Server) handleDeleteTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	go s.Clusters.Refresh(context.Background(), r.PathValue("id")) //nolint:errcheck
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// knownTopic reports whether the cached snapshot of the cluster has the topic.
+func (s *Server) knownTopic(ctx context.Context, clusterID, topic string) bool {
+	v, err := s.Clusters.View(ctx, clusterID, time.Hour)
+	if err != nil || v.Snapshot == nil {
+		return false
+	}
+	return slices.ContainsFunc(v.Snapshot.Topics, func(t kafka.Topic) bool { return t.Name == topic })
 }
 
 type configChange struct {
