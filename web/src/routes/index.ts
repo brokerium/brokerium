@@ -3,6 +3,7 @@
 import type { ComponentType } from 'react';
 import type { RouteObject } from 'react-router';
 
+import { enterpriseRoutes } from '@ee';
 import { RequireAuth } from '../components/layout/RequireAuth';
 import { RootLayout } from '../components/layout/RootLayout';
 import { RouteError } from '../components/layout/RouteError';
@@ -55,6 +56,8 @@ export const routes: RouteObject[] = [
               { path: 'nodes', lazy: page(() => import('./NodesPage')) },
               { path: 'users', lazy: page(() => import('./UsersPage')) },
               { path: 'audit', lazy: page(() => import('./AuditPage')) },
+              { path: 'license', lazy: page(() => import('./LicensePage')) },
+              ...enterpriseRoutes,
               { path: '*', lazy: page(() => import('./NotFoundPage')) },
             ],
           },

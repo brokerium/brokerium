@@ -1,10 +1,21 @@
 // SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 
-import { Badge, type BadgeProps, Group, Loader } from '@mantine/core';
-import { IconAlertOctagon } from '@tabler/icons-react';
+import { Badge, type BadgeProps, Group, Loader, Tooltip } from '@mantine/core';
+import { IconAlertOctagon, IconCrown } from '@tabler/icons-react';
 
-import type { Broker, Flavor, HealthStatus, OperationStatus, Provider, Role, Severity } from '../api/types';
+import type {
+  Broker,
+  Edition,
+  Flavor,
+  HealthStatus,
+  LicenseState,
+  OperationStatus,
+  Provider,
+  Role,
+  Severity,
+} from '../api/types';
 import { FLAVOR_LABELS, PROVIDER_LABELS, ROLE_COLORS, ROLE_LABELS } from '../lib/labels';
+import { editionLabel, licenseStateColor, licenseStateLabel } from '../lib/license';
 import { brokerState, brokerStateColor, healthColor, healthLabel, operationStatusColor, severityColor } from '../lib/status';
 
 type SizeProps = Pick<BadgeProps, 'size'>;
@@ -82,6 +93,33 @@ export function IrreversibleBadge({ size = 'sm' }: SizeProps) {
   return (
     <Badge color="red" variant="outline" size={size} leftSection={<IconAlertOctagon size={12} />}>
       irreversible
+    </Badge>
+  );
+}
+
+/** Marks a feature of Brokerium Enterprise that the license does not cover. */
+export function EnterpriseBadge({ size = 'sm' }: SizeProps) {
+  return (
+    <Tooltip label="Needs Brokerium Enterprise and a license key that covers it" withArrow>
+      <Badge color="violet" variant="light" size={size} leftSection={<IconCrown size={12} />}>
+        Enterprise
+      </Badge>
+    </Tooltip>
+  );
+}
+
+export function EditionBadge({ edition, size = 'sm' }: { edition: Edition } & SizeProps) {
+  return (
+    <Badge color={edition === 'enterprise' ? 'violet' : 'gray'} variant="outline" size={size}>
+      {editionLabel(edition)}
+    </Badge>
+  );
+}
+
+export function LicenseStateBadge({ state, size = 'sm' }: { state: LicenseState } & SizeProps) {
+  return (
+    <Badge color={licenseStateColor(state)} variant={state === 'valid' ? 'light' : 'filled'} size={size}>
+      {licenseStateLabel(state)}
     </Badge>
   );
 }
