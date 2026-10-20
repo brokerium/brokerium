@@ -412,14 +412,23 @@ paths:
     get:
       tags: [topics]
       summary: Browse messages
-      description: "Role: viewer. Non-UTF-8 keys and values are returned base64-encoded."
+      description: >-
+        Role: viewer. Keys, values and header values that are not UTF-8 are returned
+        base64-encoded. The limit is split evenly between the partitions read. Pass `next` or
+        `previous` of a response as `cursor` with `from=after` or `from=before` to read the
+        following or the preceding page of every partition.
       parameters:
         - name: partition
           in: query
+          description: One partition; all partitions by default. Ignored with a cursor.
           schema: { type: integer, format: int32 }
         - name: from
           in: query
-          schema: { type: string, enum: [latest, earliest, offset, timestamp], default: latest }
+          schema: { type: string, enum: [latest, earliest, offset, timestamp, after, before], default: latest }
+        - name: cursor
+          in: query
+          description: Offsets per partition (`0:120,1:98`) for `from=after` and `from=before`.
+          schema: { type: string }
         - name: offset
           in: query
           description: Start offset when `from=offset`.
@@ -442,10 +451,16 @@ paths:
                   messages:
                     type: array
                     items: { $ref: "#/components/schemas/Message" }
+                  next:
+                    type: [string, "null"]
+                    description: Cursor of the following page; null when every partition was read to its end.
+                  previous:
+                    type: [string, "null"]
+                    description: Cursor of the preceding page; null at the start of every partition.
     post:
       tags: [topics]
       summary: Produce one message
-      description: "Role: operator."
+      description: "Role: operator. A null value produces a tombstone."
       parameters: [{ $ref: "#/components/parameters/CSRF" }]
       requestBody:
         required: true
@@ -457,7 +472,9 @@ paths:
               properties:
                 partition: { type: [integer, "null"], format: int32 }
                 key: { type: [string, "null"] }
-                value: { type: string }
+                keyEncoding: { type: string, enum: [utf8, base64], default: utf8 }
+                value: { type: [string, "null"] }
+                valueEncoding: { type: string, enum: [utf8, base64], default: utf8 }
                 headers:
                   type: array
                   items: { $ref: "#/components/schemas/MessageHeader" }
@@ -1469,6 +1486,10 @@ components:
       properties:
         key: { type: string }
         value: { type: string }
+        encoding:
+          type: string
+          enum: [utf8, base64]
+          description: Omitted for text.
     Message:
       type: object
       properties:
