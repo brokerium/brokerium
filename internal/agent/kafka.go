@@ -154,7 +154,7 @@ func (k *Kafka) Install(ctx context.Context, version, mirror string) (string, er
 		fmt.Sprintf("https://downloads.apache.org/kafka/%s/%s.sha512", version, file),
 		fmt.Sprintf("https://archive.apache.org/dist/kafka/%s/%s.sha512", version, file),
 	}
-	want, err := fetchSHA512(ctx, sumURLs)
+	want, err := fetchSHA512(ctx, sumURLs, stallTimeout)
 	if err != nil {
 		return "", err
 	}
@@ -167,7 +167,7 @@ func (k *Kafka) Install(ctx context.Context, version, mirror string) (string, er
 	archive := filepath.Join(tmp, file)
 	var lastErr error
 	for _, m := range mirrors {
-		lastErr = download(ctx, fmt.Sprintf("%s/%s/%s", m, version, file), archive)
+		lastErr = download(ctx, fmt.Sprintf("%s/%s/%s", m, version, file), archive, stallTimeout)
 		if lastErr == nil {
 			break
 		}
@@ -201,22 +201,86 @@ func (k *Kafka) Install(ctx context.Context, version, mirror string) (string, er
 	return "installed " + version + " to " + dest + " (sha512 verified)", nil
 }
 
-func fetchSHA512(ctx context.Context, urls []string) (string, error) {
+// stallTimeout is how long a download may receive no data before the agent gives up on the
+// mirror and tries the next one.
+const stallTimeout = time.Minute
+
+var errStalled = errors.New("no data received")
+
+// fetch starts a GET request that fails when no data arrives for the stall duration, also
+// while it waits for the response. The caller closes the body.
+func fetch(ctx context.Context, url string, stall time.Duration) (io.ReadCloser, error) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	timer := time.AfterFunc(stall, func() { cancel(fmt.Errorf("%s: %w for %s", url, errStalled, stall)) })
+	fail := func(err error) (io.ReadCloser, error) {
+		timer.Stop()
+		cancel(nil)
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fail(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fail(stallCause(ctx, err))
+	}
+	if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return fail(fmt.Errorf("%s: HTTP %d", url, resp.StatusCode))
+	}
+	return &watchedBody{body: resp.Body, ctx: ctx, cancel: cancel, timer: timer, stall: stall}, nil
+}
+
+// stallCause reports a stall instead of the bare cancellation it caused.
+func stallCause(ctx context.Context, err error) error {
+	if cause := context.Cause(ctx); errors.Is(cause, errStalled) {
+		return cause
+	}
+	return err
+}
+
+// watchedBody restarts the stall timer whenever data arrives.
+type watchedBody struct {
+	body   io.ReadCloser
+	ctx    context.Context
+	cancel context.CancelCauseFunc
+	timer  *time.Timer
+	stall  time.Duration
+}
+
+func (w *watchedBody) Read(p []byte) (int, error) {
+	n, err := w.body.Read(p)
+	if n > 0 {
+		w.timer.Reset(w.stall)
+	}
+	if err != nil && !errors.Is(err, io.EOF) {
+		err = stallCause(w.ctx, err)
+	}
+	return n, err
+}
+
+func (w *watchedBody) Close() error {
+	w.timer.Stop()
+	w.cancel(nil)
+	return w.body.Close()
+}
+
+func fetchSHA512(ctx context.Context, urls []string, stall time.Duration) (string, error) {
 	var lastErr error
 	for _, u := range urls {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-		resp, err := http.DefaultClient.Do(req)
+		body, err := fetch(ctx, u, stall)
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			lastErr = fmt.Errorf("%s: HTTP %d", u, resp.StatusCode)
+		data, err := io.ReadAll(io.LimitReader(body, 4096))
+		_ = body.Close()
+		if err != nil {
+			lastErr = err
 			continue
 		}
-		text := string(body)
+		text := string(data)
 		if i := strings.Index(text, ":"); i >= 0 {
 			text = text[i+1:]
 		}
@@ -235,21 +299,17 @@ func fetchSHA512(ctx context.Context, urls []string) (string, error) {
 	return "", fmt.Errorf("fetching checksum: %w", lastErr)
 }
 
-func download(ctx context.Context, url, dest string) error {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	resp, err := http.DefaultClient.Do(req)
+func download(ctx context.Context, url, dest string, stall time.Duration) error {
+	body, err := fetch(ctx, url, stall)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
-	}
+	defer body.Close()
 	f, err := os.Create(dest)
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	if _, err := io.Copy(f, body); err != nil {
 		_ = f.Close()
 		return err
 	}
