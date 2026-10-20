@@ -1,4 +1,4 @@
-# ADR 0018: CI runs the jobs a change needs
+# ADR 0020: CI runs the jobs a change needs
 
 - Status: accepted
 - Date: 2026-10-20
