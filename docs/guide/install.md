@@ -94,7 +94,7 @@ docker run -d --name brokerium --network brokerium-lab -p 8080:8080 -p 8443:8443
   -v /var/run/docker.sock:/var/run/docker.sock --group-add "$(stat -c %g /var/run/docker.sock)" \
   -e BROKERIUM_ADMIN_PASSWORD=change-me \
   -e BROKERIUM_DATABASE_URL='postgres://brokerium:brokerium@brokerium-db:5432/brokerium?sslmode=disable' \
-  -e BROKERIUM_AGENT_ENDPOINT=brokerium:8443 \
+  -e BROKERIUM_DOCKER_AGENT_ENDPOINT=brokerium:8443 \
   bvaliev/brokerium-server:0.3.0
 ```
 
@@ -103,9 +103,13 @@ docker run -d --name brokerium --network brokerium-lab -p 8080:8080 -p 8443:8443
   prints. On Docker Desktop (macOS and Windows) the socket appears in containers as `root:root`
   with mode 0660: use `--group-add 0`.
 - Nodes are containers on `brokerium-lab`, and the server reaches them by their container names.
-  Their agents connect to the server at `BROKERIUM_AGENT_ENDPOINT`, here the server container
-  `brokerium` on the same network; the host of the endpoint is always in the certificate of the
-  agent gateway. The install command for agents on other hosts uses the same address.
+  Their agents connect to the server at `BROKERIUM_DOCKER_AGENT_ENDPOINT`, here the server
+  container `brokerium` on the same network.
+- `BROKERIUM_AGENT_ENDPOINT` stays the address that agents on other hosts dial, and it goes into
+  the join commands of the **Nodes** page. To manage such hosts too, set it to a name of the
+  Docker host they can reach, for example `-e BROKERIUM_AGENT_ENDPOINT=docker-host.example.com:8443`
+  (the command publishes port 8443). The hosts of both endpoints are always in the certificate of
+  the agent gateway.
 - The first cluster pulls the lab node image `bvaliev/brokerium-agent:<version>-lab`. Clients on
   the Docker host reach the brokers at `localhost:<port base + broker id>`; the plan of the
   cluster shows the port base.
@@ -130,8 +134,8 @@ Release assets contain `brokerium-server-<os>-<arch>` with the dashboard built i
 | `BROKERIUM_ADMIN_USERNAME`, `BROKERIUM_ADMIN_PASSWORD` | `admin`, none | First administrator, created when there are no users. |
 | `BROKERIUM_HTTP_ADDR`, `BROKERIUM_GRPC_ADDR` | `:8080`, `:8443` | Dashboard and API; agent gateway. |
 | `BROKERIUM_PUBLIC_URL` | `http://localhost:8080` | Used in links and agent install commands. |
-| `BROKERIUM_AGENT_ENDPOINT` | `host.docker.internal:8443` | Address agents dial, including the nodes of Docker clusters (`brokerium:8443` in the [Docker installation](#docker-clusters)). |
-| `BROKERIUM_AGENT_SERVER_NAMES` | `localhost,host.docker.internal,brokerium,brokerium-server` | Names in the gateway certificate; the host of `BROKERIUM_AGENT_ENDPOINT` is always added. |
+| `BROKERIUM_AGENT_ENDPOINT` | `host.docker.internal:8443` | Address agents on hosts dial; it goes into the join commands of the **Nodes** page. |
+| `BROKERIUM_AGENT_SERVER_NAMES` | `localhost,host.docker.internal,brokerium,brokerium-server` | Names in the gateway certificate; the hosts of `BROKERIUM_AGENT_ENDPOINT` and `BROKERIUM_DOCKER_AGENT_ENDPOINT` are always added. |
 | `BROKERIUM_AGENT_PROXY`, `BROKERIUM_AGENT_NO_PROXY` | none | `HTTPS_PROXY` and `NO_PROXY` in the agent install command. |
 | `BROKERIUM_AGENT_INSECURE_ADDR` | none | Plaintext listener of the insecure agent transport for a proxy that terminates TLS, for example `:8444` ([details](#agents-behind-a-tls-terminating-proxy)). |
 | `BROKERIUM_AGENT_TRANSPORT` | `mtls` | Transport of the agent install command: `mtls`, or `insecure` with the listener and the endpoint below. |
@@ -142,6 +146,7 @@ Release assets contain `brokerium-server-<os>-<arch>` with the dashboard built i
 | `BROKERIUM_SNAPSHOT_INTERVAL` | `15s` | How often clusters are polled. |
 | `BROKERIUM_DOCKER_PROVIDER` | `auto` | Docker clusters: `auto` offers them only in the [Docker installation](#docker-clusters) (a Docker container outside Kubernetes that reaches the Docker API), `on` always (development with the server on the Docker host), `off` never. The Helm chart sets `off`. |
 | `BROKERIUM_DOCKER_HOST`, `BROKERIUM_LAB_NETWORK`, `BROKERIUM_AGENT_IMAGE` | `unix:///var/run/docker.sock`, `brokerium-lab`, the lab node image of the release | Docker API, network and node image of [Docker clusters](clusters.md#docker-lab-clusters). |
+| `BROKERIUM_DOCKER_AGENT_ENDPOINT` | `BROKERIUM_AGENT_ENDPOINT` | Address the agents in the nodes of Docker clusters dial, `brokerium:8443` in the [Docker installation](#docker-clusters). |
 | `BROKERIUM_DEBUG` | `0` | `1` logs every API request. |
 | `BROKERIUM_LICENSE` | none | License key of Brokerium Enterprise; takes precedence over a key added on the **License** page. The Community edition ignores it. |
 | `BROKERIUM_LICENSE_FILE` | none | File that contains the license key, for example a mounted Secret; used when `BROKERIUM_LICENSE` is empty. |

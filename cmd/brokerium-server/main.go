@@ -97,12 +97,12 @@ func run(log *slog.Logger) error {
 	dockerClusters := docker.NewDetector(cfg.DockerProvider, cfg.DockerHost)
 	if a := dockerClusters.Check(ctx); a.Available {
 		log.Info("docker clusters available", "mode", cfg.DockerProvider, "network", cfg.LabNetwork,
-			"inContainer", dockerClusters.InContainer())
+			"agentEndpoint", cfg.DockerAgentEndpoint, "inContainer", dockerClusters.InContainer())
 	} else {
 		log.Info("docker clusters unavailable", "mode", cfg.DockerProvider, "reason", a.Reason)
 	}
 	nodeManager := &nodes.Manager{Store: st, Gateway: gateway, Docker: dockerClusters.Client(), DockerClusters: dockerClusters,
-		Clusters: clusters, Log: log, Cfg: nodes.Config{AgentEndpoint: cfg.AgentEndpoint, AgentImage: cfg.AgentImage,
+		Clusters: clusters, Log: log, Cfg: nodes.Config{AgentEndpoint: cfg.DockerAgentEndpoint, AgentImage: cfg.AgentImage,
 			LabNetwork: cfg.LabNetwork, ServerInContainer: dockerClusters.InContainer()}}
 	engine.Extend(nodeManager)
 	editionAPIs, err := setupEdition(ctx, cfg, st, clusters, engine, log)

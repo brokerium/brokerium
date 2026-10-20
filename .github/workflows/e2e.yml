@@ -28,6 +28,7 @@ jobs:
       BROKERIUM_ADMIN_PASSWORD: brokerium-admin
       BROKERIUM_SNAPSHOT_INTERVAL: 10s
       BROKERIUM_AGENT_IMAGE: bvaliev/brokerium-agent:lab
+      BROKERIUM_DOCKER_PROVIDER: "on"
       # Agents renew their certificates every two minutes while the scenarios run.
       BROKERIUM_AGENT_CERT_LIFETIME: 3m
       BROKERIUM_E2E_CERT_LIFETIME: 3m

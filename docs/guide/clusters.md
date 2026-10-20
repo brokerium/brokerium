@@ -108,6 +108,7 @@ The Docker provider also needs:
   release of the server defaults to `bvaliev/brokerium-agent:<version>-lab`, other builds to
   `bvaliev/brokerium-agent:lab`, published from `main`. The provider pulls the image when it is
   missing; `make images` builds it locally after agent changes;
-- the address of the agent gateway for the agents in the nodes, `BROKERIUM_AGENT_ENDPOINT`:
-  `brokerium:8443` in the Docker installation, by default `host.docker.internal:8443` for a
-  server on the Docker host.
+- the address of the agent gateway for the agents in the nodes, `BROKERIUM_DOCKER_AGENT_ENDPOINT`:
+  `brokerium:8443` in the Docker installation. It defaults to `BROKERIUM_AGENT_ENDPOINT`, whose
+  default `host.docker.internal:8443` suits a server on the Docker host. `BROKERIUM_AGENT_ENDPOINT`
+  itself is the address in the join commands for agents on other hosts.

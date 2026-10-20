@@ -14,6 +14,9 @@ All notable changes to Brokerium are documented here. The format follows
   reaches the nodes by container name on the network `brokerium-lab`. The install guide shows
   the `docker run` commands with the Docker socket. The Docker provider pulls a missing node
   image.
+- `BROKERIUM_DOCKER_AGENT_ENDPOINT` is the address the agents in the nodes of Docker clusters
+  dial, `brokerium:8443` in the Docker installation. It defaults to `BROKERIUM_AGENT_ENDPOINT`,
+  which stays the address in the join commands for agents on other hosts.
 
 ### Changed
 
@@ -23,7 +26,8 @@ All notable changes to Brokerium are documented here. The format follows
   Kubernetes that reaches the Docker API; `on` offers them for development on the Docker host and
   `off` never, as set by the Helm chart. Otherwise creating a Docker cluster and operations that
   change its nodes fail with 409 `docker_unavailable`; existing Docker clusters stay monitored.
-- The certificate of the agent gateway always includes the host of `BROKERIUM_AGENT_ENDPOINT`.
+- The certificate of the agent gateway always includes the hosts of `BROKERIUM_AGENT_ENDPOINT` and
+  `BROKERIUM_DOCKER_AGENT_ENDPOINT`.
 
 ### Upgrading
 

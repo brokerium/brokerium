@@ -26,6 +26,7 @@ import (
 
 // Config holds provider settings.
 type Config struct {
+	// AgentEndpoint is the address the agents in the containers of Docker clusters dial.
 	AgentEndpoint string
 	AgentImage    string
 	LabNetwork    string

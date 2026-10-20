@@ -44,9 +44,11 @@ installation guide) and for development.
   the cluster. A server on the Docker host keeps using the ports published on `localhost`. In both
   modes every broker publishes a listener on `localhost:<port base + node id>` for clients on the
   Docker host.
-- The agents of the nodes reach the server at `BROKERIUM_AGENT_ENDPOINT`, which the Docker
-  installation sets to the server container on the lab network, `brokerium:8443`. The host of the
-  endpoint is always a name of the agent gateway certificate, so the agents can verify it.
+- The agents of the nodes reach the server at `BROKERIUM_DOCKER_AGENT_ENDPOINT`, which the Docker
+  installation sets to the server container on the lab network, `brokerium:8443`. It defaults to
+  `BROKERIUM_AGENT_ENDPOINT`, which stays the address in the join commands for agents on other
+  hosts: they cannot resolve the name of a container. The hosts of both endpoints are always names
+  of the agent gateway certificate, so the agents can verify it.
 - The provider pulls a missing node image before it creates a container, so the Docker
   installation needs no manual `docker pull`.
 
@@ -58,6 +60,8 @@ installation guide) and for development.
   Docker host, so this installation stays one for evaluations and labs.
 - Servers that run on the Docker host and create Docker clusters, in development and in the
   end-to-end tests, need `BROKERIUM_DOCKER_PROVIDER=on`; `make dev` sets it.
+- Without `BROKERIUM_DOCKER_AGENT_ENDPOINT`, the nodes of Docker clusters and agents on hosts dial
+  the same address, as before.
 - Clusters keep the addresses recorded when they were created. After a server moves between the
   Docker host and a container, the bootstrap servers of existing Docker clusters have to be
   changed to the addresses of the new mode.
