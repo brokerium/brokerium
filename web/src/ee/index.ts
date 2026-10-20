@@ -3,6 +3,8 @@
 import type { RouteObject } from 'react-router';
 
 import type { DashboardEdition, TopicAction } from '../lib/edition';
+import { MESSAGE_TOOLS } from './features';
+import { DeleteRecordsAction } from './topic/DeleteRecordsAction';
 
 export const ENTERPRISE_MARKER = 'brokerium-enterprise-dashboard-7c41e9';
 
@@ -11,4 +13,6 @@ export const dashboardEdition: DashboardEdition = { edition: 'enterprise', marke
 /** Pages of Enterprise features, inside the signed-in layout. */
 export const enterpriseRoutes: RouteObject[] = [];
 
-export const topicActions: TopicAction[] = [];
+export const topicActions: TopicAction[] = [
+  { feature: MESSAGE_TOOLS, label: 'Delete records', Component: DeleteRecordsAction },
+];

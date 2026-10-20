@@ -2,6 +2,7 @@
 
 import { Badge, Group, Modal, NumberInput, SimpleGrid, Stack, Tabs, Text, Title, Button } from '@mantine/core';
 import { IconArrowLeft, IconPlus, IconTrash } from '@tabler/icons-react';
+import { topicActions } from '@ee';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
@@ -107,6 +108,9 @@ export default function TopicPage() {
           )}
         </Stack>
         <Group gap="xs">
+          {topicActions.map(({ label, Component }) => (
+            <Component key={label} clusterId={clusterId} topic={topic.name} />
+          ))}
           <GatedButton
             availability={manageTopics}
             variant="default"

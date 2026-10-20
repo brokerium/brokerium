@@ -17,7 +17,7 @@ in a published version never move to Enterprise.
 
 | Feature | What it adds |
 | --- | --- |
-| Message tools | Delete records and empty topics, search, export and copy messages. |
+| Message tools | Delete records and empty topics, search, export and copy messages ([Topics and messages](messages.md)). |
 
 The **License** page of the dashboard lists these features in both editions and shows which ones
 the license covers.

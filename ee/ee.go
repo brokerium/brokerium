@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/brokerium/brokerium/ee/licensing"
+	"github.com/brokerium/brokerium/ee/messagetools"
 	"github.com/brokerium/brokerium/internal/api"
 	"github.com/brokerium/brokerium/internal/cluster"
 	"github.com/brokerium/brokerium/internal/config"
@@ -46,7 +47,19 @@ func Setup(ctx context.Context, d Deps) ([]api.Extension, error) {
 	}
 	edition.SetManager(m)
 	go m.Run(ctx, evaluateEvery)
-	return nil, nil
+	return []api.Extension{featureRoutes{feature: edition.MessageTools, routes: messagetools.Routes}}, nil
+}
+
+// featureRoutes registers the routes of an Enterprise feature behind its license check.
+type featureRoutes struct {
+	feature string
+	routes  func(s *api.Server) []messagetools.Route
+}
+
+func (f featureRoutes) Register(s *api.Server) {
+	for _, r := range f.routes(s) {
+		s.Route(r.Pattern, r.Role, RequireFeature(f.feature, r.Handler))
+	}
 }
 
 // RequireFeature wraps the handler of an Enterprise feature: unless the license covers the

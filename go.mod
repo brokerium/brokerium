@@ -7,6 +7,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/twmb/franz-go v1.22.2
 	github.com/twmb/franz-go/pkg/kadm v1.19.0
+	github.com/twmb/franz-go/pkg/kfake v0.0.0-20261020001454-39ebb4656165
 	github.com/twmb/franz-go/pkg/kmsg v1.15.0
 	golang.org/x/crypto v0.58.0
 	golang.org/x/sys v0.49.0
