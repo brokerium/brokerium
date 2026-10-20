@@ -4,6 +4,9 @@ Brokerium is one server (`brokerium-server`: API, dashboard, operations engine) 
 PostgreSQL database, plus an optional agent (`brokerium-agent`) on Kafka hosts you want
 Brokerium to manage at the node level.
 
+This guide installs the Community edition. Brokerium Enterprise installs the same way from its own
+image and binaries and needs a license key; see [Editions and license keys](enterprise.md).
+
 ## Server
 
 ### Kubernetes with Helm
@@ -29,6 +32,7 @@ Values worth setting (see the [chart README](../../deploy/helm/brokerium/README.
 | `loadBalancer.*` | A `LoadBalancer` service with the dashboard port, the agent port or both, and a host name for external-dns. |
 | `publicURL`, `agents.endpoint` | The dashboard URL and the address agents dial. Derived from `gateway.*` or `loadBalancer.hostname` when empty. |
 | `rbac.strimzi` | ClusterRole for managing Strimzi clusters in the same Kubernetes cluster with the pod's service account. |
+| `edition`, `license.*` | `enterprise` runs Brokerium Enterprise; `license.existingSecret` or `license.key` passes its license key. See [Editions and license keys](enterprise.md). |
 
 The agent port (8443) uses mutual TLS with the server's own CA, so a proxy in front of it must
 pass TLS through instead of terminating it. A dashboard with an HTTPS Gateway and agents on
@@ -68,12 +72,14 @@ Keep `/var/lib/brokerium` on a volume or set `BROKERIUM_SECRET_KEY`: the server 
 start when the database was sealed with another key.
 
 Images are published to Docker Hub as `bvaliev/brokerium-server` and `bvaliev/brokerium-agent`
-for `linux/amd64` and `linux/arm64`. To build them from source, run
-`make images VERSION=0.2.0`.
+for `linux/amd64` and `linux/arm64`, and Brokerium Enterprise as
+`bvaliev/brokerium-server-enterprise` with the same tags. To build them from source, run
+`make images VERSION=0.2.0` (add `EDITION=enterprise` for the Enterprise server image).
 
 ### Binary
 
-Release assets contain `brokerium-server-<os>-<arch>` with the dashboard built in.
+Release assets contain `brokerium-server-<os>-<arch>` with the dashboard built in, and
+`brokerium-server-enterprise-<os>-<arch>` for Brokerium Enterprise.
 
 ### Configuration
 
@@ -92,6 +98,8 @@ Release assets contain `brokerium-server-<os>-<arch>` with the dashboard built i
 | `BROKERIUM_SNAPSHOT_INTERVAL` | `15s` | How often clusters are polled. |
 | `BROKERIUM_DOCKER_HOST`, `BROKERIUM_LAB_NETWORK`, `BROKERIUM_AGENT_IMAGE` | lab values | Docker provider (labs only, see [Docker lab clusters](clusters.md#docker-lab-clusters)). |
 | `BROKERIUM_DEBUG` | `0` | `1` logs every API request. |
+| `BROKERIUM_LICENSE` | none | License key of Brokerium Enterprise; takes precedence over a key added on the **License** page. The Community edition ignores it. |
+| `BROKERIUM_LICENSE_FILE` | none | File that contains the license key, for example a mounted Secret; used when `BROKERIUM_LICENSE` is empty. |
 
 ## Agents on virtual machines and bare metal
 

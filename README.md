@@ -118,6 +118,8 @@ make dev         # Brokerium server on http://localhost:8080
   Amazon MSK, Confluent Cloud, Aiven
 - [Operations](docs/guide/operations.md): what each operation does and how it stays safe
 - [Security](docs/guide/security.md): users, roles, sessions, credentials, the agent channel
+- [Editions and license keys](docs/guide/enterprise.md): Community and Enterprise, adding a
+  license key
 - [REST API](api/openapi.yaml) (OpenAPI 3.1)
 - [Runbooks](docs/runbooks/) and the lab scenarios they automate
 - [Architecture decisions](docs/adr/) and the [roadmap](docs/ROADMAP.md)
