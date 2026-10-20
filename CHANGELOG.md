@@ -29,6 +29,11 @@ All notable changes to Brokerium are documented here. The format follows
 - The certificate of the agent gateway always includes the hosts of `BROKERIUM_AGENT_ENDPOINT` and
   `BROKERIUM_DOCKER_AGENT_ENDPOINT`.
 
+### Fixed
+
+- Kafka starts again after a host reboot: the agent starts `brokerium-kafka.service` when Kafka
+  was running before, while a node stopped from Brokerium stays stopped.
+
 ### Upgrading
 
 - A server that runs on the Docker host and creates Docker clusters, in development or tests,
