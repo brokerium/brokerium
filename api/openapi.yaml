@@ -22,6 +22,10 @@ info:
     changes until `POST /operations/{op}/confirm`. Irreversible operations require
     `confirmName` equal to the cluster name.
 
+    **Editions.** `GET /api/v1/license` names the edition of the server. Routes and operation
+    types of Brokerium Enterprise answer 403 `license_required` without a license that covers
+    their feature.
+
     **Errors** use `{"error": {"code": "...", "message": "..."}}`.
 
     Apache, Apache Kafka and Kafka are trademarks of the Apache Software Foundation.
@@ -47,6 +51,7 @@ tags:
   - name: nodes
   - name: users
   - name: audit
+  - name: license
 
 paths:
   /healthz:
@@ -980,6 +985,55 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/AuditEntry" }
 
+  /api/v1/license:
+    get:
+      tags: [license]
+      summary: Edition, Enterprise features and license
+      description: >-
+        Role: viewer. Lists the features of Brokerium Enterprise and whether the license covers
+        them. `license` is null in Community builds and in Enterprise builds without a key.
+      responses:
+        "200":
+          description: The edition and the license.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LicenseView" }
+    put:
+      tags: [license]
+      summary: Add or replace the license key
+      description: >-
+        Role: admin. Enterprise builds only. Verifies the key offline and stores it in the
+        database; keys that expired or are not valid yet are refused. Audited as `license.update`
+        without the key text.
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LicenseRequest" }
+      responses:
+        "200":
+          description: The key is stored.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LicenseView" }
+        "400":
+          description: The key does not verify, expired or is not valid yet (`invalid_license`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409": { $ref: "#/components/responses/LicenseConflict" }
+    delete:
+      tags: [license]
+      summary: Remove the stored license key
+      description: >-
+        Role: admin. Enterprise builds only. Enterprise features are locked afterwards. Audited
+        as `license.delete`.
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      responses:
+        "204": { description: Removed. }
+        "409": { $ref: "#/components/responses/LicenseConflict" }
+
 components:
   securitySchemes:
     sessionCookie:
@@ -1054,6 +1108,14 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Operation" }
+    LicenseConflict:
+      description: >-
+        The server runs the Community edition (`edition_required`), or the key comes from
+        `BROKERIUM_LICENSE` or `BROKERIUM_LICENSE_FILE` and can only be changed there
+        (`license_managed_externally`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
 
   schemas:
     Error:
@@ -1534,6 +1596,11 @@ components:
           description: Capabilities that must all be true.
           items: { type: string }
         irreversible: { type: boolean }
+        feature:
+          type: string
+          description: >-
+            Enterprise feature that the license must cover to plan and confirm the operation;
+            missing for Community operations. Without it the API answers 403 `license_required`.
     OperationParams:
       description: Parameters of each operation type, keyed by type name.
       type: object
@@ -1741,3 +1808,66 @@ components:
         target: { type: string }
         result: { type: string }
         detail: {}
+
+    Edition:
+      type: string
+      enum: [community, enterprise]
+    EditionFeature:
+      type: object
+      required: [id, title, description, licensed]
+      properties:
+        id: { type: string, examples: [message-tools] }
+        title: { type: string }
+        description: { type: string }
+        licensed:
+          type: boolean
+          description: The license covers the feature and is valid or in its grace period.
+    LicenseInfo:
+      type: object
+      description: >-
+        The license key in use. For a key that does not verify only `state`, `source` and
+        `error` are set.
+      required: [id, customer, email, features, state, source]
+      properties:
+        id: { type: string }
+        customer: { type: string }
+        email: { type: string }
+        features:
+          type: array
+          description: Feature ids, or `*` for all features.
+          items: { type: string }
+        issuedAt: { type: string, format: date-time }
+        notBefore: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        graceEndsAt: { type: string, format: date-time }
+        state:
+          type: string
+          enum: [invalid, valid, grace, expired]
+          description: >-
+            valid from notBefore until expiresAt, grace until graceEndsAt, then expired; invalid
+            when the key does not verify or is not valid yet. Enterprise features work in valid
+            and grace.
+        source:
+          type: string
+          enum: [environment, file, database]
+          description: "`BROKERIUM_LICENSE`, `BROKERIUM_LICENSE_FILE` or the key stored through this API."
+        error: { type: string, description: Why the key cannot be used. }
+    LicenseView:
+      type: object
+      required: [edition, features, license]
+      properties:
+        edition: { $ref: "#/components/schemas/Edition" }
+        features:
+          type: array
+          items: { $ref: "#/components/schemas/EditionFeature" }
+        license:
+          oneOf:
+            - { $ref: "#/components/schemas/LicenseInfo" }
+            - { type: "null" }
+    LicenseRequest:
+      type: object
+      required: [key]
+      properties:
+        key:
+          type: string
+          description: The license key `brk-lic-1.<payload>.<signature>`; whitespace is ignored.

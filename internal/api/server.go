@@ -77,6 +77,7 @@ func (s *Server) Handler(exts ...Extension) http.Handler {
 	s.registerClusters()
 	s.registerDataPlane()
 	s.registerUsers()
+	s.registerLicense()
 	for _, e := range exts {
 		e.Register(s)
 	}
