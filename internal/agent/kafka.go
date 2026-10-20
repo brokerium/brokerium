@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -36,6 +37,12 @@ var versionRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 // Kafka manages the local Kafka installation and process of a node.
 type Kafka struct {
 	cfg Config
+	// root agents write the Kafka unit themselves. Agents without root control the unit of the
+	// installer through sudo and reach the Kafka directories through the kafka group.
+	root      bool
+	run       runFunc
+	systemctl string
+	unitFile  string
 
 	mu       sync.Mutex
 	cmd      *exec.Cmd
@@ -57,7 +64,8 @@ type nodeState struct {
 }
 
 func newKafka(cfg Config) *Kafka {
-	k := &Kafka{cfg: cfg, state: nodeState{Installed: map[string]string{}}}
+	k := &Kafka{cfg: cfg, state: nodeState{Installed: map[string]string{}}, root: os.Geteuid() == 0,
+		run: runCommand, systemctl: lookSystemctl(), unitFile: "/etc/systemd/system/" + kafkaUnit}
 	if raw, err := os.ReadFile(k.statePath()); err == nil {
 		_ = json.Unmarshal(raw, &k.state)
 	}
@@ -361,21 +369,30 @@ func (k *Kafka) Format(ctx context.Context, clusterID string, mode agentv1.Forma
 	if err != nil {
 		return "", err
 	}
-	args := formatArgs(clusterID, k.configPath(), mode, initial)
-	cmd := exec.CommandContext(ctx, filepath.Join(home, "bin", "kafka-storage.sh"), args...) //nolint:gosec // the installed Kafka release, typed arguments
-	cmd.Env = append(os.Environ(), "KAFKA_HEAP_OPTS=-Xmx256m")
-	out, err := cmd.CombinedOutput()
-	if err == nil && k.cfg.Process == "systemd" && os.Geteuid() == 0 {
+	name, args := filepath.Join(home, "bin", "kafka-storage.sh"), formatArgs(clusterID, k.configPath(), mode, initial)
+	if k.unprivileged() {
+		name, args = "/bin/sh", append([]string{"-c", `umask 0007 && exec "$0" "$@"`, name}, args...)
+	}
+	out, err := k.run(ctx, []string{"KAFKA_HEAP_OPTS=-Xmx256m"}, name, args...)
+	if err != nil {
+		return strings.TrimSpace(string(out)), err
+	}
+	switch {
+	case k.unprivileged():
+		if err := shareWithGroup(k.dataDir()); err != nil {
+			return strings.TrimSpace(string(out)), fmt.Errorf("opening %s to the kafka group: %w", k.dataDir(), err)
+		}
+	case k.cfg.Process == "systemd" && k.root:
 		// The agent formats as root; the Kafka unit runs as the kafka account.
 		user := k.cfg.KafkaUser
 		if user == "" {
 			user = "kafka"
 		}
-		if chown, cerr := exec.CommandContext(ctx, "chown", "-R", user, k.dataDir()).CombinedOutput(); cerr != nil { //nolint:gosec // agent configuration
+		if chown, cerr := k.run(ctx, nil, "chown", "-R", user, k.dataDir()); cerr != nil {
 			return strings.TrimSpace(string(chown)), fmt.Errorf("chown %s: %w", k.dataDir(), cerr)
 		}
 	}
-	return strings.TrimSpace(string(out)), err
+	return strings.TrimSpace(string(out)), nil
 }
 
 // formatArgs builds the kafka-storage.sh format arguments. The cluster id is joined with "=" so
@@ -410,12 +427,15 @@ func (k *Kafka) Start(version string) error {
 		return fmt.Errorf("kafka %s is not installed", k.state.ActiveVersion)
 	}
 	if k.cfg.Process == "systemd" {
+		if !k.root {
+			return k.startUnit(home)
+		}
 		if err := k.writeUnit(home); err != nil {
 			return err
 		}
 		k.state.Running = true
 		k.saveState()
-		return exec.Command("systemctl", "restart", "brokerium-kafka.service").Run()
+		return k.controlUnit("restart")
 	}
 	if k.cmd != nil {
 		return nil
@@ -459,41 +479,6 @@ func (k *Kafka) Start(version string) error {
 	return nil
 }
 
-func (k *Kafka) writeUnit(home string) error {
-	user := k.cfg.KafkaUser
-	if user == "" {
-		user = "kafka"
-	}
-	logDir := filepath.Join(k.cfg.DataDir, "logs")
-	unit := fmt.Sprintf(`[Unit]
-Description=Apache Kafka managed by brokerium-agent
-After=network-online.target
-
-[Service]
-User=%s
-Environment=KAFKA_HEAP_OPTS=%s
-Environment=LOG_DIR=%s
-ExecStart=%s %s
-KillSignal=SIGTERM
-TimeoutStopSec=120
-Restart=on-failure
-LimitNOFILE=1000000
-
-[Install]
-WantedBy=multi-user.target
-`, user, k.state.HeapOpts, logDir, filepath.Join(home, "bin", "kafka-server-start.sh"), k.configPath())
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		return err
-	}
-	if out, err := exec.Command("chown", "-R", user, logDir).CombinedOutput(); err != nil { //nolint:gosec // agent configuration
-		return fmt.Errorf("chown %s: %v: %s", logDir, err, out)
-	}
-	if err := os.WriteFile("/etc/systemd/system/brokerium-kafka.service", []byte(unit), 0o644); err != nil { //nolint:gosec // systemd unit files are world-readable
-		return err
-	}
-	return exec.Command("systemctl", "daemon-reload").Run()
-}
-
 // Stop shuts Kafka down gracefully (controlled shutdown), killing it after the timeout, and
 // records that it should stay stopped.
 func (k *Kafka) Stop(timeout time.Duration) error { return k.stop(timeout, false) }
@@ -513,7 +498,7 @@ func (k *Kafka) stop(timeout time.Duration, keepDesired bool) error {
 		k.state.Running = false
 		k.saveState()
 		k.mu.Unlock()
-		return exec.Command("systemctl", "stop", "brokerium-kafka.service").Run()
+		return k.controlUnit("stop")
 	}
 	cmd, done := k.cmd, k.done
 	if !keepDesired {
@@ -552,6 +537,10 @@ func (k *Kafka) Wipe(confirm, nodeName string) error {
 	}
 	for _, e := range entries {
 		if err := os.RemoveAll(filepath.Join(k.cfg.KafkaDataDir, e.Name())); err != nil {
+			if k.unprivileged() && errors.Is(err, fs.ErrPermission) {
+				return fmt.Errorf("%w: the agent deletes Kafka data through the kafka group; run the install script again to give the group access to %s",
+					err, k.cfg.KafkaDataDir)
+			}
 			return err
 		}
 	}
@@ -572,7 +561,8 @@ func (k *Kafka) Status() *agentv1.NodeStatus {
 	systemd := k.cfg.Process == "systemd"
 	k.mu.Unlock()
 	if systemd {
-		st.Running = exec.Command("systemctl", "is-active", "--quiet", "brokerium-kafka.service").Run() == nil
+		_, err := k.run(context.Background(), nil, k.systemctl, "is-active", "--quiet", kafkaUnit)
+		st.Running = err == nil
 	}
 	sort.Strings(st.InstalledVersions)
 	st.Meta = readMeta(filepath.Join(k.dataDir(), "meta.properties"))

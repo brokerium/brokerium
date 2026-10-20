@@ -46,7 +46,8 @@ type Config struct {
 	// KafkaConfig adopts an existing node: Kafka runs with this server.properties, which the
 	// agent never rewrites, and storage is never formatted.
 	KafkaConfig string
-	// KafkaUser runs Kafka under this account when the agent manages a systemd unit.
+	// KafkaUser runs Kafka under this account when an agent running as root writes the systemd
+	// unit. Without root the agent uses the unit of the installer, which runs Kafka as kafka.
 	KafkaUser string
 }
 
@@ -78,6 +79,9 @@ func (a *Agent) path(name string) string { return filepath.Join(a.cfg.DataDir, n
 // Run enrolls if needed and keeps the command stream open until ctx ends. An agent whose
 // certificate expired enrolls again when it is given a join token.
 func (a *Agent) Run(ctx context.Context) error {
+	if err := a.kafka.prepareUnit(); err != nil {
+		a.log.Warn("preparing the kafka unit", "error", err)
+	}
 	enrolled := a.loadIdentity() == nil
 	expired := enrolled && a.cfg.Token != "" && a.certificateExpired()
 	if !enrolled || expired {
