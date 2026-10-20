@@ -14,6 +14,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kadm"
 
+	"github.com/brokerium/brokerium/internal/agentcfg"
 	"github.com/brokerium/brokerium/internal/cluster"
 	"github.com/brokerium/brokerium/internal/kafka"
 	"github.com/brokerium/brokerium/internal/store"
@@ -118,6 +119,13 @@ func (req *ClusterRequest) apply(c *store.Cluster) error {
 	case store.ProviderExternal, store.ProviderAgent, store.ProviderDocker, store.ProviderStrimzi:
 	default:
 		return fmt.Errorf("unknown provider %q", c.Provider)
+	}
+	for _, key := range []string{"brokerHeap", "controllerHeap"} {
+		if heap, ok := c.Settings[key].(string); ok {
+			if err := agentcfg.ValidateHeap(heap); err != nil {
+				return fmt.Errorf("settings.%s: %w", key, err)
+			}
+		}
 	}
 	switch c.Flavor {
 	case store.FlavorApache, store.FlavorMSK, store.FlavorConfluentCloud, store.FlavorAiven:

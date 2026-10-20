@@ -27,6 +27,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/brokerium/brokerium/internal/agentcfg"
 	agentv1 "github.com/brokerium/brokerium/proto/brokerium/agent/v1"
 )
 
@@ -327,6 +328,9 @@ func extractTarGz(archive, dest string) error {
 func (k *Kafka) WriteConfig(props map[string]string, heap string) error {
 	if k.Adopted() {
 		return errAdopted
+	}
+	if err := agentcfg.Validate(props, heap); err != nil {
+		return err
 	}
 	keys := make([]string, 0, len(props))
 	for key := range props {

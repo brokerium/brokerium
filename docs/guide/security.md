@@ -37,8 +37,15 @@ never returned by the API. Back up the key together with the database.
 - The server signs a client certificate for the agent from its own CA; afterwards the agent
   connects with mutual TLS 1.3.
 - The agent executes a closed set of typed commands. There is no shell and no arbitrary file
-  access. Kafka releases are downloaded from Apache and checked against the published
-  SHA-512.
+  access. Kafka releases are downloaded from Apache (or the mirror in the command) and checked
+  against the SHA-512 published on `downloads.apache.org`, never against a checksum from the
+  server.
+- What the agent accepts from the server: Kafka versions in the `x.y.z` form; properties for
+  `server.properties` whose names consist of letters, digits, `.`, `_` and `-` and whose values
+  contain no control characters; heap options made only of `-Xms<size>` and `-Xmx<size>`. The
+  server checks the same rules when cluster settings are saved and before it sends a command,
+  so neither an operator nor a server can add lines to `server.properties` or the systemd unit
+  or pass other JVM options.
 - On hosts the agent runs as root to manage the Kafka unit; Kafka runs as the `kafka` account.
   The join token lives in `/etc/brokerium-agent.env` (mode 0600).
 - The install script checks the agent binary against the `SHA256SUMS` of its release.

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/brokerium/brokerium/internal/agentcfg"
 	"github.com/brokerium/brokerium/internal/cluster"
 	"github.com/brokerium/brokerium/internal/kafka"
 	"github.com/brokerium/brokerium/internal/ops"
@@ -308,6 +309,9 @@ func (m *Manager) stepConfigure(ctx context.Context, x *ops.Exec, raw json.RawMe
 	heap := s.BrokerHeap
 	if a.Role == RoleController {
 		heap = s.ControllerHeap
+	}
+	if err := agentcfg.Validate(props, heap); err != nil {
+		return nil, fmt.Errorf("configuration of %s: %w", a.Name, err)
 	}
 	if _, err := m.send(ctx, a.Name, &agentv1.Command{Action: &agentv1.Command_WriteConfig{WriteConfig: &agentv1.WriteConfig{
 		Properties: props, HeapOpts: heap}}}, time.Minute); err != nil {
