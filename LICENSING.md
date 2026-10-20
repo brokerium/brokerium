@@ -53,22 +53,35 @@ Future versions may be published under different terms (for example a more
 permissive license or an additional commercial edition). Versions that are already
 published keep their license. See [GOVERNANCE.md](GOVERNANCE.md).
 
+**What is the difference between Community and Enterprise?**
+Brokerium Community is everything in this repository outside `ee/` and `web/src/ee/`,
+free under the PolyForm Shield License, including the overview of any number of clusters.
+Brokerium Enterprise adds paid features, starting with message tools (deleting records,
+emptying topics, searching, exporting and copying messages). Its code lives in `ee/` and
+`web/src/ee/` under the [Brokerium Commercial License](ee/LICENSE): you can read it, but
+production use needs a subscription and a license key. The Community build and its
+images contain none of that code. Features that were free in a published version never
+move to Enterprise.
+
 **Where is the commercial license?**
-Commercial licenses (OEM, service providers, special terms) are available on
-request. Write to [licensing@brokerium.kaufen](mailto:licensing@brokerium.kaufen);
-the maintainer replies personally.
+Enterprise subscriptions and other commercial licenses (OEM, service providers, special
+terms) are available on request. Write to
+[licensing@brokerium.kaufen](mailto:licensing@brokerium.kaufen); the maintainer replies
+personally.
 
 ## License map
 
 | Path | License |
 | --- | --- |
 | Everything in this repository unless stated otherwise | PolyForm Shield License 1.0.0 |
+| `ee/` and `web/src/ee/` (Brokerium Enterprise) | [Brokerium Commercial License 1.0](ee/LICENSE) |
 | Third-party dependencies (Go modules, npm packages, container base images) | Their own licenses; see the generated SBOM attached to each release |
 
 Source files carry an SPDX header:
 
 ```text
 SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+SPDX-License-Identifier: LicenseRef-Brokerium-Commercial   (files in ee/ and web/src/ee/)
 ```
 
 ## Trademarks

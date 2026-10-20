@@ -66,14 +66,32 @@ the lab scenarios with the Kafka CLI, code skeleton, CI and the first container 
   chart repository https://charts.brokerium.kaufen, the published lab node image, the Strimzi
   scenario in CI and fixes for cluster ids and Strimzi scale-ups.
 
-## Phase 9: v0.2.1 (next)
+## Phase 9: v0.2.1
+
+- Validation of the configuration commands agents receive, topic creation with the broker
+  defaults, retried topic deletion, node buttons for agent clusters.
+
+## Phase 10: v0.3.0 (next)
+
+- Community and Enterprise editions with license keys ([ADR 0016](adr/0016-editions-and-license-keys.md)).
+- Enterprise message tools: delete records and empty topics, search, export and copy messages.
+- Free: tombstones, binary values and paging in the message views; agents through HTTP CONNECT
+  proxies and behind TLS-terminating proxies; the agent without root.
+
+## Phase 11: v0.3.1
 
 - Node.js 26 LTS for the dashboard build.
 
-## Later: commercial layer
+## Later: Enterprise
 
-SSO, fine-grained roles, audit export, scheduled rebalancing and self-healing, an MCP / AI
-assistant, a hosted edition.
+- Fleet features: cluster groups and tags, comparison of configurations and versions, rolling
+  upgrades and restarts across clusters in waves, configuration policies and drift.
+- Access: SSO (OIDC, SAML), SCIM, roles per cluster and custom roles, approvals by a second
+  person.
+- Audit export to a SIEM, retention, tamper evidence.
+- Scheduled and goal-driven rebalancing, self-healing, capacity forecasts, an assistant over MCP.
+- Schema Registry decoding and data masking in the message tools.
+- Support with SLAs and long-term support builds.
 
 ## Lab scenarios
 

@@ -28,6 +28,9 @@ Pull requests are welcome, with a few rules:
    tools, review the result and mention it in the pull request description.
 5. **The maintainer decides.** A pull request may be declined, or the maintainer may
    implement the idea independently instead of merging it. Only the maintainer merges.
+6. **No changes to Enterprise code.** Pull requests that change `ee/` or `web/src/ee/` are
+   not accepted; that code is under the [Brokerium Commercial License](ee/LICENSE).
+   Issues about it are welcome.
 
 Every change to `main`, including the maintainer's own, goes through a pull request that
 passes the required checks (`go`, `web`, `cla`, `e2e`) and is merged as a single squashed

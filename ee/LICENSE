@@ -1,0 +1,49 @@
+Brokerium Commercial License 1.0
+
+Copyright (c) 2026 Bulat Valiev
+
+The files in this directory and its subdirectories, and the files in web/src/ee of this
+repository (together "the Enterprise Software"), are licensed under these terms, not under the
+PolyForm Shield License 1.0.0 that covers the rest of Brokerium. The licensor is Bulat Valiev
+and anyone to whom he transfers the rights to Brokerium.
+
+1. Production use. You may use the Enterprise Software in production only with a valid
+   subscription and a license key issued for it by the licensor, within the features, limits
+   and term of that license key and of the agreement under which you obtained it.
+
+2. Evaluation. Without a subscription you may build, run and test the Enterprise Software for
+   evaluation, development and testing, but not in production.
+
+3. Source code. You may read the source code of the Enterprise Software and change it to fix
+   problems or to integrate it into your environment, for the uses that sections 1 and 2
+   allow. You may not remove, disable or circumvent the license key checks, and you may not
+   change the Enterprise Software to unlock features, limits or a term that your license key
+   does not cover.
+
+4. Distribution. You may not distribute, sublicense, sell or rent the Enterprise Software or
+   changed versions of it, and you may not offer it to others as a hosted service. You may
+   redistribute the official, unchanged release binaries and container images published by
+   the licensor within your organization and to your contractors who operate Brokerium for
+   you.
+
+5. Contributions. The licensor does not accept changes to the Enterprise Software from others.
+
+6. Other components. Third-party components keep their own licenses, and the parts of
+   Brokerium outside the Enterprise Software keep the PolyForm Shield License 1.0.0.
+
+7. Termination. Your rights under section 1 end when your subscription ends. All rights under
+   these terms end automatically if you breach them; if you stop the breach within 30 days of
+   notice, your rights are restored once.
+
+8. No warranty. THE ENTERPRISE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+   PURPOSE AND NON-INFRINGEMENT, EXCEPT AS AGREED IN WRITING IN YOUR SUBSCRIPTION AGREEMENT.
+
+9. Limitation of liability. TO THE EXTENT PERMITTED BY LAW, THE LICENSOR IS NOT LIABLE FOR ANY
+   DAMAGES ARISING FROM THE USE OF THE ENTERPRISE SOFTWARE, EXCEPT AS AGREED IN WRITING IN YOUR
+   SUBSCRIPTION AGREEMENT.
+
+10. Precedence. If your subscription agreement differs from these terms, the agreement
+    applies.
+
+Contact: licensing@brokerium.kaufen
