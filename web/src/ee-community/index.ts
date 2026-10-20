@@ -4,10 +4,12 @@
 
 import type { RouteObject } from 'react-router';
 
-import type { DashboardEdition, TopicAction } from '../lib/edition';
+import type { DashboardEdition, TopicAction, TopicTab } from '../lib/edition';
 
 export const dashboardEdition: DashboardEdition = { edition: 'community' };
 
 export const enterpriseRoutes: RouteObject[] = [];
 
 export const topicActions: TopicAction[] = [];
+
+export const topicTabs: TopicTab[] = [];

@@ -5,11 +5,14 @@
 package messagetools
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kerr"
+	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/brokerium/brokerium/internal/api"
 	"github.com/brokerium/brokerium/internal/store"
@@ -27,11 +30,27 @@ func Routes(s *api.Server) []Route {
 	h := &handlers{srv: s}
 	return []Route{
 		{"POST /api/v1/clusters/{id}/topics/{topic}/delete-records", store.RoleOperator, h.deleteRecords},
+		{"POST /api/v1/clusters/{id}/topics/{topic}/search", store.RoleViewer, h.search},
+		{"POST /api/v1/clusters/{id}/topics/{topic}/export", store.RoleViewer, h.export},
 	}
 }
 
 type handlers struct {
 	srv *api.Server
+}
+
+// writeError answers with the status that matches an error of the message tools.
+func writeError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrBadDeleteRequest), errors.Is(err, ErrBadFilter), errors.Is(err, ErrBadSelection):
+		api.WriteError(w, http.StatusBadRequest, "bad_request", err.Error())
+	case errors.Is(err, ErrCompactedTopic):
+		api.WriteError(w, http.StatusConflict, "compacted_topic", err.Error())
+	case errors.Is(err, kerr.UnknownTopicOrPartition):
+		api.WriteError(w, http.StatusNotFound, "not_found", "topic not found")
+	default:
+		api.KafkaError(w, err)
+	}
 }
 
 func (h *handlers) deleteRecords(w http.ResponseWriter, r *http.Request) {
@@ -54,45 +73,95 @@ func (h *handlers) deleteRecords(w http.ResponseWriter, r *http.Request) {
 	if !req.DryRun {
 		h.srv.Audit(r, "topic.delete-records", r.PathValue("id"), topic, deleteAudit(req, res), auditResult(res, err))
 	}
-	switch {
-	case errors.Is(err, ErrBadDeleteRequest):
-		api.WriteError(w, http.StatusBadRequest, "bad_request", err.Error())
-	case errors.Is(err, ErrCompactedTopic):
-		api.WriteError(w, http.StatusConflict, "compacted_topic", err.Error())
-	case errors.Is(err, kerr.UnknownTopicOrPartition):
-		api.WriteError(w, http.StatusNotFound, "not_found", "topic not found")
-	case err != nil:
-		api.KafkaError(w, err)
-	default:
-		api.WriteJSON(w, http.StatusOK, res)
+	if err != nil {
+		writeError(w, err)
+		return
 	}
+	api.WriteJSON(w, http.StatusOK, res)
 }
 
-func deleteAudit(req DeleteRequest, res *DeleteResult) map[string]any {
-	detail := map[string]any{}
-	switch {
-	case req.All:
-		detail["mode"] = "all"
-	case req.BeforeTimestamp != nil:
-		detail["mode"], detail["beforeTimestamp"] = "time", *req.BeforeTimestamp
-	default:
-		detail["mode"] = "offsets"
+func (h *handlers) search(w http.ResponseWriter, r *http.Request) {
+	cl, _, ok := h.srv.Capable(w, r, "browseMessages")
+	if !ok {
+		return
 	}
-	if res != nil {
-		before := map[int32]int64{}
-		for _, p := range res.Partitions {
-			if p.Error == "" {
-				before[p.Partition] = p.DeleteBefore
-			}
+	var req SearchRequest
+	if !api.Decode(w, r, &req) {
+		return
+	}
+	profile, err := h.srv.Profile(r)
+	if err != nil {
+		api.WriteStoreError(w, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), maxSearchTimeout+time.Minute)
+	defer cancel()
+	res, err := Search(ctx, cl.Adm, profile, r.PathValue("topic"), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	api.WriteJSON(w, http.StatusOK, res)
+}
+
+func (h *handlers) export(w http.ResponseWriter, r *http.Request) {
+	cl, _, ok := h.srv.Capable(w, r, "browseMessages")
+	if !ok {
+		return
+	}
+	topic := r.PathValue("topic")
+	var req ExportRequest
+	if !api.Decode(w, r, &req) {
+		return
+	}
+	format, err := lookupFormat(req.Format)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	match, err := req.compile(req.FromTime, req.ToTime)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	profile, err := h.srv.Profile(r)
+	if err != nil {
+		api.WriteStoreError(w, err)
+		return
+	}
+	ctx, cancel := api.RequestTimeout(r)
+	ranges, err := Ranges(ctx, cl.Adm, topic, req.Selection)
+	cancel()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	limit := bounded(req.Limit, maxExportRecords, maxExportRecords)
+	limits := Limits{Time: bounded(time.Duration(req.TimeoutSeconds)*time.Second, defaultExportTimeout, maxExportTimeout)}
+	// Kafka topic names contain only letters, digits, '.', '_' and '-', which are safe here.
+	w.Header().Set("Content-Type", format.contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.%s"`, topic, format.extension))
+	w.WriteHeader(http.StatusOK)
+	rc := http.NewResponseController(w)
+	out := format.open(w)
+	var exported int64
+	var writeErr error
+	res, scanErr := Scan(r.Context(), profile, topic, ranges, limits, func(rec *kgo.Record) bool {
+		if !match(rec) {
+			return true
 		}
-		detail["records"], detail["deleteBefore"] = res.Records, before
+		if writeErr = out.write(rec); writeErr != nil {
+			return false
+		}
+		exported++
+		if exported%1000 == 0 {
+			_ = rc.Flush()
+		}
+		return exported < limit
+	})
+	if writeErr == nil {
+		writeErr = out.close()
 	}
-	return detail
-}
-
-func auditResult(res *DeleteResult, err error) error {
-	if err == nil && res != nil && res.Failed > 0 {
-		return fmt.Errorf("%d of %d partitions failed", res.Failed, len(res.Partitions))
-	}
-	return err
+	h.srv.Audit(r, "topic.export", r.PathValue("id"), topic, map[string]any{"format": format.extension, "records": exported,
+		"scanned": res.Scanned, "complete": res.Complete, "stopped": res.Stopped}, errors.Join(scanErr, writeErr))
 }

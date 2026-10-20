@@ -2,7 +2,7 @@
 
 import { Badge, Group, Modal, NumberInput, SimpleGrid, Stack, Tabs, Text, Title, Button } from '@mantine/core';
 import { IconArrowLeft, IconPlus, IconTrash } from '@tabler/icons-react';
-import { topicActions } from '@ee';
+import { topicActions, topicTabs } from '@ee';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
@@ -149,6 +149,11 @@ export default function TopicPage() {
           <Tabs.Tab value="configs">Configs</Tabs.Tab>
           <Tabs.Tab value="messages">Messages</Tabs.Tab>
           <Tabs.Tab value="produce">Produce</Tabs.Tab>
+          {topicTabs.map((t) => (
+            <Tabs.Tab key={t.value} value={t.value}>
+              {t.label}
+            </Tabs.Tab>
+          ))}
         </Tabs.List>
         <Tabs.Panel value="partitions" pt="md">
           <PartitionsPanel detail={detail.data} />
@@ -185,6 +190,15 @@ export default function TopicPage() {
             <TabNotAvailable what="Producing records" />
           )}
         </Tabs.Panel>
+        {topicTabs.map(({ value, label, Component }) => (
+          <Tabs.Panel key={value} value={value} pt="md">
+            {caps.browseMessages ? (
+              <Component clusterId={clusterId} topic={topic.name} partitionCount={partitionCount} />
+            ) : (
+              <TabNotAvailable what={label} />
+            )}
+          </Tabs.Panel>
+        ))}
       </Tabs>
 
       <Modal opened={adding} onClose={() => setAdding(false)} title={<Text fw={600}>Add partitions</Text>} centered>
