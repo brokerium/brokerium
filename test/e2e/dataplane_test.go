@@ -176,4 +176,12 @@ func TestDataPlane(t *testing.T) {
 		t.Errorf("topic deletion without confirmation: status %d", got)
 	}
 	c.must(http.StatusNoContent, "DELETE", base+"/topics/"+topic+"?confirm="+topic, nil, nil)
+	if got := c.do("DELETE", base+"/topics/"+topic+"?confirm="+topic, nil, nil); got != http.StatusNotFound {
+		t.Errorf("deleting a deleted topic: status %d, want 404", got)
+	}
+
+	// Partitions and replication factor 0 take the broker defaults.
+	defaults := topic + "-defaults"
+	c.must(http.StatusCreated, "POST", base+"/topics", map[string]any{"name": defaults, "partitions": 0, "replicationFactor": 0}, nil)
+	c.must(http.StatusNoContent, "DELETE", base+"/topics/"+defaults+"?confirm="+defaults, nil, nil)
 }

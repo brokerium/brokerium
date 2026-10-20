@@ -127,9 +127,17 @@ func (s *Server) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
 	if !Decode(w, r, &req) {
 		return
 	}
-	if req.Name == "" || req.Partitions <= 0 || req.ReplicationFactor <= 0 {
-		WriteError(w, http.StatusBadRequest, "bad_request", "name, partitions and replicationFactor are required")
+	if req.Name == "" || req.Partitions < 0 || req.ReplicationFactor < 0 {
+		WriteError(w, http.StatusBadRequest, "bad_request", "name is required; partitions and replicationFactor must not be negative")
 		return
+	}
+	// -1 asks the broker for num.partitions and default.replication.factor (KIP-464).
+	partitions, replication := req.Partitions, req.ReplicationFactor
+	if partitions == 0 {
+		partitions = -1
+	}
+	if replication == 0 {
+		replication = -1
 	}
 	cfg := map[string]*string{}
 	for k, v := range req.Configs {
@@ -137,7 +145,7 @@ func (s *Server) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := timeout(r)
 	defer cancel()
-	resp, err := cl.Adm.CreateTopic(ctx, req.Partitions, req.ReplicationFactor, cfg, req.Name)
+	resp, err := cl.Adm.CreateTopic(ctx, partitions, replication, cfg, req.Name)
 	if err == nil {
 		err = resp.Err
 	}
@@ -162,9 +170,19 @@ func (s *Server) handleDeleteTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := timeout(r)
 	defer cancel()
+	if details, err := cl.Adm.ListTopics(ctx, topic); err == nil {
+		if d, ok := details[topic]; !ok || errors.Is(d.Err, kerr.UnknownTopicOrPartition) {
+			WriteError(w, http.StatusNotFound, "not_found", "topic "+topic+" does not exist")
+			return
+		}
+	}
 	resp, err := cl.Adm.DeleteTopic(ctx, topic)
 	if err == nil {
 		err = resp.Err
+	}
+	if errors.Is(err, kerr.UnknownTopicOrPartition) {
+		// The topic existed a moment ago: a retried request found it deleted by the first attempt.
+		err = nil
 	}
 	s.Audit(r, "topic.delete", r.PathValue("id"), topic, nil, err)
 	if err != nil {
