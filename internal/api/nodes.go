@@ -30,6 +30,9 @@ type NodesAPI struct {
 	AgentEndpoint string
 	// Proxy and NoProxy go into the install command as HTTPS_PROXY and NO_PROXY.
 	Proxy, NoProxy string
+	// Transport of the install command. With insecure, agents dial InsecureEndpoint with the
+	// TLS mode InsecureTLS (ADR 0017).
+	Transport, InsecureEndpoint, InsecureTLS string
 	// CertificateWarning is how long before expiry an agent certificate counts as expiring.
 	CertificateWarning time.Duration
 	srv                *Server
@@ -157,8 +160,13 @@ func (a *NodesAPI) installCommand(token string) string {
 			proxy += "NO_PROXY=" + shellQuote(a.NoProxy) + " "
 		}
 	}
-	return fmt.Sprintf("%scurl -fsSL %s/api/v1/agent/install.sh | sudo %sBROKERIUM_AGENT_SERVER=%s BROKERIUM_AGENT_TOKEN=%s sh",
-		proxy, strings.TrimRight(a.PublicURL, "/"), proxy, a.AgentEndpoint, token)
+	server := "BROKERIUM_AGENT_SERVER=" + a.AgentEndpoint
+	if a.Transport == store.TransportInsecure {
+		server = fmt.Sprintf("BROKERIUM_AGENT_TRANSPORT=insecure BROKERIUM_AGENT_TLS=%s BROKERIUM_AGENT_SERVER=%s",
+			a.InsecureTLS, a.InsecureEndpoint)
+	}
+	return fmt.Sprintf("%scurl -fsSL %s/api/v1/agent/install.sh | sudo %s%s BROKERIUM_AGENT_TOKEN=%s sh",
+		proxy, strings.TrimRight(a.PublicURL, "/"), proxy, server, token)
 }
 
 // shellQuote quotes s for a POSIX shell.
@@ -208,10 +216,17 @@ const installScript = `#!/bin/sh
 #   BROKERIUM_AGENT_PREINSTALLED                   and its Kafka installation directory
 #   HTTPS_PROXY, NO_PROXY                          HTTP CONNECT proxy for the downloads and for the
 #                                                  agent; pass them after sudo, which drops them
+#   BROKERIUM_AGENT_TRANSPORT                      mtls (default) or insecure: signed messages for
+#                                                  a server behind a TLS-terminating proxy
+#   BROKERIUM_AGENT_TLS                            insecure transport: system (default), skip-verify
+#                                                  or none (plaintext)
+#   BROKERIUM_AGENT_CA_FILE                        PEM file of extra CAs to verify the proxy with
 set -eu
 : "${BROKERIUM_AGENT_SERVER:?set BROKERIUM_AGENT_SERVER}"
 : "${BROKERIUM_AGENT_TOKEN:?set BROKERIUM_AGENT_TOKEN}"
 [ "$(id -u)" -eq 0 ] || { echo "run as root (sudo)" >&2; exit 1; }
+[ -z "${BROKERIUM_AGENT_CA_FILE:-}" ] || [ -r "$BROKERIUM_AGENT_CA_FILE" ] ||
+  { echo "BROKERIUM_AGENT_CA_FILE $BROKERIUM_AGENT_CA_FILE is not readable" >&2; exit 1; }
 VERSION="${BROKERIUM_AGENT_VERSION:-latest}"
 DATA_DIR="${BROKERIUM_AGENT_KAFKA_DATA_DIR:-/var/lib/kafka/data}"
 PROXY="${HTTPS_PROXY:-${https_proxy:-}}"
@@ -260,6 +275,9 @@ umask 077
   echo "BROKERIUM_AGENT_KAFKA_DATA_DIR=${DATA_DIR}"
   [ -z "${BROKERIUM_AGENT_KAFKA_CONFIG:-}" ] || echo "BROKERIUM_AGENT_KAFKA_CONFIG=${BROKERIUM_AGENT_KAFKA_CONFIG}"
   [ -z "${BROKERIUM_AGENT_PREINSTALLED:-}" ] || echo "BROKERIUM_AGENT_PREINSTALLED=${BROKERIUM_AGENT_PREINSTALLED}"
+  [ -z "${BROKERIUM_AGENT_TRANSPORT:-}" ] || echo "BROKERIUM_AGENT_TRANSPORT=${BROKERIUM_AGENT_TRANSPORT}"
+  [ -z "${BROKERIUM_AGENT_TLS:-}" ] || echo "BROKERIUM_AGENT_TLS=${BROKERIUM_AGENT_TLS}"
+  [ -z "${BROKERIUM_AGENT_CA_FILE:-}" ] || echo "BROKERIUM_AGENT_CA_FILE=${BROKERIUM_AGENT_CA_FILE}"
   [ -z "$PROXY" ] || echo "HTTPS_PROXY=${PROXY}"
   [ -z "$PROXY" ] || [ -z "$NOPROXY" ] || echo "NO_PROXY=${NOPROXY}"
 } > /etc/brokerium-agent.env
