@@ -1,7 +1,12 @@
 # SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 
+# community, or enterprise for Brokerium Enterprise, whose features need a license key (license).
+edition: community
+
 image:
-  repository: bvaliev/brokerium-server
+  # Empty selects bvaliev/brokerium-server, or bvaliev/brokerium-server-enterprise for the
+  # enterprise edition.
+  repository: ""
   # Defaults to the chart appVersion.
   tag: ""
   pullPolicy: IfNotPresent
@@ -20,6 +25,15 @@ admin:
 secretKey: ""
 # Use an existing Secret with the keys secret-key, admin-password and database-url instead.
 existingSecret: ""
+
+# License key of Brokerium Enterprise, passed as BROKERIUM_LICENSE. It takes precedence over a key
+# added on the License page of the dashboard, which is used when none is set here.
+license:
+  # Existing Secret with the key in the entry secretKey.
+  existingSecret: ""
+  secretKey: license
+  # The key itself, stored in the chart's Secret; not available with existingSecret.
+  key: ""
 
 database:
   # postgres://user:password@host:5432/brokerium?sslmode=require; ignored when postgresql.enabled.

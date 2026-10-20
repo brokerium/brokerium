@@ -33,6 +33,23 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- default (include "brokerium.fullname" .) .Values.existingSecret -}}
 {{- end -}}
 
+{{- define "brokerium.image" -}}
+{{- $repository := ternary "bvaliev/brokerium-server-enterprise" "bvaliev/brokerium-server" (eq .Values.edition "enterprise") -}}
+{{- printf "%s:%s" (.Values.image.repository | default $repository) (.Values.image.tag | default .Chart.AppVersion) -}}
+{{- end -}}
+
+{{/* Secret with the license key in the entry license.secretKey; empty without a key. */}}
+{{- define "brokerium.licenseSecret" -}}
+{{- if .Values.license.existingSecret -}}
+{{- .Values.license.existingSecret -}}
+{{- else if .Values.license.key -}}
+{{- if .Values.existingSecret -}}
+{{- fail "license.key is stored in the chart's Secret, which existingSecret replaces; use license.existingSecret" -}}
+{{- end -}}
+{{- include "brokerium.fullname" . -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "brokerium.lbHostname" -}}
 {{- if .Values.loadBalancer.enabled }}{{ .Values.loadBalancer.hostname }}{{ end -}}
 {{- end -}}

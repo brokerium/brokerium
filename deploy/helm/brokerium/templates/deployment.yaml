@@ -29,7 +29,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: server
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "brokerium.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - { name: http, containerPort: 8080 }
@@ -57,6 +57,10 @@ spec:
               value: {{ ternary "1" "0" .Values.debug | quote }}
             - name: BROKERIUM_DATA_DIR
               value: /var/lib/brokerium
+            {{- with include "brokerium.licenseSecret" . }}
+            - name: BROKERIUM_LICENSE
+              valueFrom: { secretKeyRef: { name: {{ . }}, key: {{ $.Values.license.secretKey }} } }
+            {{- end }}
           readinessProbe:
             httpGet: { path: /readyz, port: http }
             periodSeconds: 5

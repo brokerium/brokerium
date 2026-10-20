@@ -10,11 +10,15 @@
   },
   "properties": {
     "global": { "type": "object" },
+    "edition": {
+      "enum": ["community", "enterprise"],
+      "description": "enterprise runs Brokerium Enterprise, whose features need a license key."
+    },
     "image": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "description": "Empty selects the image of the edition." },
         "tag": { "type": "string", "description": "Defaults to the chart appVersion." },
         "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
       }
@@ -35,6 +39,20 @@
     },
     "secretKey": { "type": "string", "description": "32 random bytes, base64-encoded; generated on install." },
     "existingSecret": { "type": "string", "description": "Secret with the keys secret-key, admin-password and database-url." },
+    "license": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "License key of Brokerium Enterprise, passed as BROKERIUM_LICENSE.",
+      "properties": {
+        "existingSecret": { "type": "string", "description": "Secret with the license key in the entry secretKey." },
+        "secretKey": { "type": "string", "pattern": "^[-._a-zA-Z0-9]+$" },
+        "key": {
+          "type": "string",
+          "pattern": "^(\\s*brk-lic-1\\.[\\s\\S]+)?$",
+          "description": "The license key, stored in the chart's Secret."
+        }
+      }
+    },
     "database": {
       "type": "object",
       "additionalProperties": false,
