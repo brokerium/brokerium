@@ -5,10 +5,11 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 
 import { useCreateCluster } from '../../api/clusters';
-import { useOperationTypes } from '../../api/operations';
+import { useServerInfo } from '../../api/server';
 import { EMPTY_CLUSTER_FORM } from '../../lib/clusterForm';
 import { notifySuccess } from '../notify';
 import { ClusterForm } from './ClusterForm';
+import { CreateAgentClusterForm } from './CreateAgentClusterForm';
 import { CreateDockerClusterForm } from './CreateDockerClusterForm';
 
 interface AddClusterModalProps {
@@ -16,35 +17,24 @@ interface AddClusterModalProps {
   onClose: () => void;
 }
 
-type Mode = 'connect' | 'docker';
+type Mode = 'connect' | 'agents' | 'docker';
 
 export function AddClusterModal({ opened, onClose }: AddClusterModalProps) {
   const navigate = useNavigate();
   const create = useCreateCluster();
-  const { data: types } = useOperationTypes();
-  const [mode, setMode] = useState<Mode>('connect');
-  const canCreate = Boolean(types?.some((t) => t.type === 'bootstrap-cluster'));
+  const { data: server } = useServerInfo();
+  const [selected, setSelected] = useState<Mode>('connect');
+  const dockerAvailable = Boolean(server?.providers.docker.available);
+  const mode: Mode = selected === 'docker' && !dockerAvailable ? 'connect' : selected;
   const close = () => {
-    setMode('connect');
+    setSelected('connect');
     onClose();
   };
 
-  return (
-    <Modal opened={opened} onClose={close} title="Add cluster" size="xl" closeOnClickOutside={false}>
-      <Stack>
-        {canCreate && (
-          <SegmentedControl
-            value={mode}
-            onChange={(v) => setMode(v as Mode)}
-            data={[
-              { value: 'connect', label: 'Connect an existing cluster' },
-              { value: 'docker', label: 'Create a cluster in Docker' },
-            ]}
-          />
-        )}
-        {mode === 'docker' && canCreate ? (
-          <CreateDockerClusterForm onCancel={close} onDone={close} />
-        ) : (
+  const body = () => {
+    switch (mode) {
+      case 'connect':
+        return (
           <ClusterForm
             initial={EMPTY_CLUSTER_FORM}
             mode="create"
@@ -60,7 +50,37 @@ export function AddClusterModal({ opened, onClose }: AddClusterModalProps) {
               })
             }
           />
-        )}
+        );
+      case 'agents':
+        return <CreateAgentClusterForm onCancel={close} onDone={close} />;
+      case 'docker':
+        return <CreateDockerClusterForm onCancel={close} onDone={close} />;
+      default: {
+        const unhandled: never = mode;
+        return unhandled;
+      }
+    }
+  };
+
+  return (
+    <Modal
+      opened={opened}
+      onClose={close}
+      title="Add cluster"
+      size={mode === 'agents' ? '64rem' : 'xl'}
+      closeOnClickOutside={false}
+    >
+      <Stack>
+        <SegmentedControl
+          value={mode}
+          onChange={(v) => setSelected(v as Mode)}
+          data={[
+            { value: 'connect', label: 'Connect an existing cluster' },
+            { value: 'agents', label: 'Create on hosts with agents' },
+            ...(dockerAvailable ? [{ value: 'docker', label: 'Create in Docker' }] : []),
+          ]}
+        />
+        {body()}
       </Stack>
     </Modal>
   );

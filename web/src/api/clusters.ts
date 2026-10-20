@@ -128,25 +128,26 @@ export function useCreateCluster() {
   });
 }
 
-export interface DockerClusterRequest {
+export interface NewClusterRequest {
   name: string;
+  provider: 'agent' | 'docker';
   params: OperationParams['bootstrap-cluster'];
 }
 
-export interface PlannedDockerCluster {
+export interface PlannedCluster {
   view: ClusterView;
   operation: Operation;
 }
 
 /**
- * Registers a Docker cluster without nodes and plans bootstrap-cluster for it. When planning
- * fails the empty registration is removed again.
+ * Registers a cluster without nodes and plans bootstrap-cluster for it. When planning fails the
+ * empty registration is removed again.
  */
-export function useCreateDockerCluster() {
+export function useCreateNewCluster() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ name, params }: DockerClusterRequest): Promise<PlannedDockerCluster> => {
-      const view = await api.post<ClusterView>('/clusters', { name, provider: 'docker', skipTest: true, bootstrapServers: [] });
+    mutationFn: async ({ name, provider, params }: NewClusterRequest): Promise<PlannedCluster> => {
+      const view = await api.post<ClusterView>('/clusters', { name, provider, skipTest: true, bootstrapServers: [] });
       try {
         const operation = await api.post<Operation>(clusterPath(view.cluster.id, '/operations'), {
           type: 'bootstrap-cluster',

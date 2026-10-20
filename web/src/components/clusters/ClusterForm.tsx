@@ -120,7 +120,7 @@ export function ClusterForm({ initial, mode, submitting, onSubmit, onCancel, rea
             <Select
               label="Provider"
               description={PROVIDER_DESCRIPTIONS[v.provider]}
-              data={selectData(PROVIDER_LABELS)}
+              data={selectData(PROVIDER_LABELS).filter((p) => mode === 'edit' || p.value !== 'docker')}
               value={v.provider}
               onChange={(value) => value && set('provider', value as Provider)}
               allowDeselect={false}

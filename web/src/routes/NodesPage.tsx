@@ -2,11 +2,9 @@
 
 import {
   ActionIcon,
-  Alert,
   Anchor,
   Badge,
   Button,
-  Code,
   EmptyState,
   Group,
   Modal,
@@ -19,21 +17,26 @@ import {
   TextInput,
   Tooltip,
 } from '@mantine/core';
-import { IconInfoCircle, IconPlus, IconServerBolt, IconTrash } from '@tabler/icons-react';
+import { IconPencil, IconPlus, IconServerBolt, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 
 import { useOverview } from '../api/clusters';
-import { useCreateJoinToken, useDeleteNode, useNodes } from '../api/nodes';
+import { useCreateJoinToken, useDeleteNode, useNodes, useUpdateNode } from '../api/nodes';
 import type { AgentNode, JoinTokenResponse } from '../api/types';
 import { confirmAction } from '../components/confirm';
-import { CopyIcon } from '../components/CopyText';
+import { JoinCommand } from '../components/nodes/JoinCommand';
 import { notifySuccess } from '../components/notify';
 import { PageHeader } from '../components/PageHeader';
 import { PageLoader, QueryError } from '../components/QueryState';
 import { RelativeTime } from '../components/RelativeTime';
 import { usePermissions } from '../hooks/usePermissions';
-import { formatBytes, formatDateTime, formatRelativeTime } from '../lib/format';
+import { hostAddressError } from '../lib/bootstrap';
+import { formatBytes, formatRelativeTime } from '../lib/format';
+import { NODE_ROLE_COLORS, NODE_ROLE_LABELS } from '../lib/labels';
+
+const NODE_NAME = /^[A-Za-z0-9._-]{1,63}$/;
+const RACK = /^[A-Za-z0-9._-]{0,64}$/;
 
 /** Expiry of the agent certificate; agents renew it after two thirds of its lifetime. */
 function Certificate({ node }: { node: AgentNode }) {
@@ -97,10 +100,13 @@ function AddNodeModal({ opened, onClose }: { opened: boolean; onClose: () => voi
   const [ttl, setTtl] = useState<number>(60);
   const [token, setToken] = useState<JoinTokenResponse | null>(null);
 
+  const name = nodeName.trim();
+  const nameError = name !== '' && !NODE_NAME.test(name) ? 'Letters, digits, ".", "_" and "-"' : undefined;
+
   const submit = () => {
-    if (!nodeName.trim()) return;
+    if (nameError) return;
     create.mutate(
-      { nodeName: nodeName.trim(), clusterId: clusterId ?? undefined, ttlMinutes: ttl },
+      { nodeName: name || undefined, clusterId: clusterId ?? undefined, ttlMinutes: ttl },
       { onSuccess: setToken },
     );
   };
@@ -112,19 +118,7 @@ function AddNodeModal({ opened, onClose }: { opened: boolean; onClose: () => voi
           <Text size="sm">
             Run this command on the new host. It installs brokerium-agent and joins it with a one-time token.
           </Text>
-          <Paper withBorder p="sm" radius="md" pos="relative">
-            <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', paddingRight: 36 }}>
-              {token.command}
-            </Code>
-            <Group pos="absolute" top={8} right={8}>
-              <CopyIcon value={token.command} label="Copy command" />
-            </Group>
-          </Paper>
-          <Alert color="yellow" variant="light" icon={<IconInfoCircle size={18} />}>
-            The token is shown only once and expires {formatDateTime(token.expiresAt)} (
-            <RelativeTime value={token.expiresAt} size="sm" />
-            ).
-          </Alert>
+          <JoinCommand token={token} />
           <Group justify="flex-end">
             <Button onClick={onClose}>Done</Button>
           </Group>
@@ -139,10 +133,11 @@ function AddNodeModal({ opened, onClose }: { opened: boolean; onClose: () => voi
           <Stack>
             <TextInput
               label="Node name"
-              placeholder="kafka-broker-4"
-              required
+              description="Optional: defaults to the host name the agent reports"
+              placeholder="The host name"
               value={nodeName}
               onChange={(e) => setNodeName(e.currentTarget.value)}
+              error={nameError}
               data-autofocus
             />
             <Select
@@ -165,7 +160,7 @@ function AddNodeModal({ opened, onClose }: { opened: boolean; onClose: () => voi
               <Button variant="default" onClick={onClose}>
                 Cancel
               </Button>
-              <Button type="submit" loading={create.isPending} disabled={!nodeName.trim()}>
+              <Button type="submit" loading={create.isPending} disabled={Boolean(nameError)}>
                 Create join token
               </Button>
             </Group>
@@ -176,12 +171,81 @@ function AddNodeModal({ opened, onClose }: { opened: boolean; onClose: () => voi
   );
 }
 
+function EditNodeModal({ node, onClose }: { node: AgentNode; onClose: () => void }) {
+  const update = useUpdateNode();
+  const [name, setName] = useState(node.name);
+  const [address, setAddress] = useState(node.advertisedHost);
+  const [rack, setRack] = useState(node.rack);
+  const nameError = NODE_NAME.test(name.trim()) ? undefined : 'Letters, digits, ".", "_" and "-", at most 63';
+  const addressError = address.trim() === '' ? undefined : (hostAddressError(address) ?? undefined);
+  const rackError = RACK.test(rack.trim()) ? undefined : 'Letters, digits, ".", "_" and "-", at most 64';
+  const runsKafka = node.role !== '';
+
+  const submit = () => {
+    if (nameError || addressError || rackError) return;
+    update.mutate(
+      { id: node.id, update: { name: name.trim(), advertisedHost: address.trim(), rack: rack.trim() } },
+      {
+        onSuccess: (saved) => {
+          notifySuccess('Node updated', saved.name);
+          onClose();
+        },
+      },
+    );
+  };
+
+  return (
+    <Modal opened onClose={onClose} title={<Text fw={600}>Edit node {node.name}</Text>} size="lg">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <Stack>
+          <TextInput label="Name" required value={name} onChange={(e) => setName(e.currentTarget.value)} error={nameError} />
+          <TextInput
+            label="Advertised host"
+            description={
+              runsKafka
+                ? 'DNS name or IP address the Kafka listeners advertise. A change takes effect when the node is configured again, for example by a rolling restart.'
+                : 'DNS name or IP address the Kafka listeners will advertise. Leave empty for the host name the agent reports.'
+            }
+            placeholder={node.hostname}
+            value={address}
+            onChange={(e) => setAddress(e.currentTarget.value)}
+            error={addressError}
+            spellCheck={false}
+          />
+          <TextInput
+            label="Rack"
+            description="broker.rack of the node when it joins a cluster"
+            placeholder="none"
+            value={rack}
+            onChange={(e) => setRack(e.currentTarget.value)}
+            error={rackError}
+          />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={update.isPending} disabled={Boolean(nameError || addressError || rackError)}>
+              Save
+            </Button>
+          </Group>
+        </Stack>
+      </form>
+    </Modal>
+  );
+}
+
 export default function NodesPage() {
   const nodes = useNodes();
   const { data: clusters } = useOverview();
   const { canOperate } = usePermissions();
   const remove = useDeleteNode();
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<AgentNode | null>(null);
   const clusterName = (id: string | null) => (id ? (clusters?.find((c) => c.cluster.id === id)?.cluster.name ?? id) : null);
 
   const del = async (id: string, name: string) => {
@@ -211,6 +275,7 @@ export default function NodesPage() {
         }
       />
       {adding && <AddNodeModal opened onClose={() => setAdding(false)} />}
+      {editing && <EditNodeModal node={editing} onClose={() => setEditing(null)} />}
 
       {nodes.isPending && <PageLoader />}
       {nodes.error && !nodes.data && <QueryError error={nodes.error} onRetry={() => void nodes.refetch()} />}
@@ -224,7 +289,7 @@ export default function NodesPage() {
               description="Add a node to install brokerium-agent on a Kafka host with a one-time join token."
             />
           ) : (
-            <Table.ScrollContainer minWidth={1220}>
+            <Table.ScrollContainer minWidth={1300}>
               <Table highlightOnHover verticalSpacing="sm">
                 <Table.Thead>
                   <Table.Tr>
@@ -232,13 +297,14 @@ export default function NodesPage() {
                     <Table.Th>Cluster</Table.Th>
                     <Table.Th>Role</Table.Th>
                     <Table.Th>Kafka node id</Table.Th>
-                    <Table.Th>Hostname</Table.Th>
+                    <Table.Th>Address</Table.Th>
+                    <Table.Th>Rack</Table.Th>
                     <Table.Th>Agent</Table.Th>
                     <Table.Th>Connection</Table.Th>
                     <Table.Th>Last seen</Table.Th>
                     <Table.Th>Certificate</Table.Th>
                     <Table.Th>Kafka</Table.Th>
-                    <Table.Th w={48} />
+                    <Table.Th w={72} />
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
@@ -269,8 +335,8 @@ export default function NodesPage() {
                         </Table.Td>
                         <Table.Td>
                           {n.role ? (
-                            <Badge size="sm" variant="light" color={n.role === 'controller' ? 'grape' : 'indigo'}>
-                              {n.role}
+                            <Badge size="sm" variant="light" color={NODE_ROLE_COLORS[n.role]}>
+                              {NODE_ROLE_LABELS[n.role]}
                             </Badge>
                           ) : (
                             <Text size="sm" c="dimmed">
@@ -281,9 +347,15 @@ export default function NodesPage() {
                         <Table.Td>{n.kafkaNodeId ?? '—'}</Table.Td>
                         <Table.Td>
                           <Text size="sm" ff="monospace">
-                            {n.hostname || n.status.hostname || '—'}
+                            {n.advertisedHost || n.hostname || n.status.hostname || '—'}
                           </Text>
+                          {n.hostname && n.advertisedHost && n.hostname !== n.advertisedHost && (
+                            <Text size="xs" c="dimmed" ff="monospace">
+                              host {n.hostname}
+                            </Text>
+                          )}
                         </Table.Td>
+                        <Table.Td>{n.rack || <Text c="dimmed">—</Text>}</Table.Td>
                         <Table.Td>
                           <Text size="sm" ff="monospace">
                             {n.agentVersion || '—'}
@@ -328,11 +400,18 @@ export default function NodesPage() {
                         </Table.Td>
                         <Table.Td>
                           {canOperate && (
-                            <Tooltip label="Remove node" withArrow>
-                              <ActionIcon variant="subtle" color="red" onClick={() => void del(n.id, n.name)} aria-label={`Remove ${n.name}`}>
-                                <IconTrash size={14} />
-                              </ActionIcon>
-                            </Tooltip>
+                            <Group gap={4} wrap="nowrap">
+                              <Tooltip label="Edit node" withArrow>
+                                <ActionIcon variant="subtle" color="gray" onClick={() => setEditing(n)} aria-label={`Edit ${n.name}`}>
+                                  <IconPencil size={14} />
+                                </ActionIcon>
+                              </Tooltip>
+                              <Tooltip label="Remove node" withArrow>
+                                <ActionIcon variant="subtle" color="red" onClick={() => void del(n.id, n.name)} aria-label={`Remove ${n.name}`}>
+                                  <IconTrash size={14} />
+                                </ActionIcon>
+                              </Tooltip>
+                            </Group>
                           )}
                         </Table.Td>
                       </Table.Tr>
