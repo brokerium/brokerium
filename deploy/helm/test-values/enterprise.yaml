@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# Chart CI: render the Enterprise image with the license key from an existing Secret.
+edition: enterprise
+license:
+  existingSecret: brokerium-license

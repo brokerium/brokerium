@@ -22,7 +22,7 @@ readable, and a license check must work in air-gapped networks without contactin
   Enterprise features (id, title, description), so the Community dashboard can show what
   Enterprise adds. `cmd/brokerium-server` calls an `enterprise` hook that is empty in Community
   builds and, in Enterprise builds, registers the `ee` API routes (`api.Extension`) and
-  operation types (`ops.Engine.Extend`).
+  operation types (`ops.Engine.Register`).
 - **License keys.** Text `brk-lic-1.<payload>.<signature>`:
   - `payload` is unpadded base64url of a JSON object: `v` (1), `id`, `kid`, `customer`,
     `email`, `edition` (`enterprise`), `features` (feature ids, or `*` for all), `limits`
@@ -33,10 +33,11 @@ readable, and a license check must work in air-gapped networks without contactin
   - `kid` selects one of the public keys built into the Enterprise binary, so signing keys
     can be rotated. A `licensetest` build tag adds a test key for automated tests; release
     builds never have it.
-- **States.** `none`, `invalid` (bad format, unknown `kid`, bad signature), `valid` (between
-  `notBefore` and `expiresAt`), `grace` (up to `graceDays` after `expiresAt`) and `expired`. A
-  feature is allowed in `valid` and `grace`. The server evaluates the state at startup, when a
-  key is stored and every hour.
+- **States.** `none`, `invalid` (bad format, unknown `kid`, bad signature, or before
+  `notBefore`), `valid` (between `notBefore` and `expiresAt`), `grace` (up to `graceDays` after
+  `expiresAt`) and `expired`. A feature is allowed in `valid` and `grace`. The server evaluates
+  the state at startup, when a key is stored and every hour, and stores only keys that are
+  `valid` or in `grace`.
 - **Where the key comes from.** `BROKERIUM_LICENSE` (the text) or `BROKERIUM_LICENSE_FILE` (a
   path, for example a mounted Secret) take precedence; otherwise the key stored in the database
   through the dashboard.

@@ -20,7 +20,9 @@
     "noImplicitOverride": true,
     "noImplicitReturns": true,
     "noUncheckedSideEffectImports": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+
+    "paths": { "@ee": ["./src/ee-community/index.ts"] }
   },
   "include": ["src"]
 }

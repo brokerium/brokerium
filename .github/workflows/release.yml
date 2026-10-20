@@ -1,8 +1,8 @@
 name: release
 
-# Builds release binaries and the Helm chart for a version tag and publishes them with checksums
-# and an SBOM, pushes the chart to GHCR and updates the Helm repository on GitHub Pages.
-# Container images for the tag are built by the CI workflow.
+# Builds the release binaries of both editions and the Helm chart for a version tag and publishes
+# them with checksums and an SBOM, pushes the chart to GHCR and updates the Helm repository on
+# GitHub Pages. Container images for the tag are built by the CI workflow.
 on:
   push:
     tags: ["v*"]
@@ -29,7 +29,7 @@ jobs:
           version: v4.3.1
       - name: Dashboard
         run: |
-          cd web && pnpm install --frozen-lockfile && pnpm build && cd ..
+          cd web && pnpm install --frozen-lockfile && pnpm build && node scripts/check-edition.mjs community dist && cd ..
           find internal/webui/dist -mindepth 1 ! -name .gitkeep -delete
           cp -R web/dist/. internal/webui/dist/
       - name: Binaries
@@ -39,12 +39,31 @@ jobs:
         run: |
           mkdir -p dist
           flags="-s -w -X github.com/brokerium/brokerium/internal/version.Version=${VERSION} -X github.com/brokerium/brokerium/internal/version.Commit=${GITHUB_SHA::7} -X github.com/brokerium/brokerium/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "GO_LDFLAGS=$flags" >> "$GITHUB_ENV"
           for target in linux/amd64 linux/arm64 darwin/arm64 darwin/amd64; do
             os=${target%/*}; arch=${target#*/}
             GOOS=$os GOARCH=$arch go build -trimpath -ldflags "$flags" -o "dist/brokerium-server-${os}-${arch}" ./cmd/brokerium-server
           done
           for arch in amd64 arm64; do
             GOOS=linux GOARCH=$arch go build -trimpath -ldflags "$flags" -o "dist/brokerium-agent-linux-${arch}" ./cmd/brokerium-agent
+          done
+      - name: Enterprise dashboard
+        run: |
+          cd web && VITE_EDITION=enterprise pnpm build && node scripts/check-edition.mjs enterprise dist && cd ..
+          find internal/webui/dist -mindepth 1 ! -name .gitkeep -delete
+          cp -R web/dist/. internal/webui/dist/
+      - name: Enterprise binaries
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/arm64 darwin/amd64; do
+            os=${target%/*}; arch=${target#*/}
+            out="dist/brokerium-server-enterprise-${os}-${arch}"
+            GOOS=$os GOARCH=$arch go build -trimpath -tags enterprise -ldflags "$GO_LDFLAGS" -o "$out" ./cmd/brokerium-server
+            if go version -m "$out" | grep -q licensetest; then
+              echo "$out was built with the licensetest tag" >&2
+              exit 1
+            fi
           done
       - name: Chart
         env:

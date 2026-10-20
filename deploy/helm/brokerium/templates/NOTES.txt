@@ -2,6 +2,18 @@
 {{- $lb := include "brokerium.lbHostname" . -}}
 Brokerium {{ .Chart.AppVersion }} is starting in namespace {{ .Release.Namespace }}.
 
+Edition: {{ .Values.edition }} ({{ include "brokerium.image" . }})
+{{- $licenseSecret := include "brokerium.licenseSecret" . }}
+{{- if eq .Values.edition "enterprise" }}
+{{- if $licenseSecret }}
+  The license key comes from the Secret {{ $licenseSecret }}, entry {{ .Values.license.secretKey }}.
+{{- else }}
+  Add the license key on the License page of the dashboard, or set license.existingSecret.
+{{- end }}
+{{- else if $licenseSecret }}
+  The Community image ignores license.*: set edition to enterprise to use the license key.
+{{- end }}
+
 Dashboard: {{ include "brokerium.publicURL" . }}
 {{- if .Values.gateway.http.enabled }}
   served by the HTTPRoute {{ $name }}.

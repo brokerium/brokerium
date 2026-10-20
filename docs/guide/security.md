@@ -8,7 +8,7 @@ Local users with argon2id password hashes and one of three roles:
 | --- | --- |
 | viewer | read everything, including the audit log |
 | operator | plus change clusters: topics, configs, ACLs, SCRAM, quotas, groups, messages, operations |
-| admin | plus manage users and delete clusters |
+| admin | plus manage users, the license key and delete clusters |
 
 Sessions are random tokens stored as SHA-256 hashes, sent as an `HttpOnly`, `SameSite=Lax`
 cookie (set `BROKERIUM_SECURE_COOKIES=true` behind HTTPS) or as `Authorization: Bearer`.
@@ -20,8 +20,8 @@ not add to cross-site requests. Responses set a strict `Content-Security-Policy`
 After five failed logins for the same user from the same address, Brokerium refuses further
 attempts for 30 seconds, doubling up to 15 minutes, and logs every failed login.
 
-SSO, per-cluster roles and audit export are planned for a paid edition
-(see the [roadmap](../ROADMAP.md)).
+SSO, per-cluster roles and audit export are planned for
+[Brokerium Enterprise](enterprise.md) (see the [roadmap](../ROADMAP.md)).
 
 ## Credentials of clusters
 

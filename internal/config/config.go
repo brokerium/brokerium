@@ -40,6 +40,10 @@ type Server struct {
 	SnapshotInterval  time.Duration
 	SecureCookies     bool
 	WorkerInterval    time.Duration
+	// License is a Brokerium Enterprise license key and LicenseFile a file that holds one; both
+	// take precedence over the key stored through the dashboard.
+	License     string
+	LicenseFile string
 }
 
 // LoadServer reads BROKERIUM_* environment variables and applies defaults suitable for the lab.
@@ -62,6 +66,8 @@ func LoadServer() (Server, error) {
 		SecureCookies:     envBool("BROKERIUM_SECURE_COOKIES", false),
 		SnapshotInterval:  envDuration("BROKERIUM_SNAPSHOT_INTERVAL", 15*time.Second),
 		WorkerInterval:    envDuration("BROKERIUM_WORKER_INTERVAL", time.Second),
+		License:           strings.TrimSpace(os.Getenv("BROKERIUM_LICENSE")),
+		LicenseFile:       os.Getenv("BROKERIUM_LICENSE_FILE"),
 	}
 	c.AgentServerNames = splitList(env("BROKERIUM_AGENT_SERVER_NAMES", "localhost,host.docker.internal,brokerium,brokerium-server"))
 	if c.AgentCertLifetime < time.Minute {
