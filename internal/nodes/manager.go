@@ -29,6 +29,8 @@ type Config struct {
 	AgentEndpoint string
 	AgentImage    string
 	LabNetwork    string
+	// KafkaMirror goes into every Kafka install command; agents try it before the Apache mirrors.
+	KafkaMirror string
 }
 
 // Manager implements ops.NodeManager.

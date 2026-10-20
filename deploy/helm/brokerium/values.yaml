@@ -76,6 +76,12 @@ agents:
     # TLS between agents and the proxy: system (verified against the system CAs of the host),
     # skip-verify or none (plaintext).
     tls: system
+  # Base URL of a mirror of the Apache Kafka releases that agents try before the Apache mirrors,
+  # with the layout of https://downloads.apache.org/kafka: <kafkaMirror>/<version>/<archive>, for
+  # example https://artifacts.example.com/kafka/4.4.0/kafka_2.13-4.4.0.tgz. Agents still check
+  # every archive against the SHA-512 checksum that Apache publishes, so hosts keep needing
+  # access to downloads.apache.org or archive.apache.org.
+  kafkaMirror: ""
 
 # ClusterIP service with both ports, always created.
 service:

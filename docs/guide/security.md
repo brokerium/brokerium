@@ -37,9 +37,10 @@ never returned by the API. Back up the key together with the database.
 - The server signs a client certificate for the agent from its own CA; afterwards the agent
   connects with mutual TLS 1.3.
 - The agent executes a closed set of typed commands. There is no shell and no arbitrary file
-  access. Kafka releases are downloaded from Apache (or the mirror in the command) and checked
-  against the SHA-512 published on `downloads.apache.org`, never against a checksum from the
-  server.
+  access. Kafka releases are downloaded from Apache, or first from the mirror the server sets
+  with `BROKERIUM_KAFKA_MIRROR`, and checked against the SHA-512 published on
+  `downloads.apache.org` (`archive.apache.org` for older releases), never against a checksum
+  from the server or the mirror.
 - What the agent accepts from the server: Kafka versions in the `x.y.z` form; properties for
   `server.properties` whose names consist of letters, digits, `.`, `_` and `-` and whose values
   contain no control characters; heap options made only of `-Xms<size>` and `-Xmx<size>`. The

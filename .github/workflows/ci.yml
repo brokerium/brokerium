@@ -1,16 +1,22 @@
 name: CI
 
+# Checks every pull request and push to main. Container images are published for version tags,
+# and as edge (and the lab node image as lab) from main nightly and on manual runs.
 on:
   pull_request:
   push:
     branches: [main]
     tags: ["v*"]
+  schedule:
+    - cron: "5 2 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# Per event, so that a push to main does not cancel the nightly images.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -41,7 +47,7 @@ jobs:
       - name: golangci-lint
         run: |
           golangci-lint run --build-tags e2e ./...
-          golangci-lint run --build-tags enterprise,licensetest ./...
+          golangci-lint run --build-tags e2e,enterprise,licensetest ./...
       - name: buf lint
         run: buf lint
       - name: Vulnerabilities
@@ -94,6 +100,7 @@ jobs:
     name: sbom
     runs-on: ubuntu-latest
     needs: [go, web]
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: anchore/sbom-action@v0.24.3
@@ -108,7 +115,7 @@ jobs:
     name: images
     runs-on: ubuntu-latest
     needs: [go, web]
-    if: github.event_name == 'push'
+    if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'))
     env:
       HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
     strategy:
@@ -119,7 +126,6 @@ jobs:
             cache: brokerium-server
             tags: |
               type=raw,value=edge,enable={{is_default_branch}}
-              type=sha,prefix=sha-
               type=semver,pattern={{version}}
               type=semver,pattern={{major}}.{{minor}}
           - image: brokerium-server-enterprise
@@ -131,7 +137,6 @@ jobs:
               org.opencontainers.image.licenses=LicenseRef-PolyForm-Shield-1.0.0 AND LicenseRef-Brokerium-Commercial
             tags: |
               type=raw,value=edge,enable={{is_default_branch}}
-              type=sha,prefix=sha-
               type=semver,pattern={{version}}
               type=semver,pattern={{major}}.{{minor}}
           - image: brokerium-agent
@@ -139,7 +144,6 @@ jobs:
             cache: brokerium-agent
             tags: |
               type=raw,value=edge,enable={{is_default_branch}}
-              type=sha,prefix=sha-
               type=semver,pattern={{version}}
               type=semver,pattern={{major}}.{{minor}}
           # Lab node image for the Docker provider; it must never take the latest tag of the agent.

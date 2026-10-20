@@ -88,6 +88,17 @@ func TestSettingsDefaults(t *testing.T) {
 	}
 }
 
+func TestInstallCommand(t *testing.T) {
+	t.Parallel()
+	for _, mirror := range []string{"", "https://artifacts.example.com/kafka"} {
+		m := &Manager{Cfg: Config{KafkaMirror: mirror}}
+		install := m.installCommand("4.4.0").GetInstall()
+		if install.GetVersion() != "4.4.0" || install.GetMirrorUrl() != mirror {
+			t.Errorf("with mirror %q the install command is %v", mirror, install)
+		}
+	}
+}
+
 func TestCompareVersions(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
