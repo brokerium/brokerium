@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -170,18 +171,12 @@ func (s *Server) handleDeleteTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := timeout(r)
 	defer cancel()
-	if details, err := cl.Adm.ListTopics(ctx, topic); err == nil {
-		if d, ok := details[topic]; !ok || errors.Is(d.Err, kerr.UnknownTopicOrPartition) {
-			WriteError(w, http.StatusNotFound, "not_found", "topic "+topic+" does not exist")
-			return
-		}
-	}
 	resp, err := cl.Adm.DeleteTopic(ctx, topic)
 	if err == nil {
 		err = resp.Err
 	}
-	if errors.Is(err, kerr.UnknownTopicOrPartition) {
-		// The topic existed a moment ago: a retried request found it deleted by the first attempt.
+	if errors.Is(err, kerr.UnknownTopicOrPartition) && s.knownTopic(ctx, r.PathValue("id"), topic) {
+		// The last snapshot has the topic: a retried request found it deleted by the first attempt.
 		err = nil
 	}
 	s.Audit(r, "topic.delete", r.PathValue("id"), topic, nil, err)
@@ -191,6 +186,15 @@ func (s *Server) handleDeleteTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	go s.Clusters.Refresh(context.Background(), r.PathValue("id")) //nolint:errcheck
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// knownTopic reports whether the cached snapshot of the cluster has the topic.
+func (s *Server) knownTopic(ctx context.Context, clusterID, topic string) bool {
+	v, err := s.Clusters.View(ctx, clusterID, time.Hour)
+	if err != nil || v.Snapshot == nil {
+		return false
+	}
+	return slices.ContainsFunc(v.Snapshot.Topics, func(t kafka.Topic) bool { return t.Name == topic })
 }
 
 type configChange struct {
