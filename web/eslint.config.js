@@ -26,6 +26,23 @@ export default defineConfig([
     },
   },
   {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/ee/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '(^|/)ee(/|$)',
+              message: 'Import Enterprise code through @ee, which Community builds resolve to src/ee-community.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['vite.config.ts', 'playwright.screenshots.config.ts', 'screenshots/**/*.ts'],
     languageOptions: { globals: globals.node },
   },
