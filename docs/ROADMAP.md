@@ -72,16 +72,18 @@ the lab scenarios with the Kafka CLI, code skeleton, CI and the first container 
   defaults, retried topic deletion, node buttons for agent clusters, the install script through
   HTTP CONNECT proxies.
 
-## Phase 10: v0.3.0 (next)
+## Phase 10: v0.3.0 (done, 2026-10-20)
 
 - Community and Enterprise editions with license keys ([ADR 0016](adr/0016-editions-and-license-keys.md)).
 - Enterprise message tools: delete records and empty topics, search, export and copy messages.
 - Free: tombstones, binary values and paging in the message views; agents behind
-  TLS-terminating proxies; the agent without root.
+  TLS-terminating proxies ([ADR 0017](adr/0017-agent-transport-behind-proxies.md)); the agent
+  without root.
 
-## Phase 11: v0.3.1
+## Phase 11: v0.3.1 (next)
 
 - Node.js 26 LTS for the dashboard build.
+- Kafka starts again after a host reboot; the Enterprise features in the end-to-end scenarios.
 
 ## Later: Enterprise
 
