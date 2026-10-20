@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryString } from '../lib/format';
 import { api } from './client';
 import { type ConfigPatch, clusterKeys, clusterPath, refreshClusterView } from './clusters';
-import type { Message, MessageHeader, TopicDetail } from './types';
+import type { ByteEncoding, Message, MessageHeader, TopicDetail } from './types';
 
 export interface CreateTopicRequest {
   name: string;
@@ -19,7 +19,10 @@ export interface AddPartitionsRequest {
   count: number;
 }
 
-export type MessageFrom = 'earliest' | 'latest' | 'offset' | 'timestamp';
+export type MessageStart = 'earliest' | 'latest' | 'offset' | 'timestamp';
+
+/** `after` and `before` read the page next to a cursor of a previous response. */
+export type MessageFrom = MessageStart | 'after' | 'before';
 
 export interface MessageQuery {
   /** -1 reads all partitions. */
@@ -28,17 +31,25 @@ export interface MessageQuery {
   offset?: number;
   /** Epoch milliseconds. */
   timestamp?: number;
+  cursor?: string;
   limit: number;
 }
 
 export interface MessagesResponse {
   messages: Message[];
+  /** Cursor of the following page, null when every partition was read to its end. */
+  next: string | null;
+  /** Cursor of the preceding page, null at the start of every partition. */
+  previous: string | null;
 }
 
 export interface ProduceRequest {
   partition?: number;
   key?: string;
-  value: string;
+  keyEncoding?: ByteEncoding;
+  /** null produces a tombstone. */
+  value: string | null;
+  valueEncoding?: ByteEncoding;
   headers?: MessageHeader[];
 }
 
@@ -115,14 +126,16 @@ export function useMessages(id: string, topic: string, query: MessageQuery | nul
     queryKey: messageKeys.list(id, topic, query),
     queryFn: async () => {
       const q = query as MessageQuery;
+      const paged = q.from === 'after' || q.from === 'before';
       const qs = queryString({
-        partition: q.partition,
+        partition: paged ? undefined : q.partition,
         from: q.from,
         offset: q.from === 'offset' ? q.offset : undefined,
         timestamp: q.from === 'timestamp' ? q.timestamp : undefined,
+        cursor: paged ? q.cursor : undefined,
         limit: q.limit,
       });
-      return (await api.get<MessagesResponse>(topicPath(id, topic, `/messages${qs}`))).messages;
+      return api.get<MessagesResponse>(topicPath(id, topic, `/messages${qs}`));
     },
     enabled: query !== null,
     staleTime: Infinity,

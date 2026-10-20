@@ -71,7 +71,8 @@ func flags() (*flag.FlagSet, *agent.Config) {
 	fs.StringVar(&cfg.Process, "process", env("BROKERIUM_AGENT_PROCESS", "child"), "process manager: child or systemd")
 	fs.StringVar(&cfg.KafkaConfig, "kafka-config", env("BROKERIUM_AGENT_KAFKA_CONFIG", ""),
 		"adopt an existing node: its server.properties, never rewritten (storage is never formatted)")
-	fs.StringVar(&cfg.KafkaUser, "kafka-user", env("BROKERIUM_AGENT_KAFKA_USER", "kafka"), "account that runs Kafka under systemd")
+	fs.StringVar(&cfg.KafkaUser, "kafka-user", env("BROKERIUM_AGENT_KAFKA_USER", "kafka"),
+		"account that runs Kafka in the systemd unit an agent running as root writes")
 	return fs, cfg
 }
 

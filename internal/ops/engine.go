@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/edition"
 	"github.com/brokerium/brokerium/internal/kafka"
 	"github.com/brokerium/brokerium/internal/metrics"
 	"github.com/brokerium/brokerium/internal/store"
@@ -79,10 +80,22 @@ type OpType struct {
 	Scope        string   `json:"scope"`
 	Requires     []string `json:"requires"`
 	Irreversible bool     `json:"irreversible"`
+	// Feature is the Enterprise feature that the license must cover to plan and start the
+	// operation; empty for Community operations.
+	Feature string `json:"feature,omitempty"`
 	// AllowUnreachable lets the operation be planned while the cluster does not answer yet, for
 	// example to create its nodes.
 	AllowUnreachable bool                                                                            `json:"-"`
 	Plan             func(ctx context.Context, p *Planner, params json.RawMessage) (*Planned, error) `json:"-"`
+}
+
+// licensed checks the license for an Enterprise operation. Operations that already run keep
+// running and can be cancelled without it.
+func (t OpType) licensed() error {
+	if t.Feature != "" && !edition.Allows(t.Feature) {
+		return edition.LicenseRequired(t.Feature)
+	}
+	return nil
 }
 
 // NodeManager performs node lifecycle actions through agents or providers.
@@ -128,14 +141,19 @@ func New(st *store.Store, clusters *cluster.Service, sampler *metrics.Sampler, l
 	return e
 }
 
-// Extend registers node lifecycle operations and steps.
-func (e *Engine) Extend(m NodeManager) {
-	for _, t := range m.Types() {
+// Register adds operation types and step kinds, for example those of Enterprise features.
+func (e *Engine) Register(types []OpType, steps map[string]StepFunc) {
+	for _, t := range types {
 		e.types[t.Type] = t
 	}
-	for k, f := range m.StepKinds() {
+	for k, f := range steps {
 		e.kinds[k] = f
 	}
+}
+
+// Extend registers node lifecycle operations and steps.
+func (e *Engine) Extend(m NodeManager) {
+	e.Register(m.Types(), m.StepKinds())
 	e.stopStep = chainStop(m.StopBrokerStep, e.stopStep)
 	e.stopControllerStep = chainStop(m.StopControllerStep, e.stopControllerStep)
 }
@@ -179,6 +197,9 @@ func (e *Engine) Plan(ctx context.Context, clusterID, typ string, params json.Ra
 	t, ok := e.types[typ]
 	if !ok {
 		return nil, fmt.Errorf("unknown operation type %q", typ)
+	}
+	if err := t.licensed(); err != nil {
+		return nil, err
 	}
 	view, err := e.Clusters.Refresh(ctx, clusterID)
 	if err != nil {
@@ -229,6 +250,9 @@ func (e *Engine) Confirm(ctx context.Context, id, confirmName string) (*store.Op
 	}
 	if time.Since(op.CreatedAt) > e.PlanTTL {
 		return nil, ErrPlanExpired
+	}
+	if err := e.types[op.Type].licensed(); err != nil {
+		return nil, err
 	}
 	if op.Irreversible {
 		c, err := e.Store.GetCluster(ctx, op.ClusterID)

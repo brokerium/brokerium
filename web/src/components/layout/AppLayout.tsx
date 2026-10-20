@@ -15,13 +15,15 @@ import {
   UnstyledButton,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconHistory, IconListDetails, IconServer2, IconServerBolt, IconUsers } from '@tabler/icons-react';
+import { IconHistory, IconLicense, IconListDetails, IconServer2, IconServerBolt, IconUsers } from '@tabler/icons-react';
 import type { ComponentType } from 'react';
 import { Link, Outlet, useLocation, useNavigation } from 'react-router';
 
 import { useVersion } from '../../api/auth';
 import { useOverview } from '../../api/clusters';
+import { useLicense } from '../../api/license';
 import type { HealthStatus, User } from '../../api/types';
+import { licenseState, licenseStateColor, licenseStateLabel, needsAttention } from '../../lib/license';
 import { healthColor, healthLabel } from '../../lib/status';
 import { BrandMark } from './BrandMark';
 import { ColorSchemeToggle } from './ColorSchemeToggle';
@@ -42,14 +44,19 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/nodes', label: 'Nodes', icon: IconServerBolt, active: (p) => p.startsWith('/nodes') },
   { to: '/users', label: 'Users', icon: IconUsers, active: (p) => p.startsWith('/users'), adminOnly: true },
   { to: '/audit', label: 'Audit', icon: IconHistory, active: (p) => p.startsWith('/audit') },
+  { to: '/license', label: 'License', icon: IconLicense, active: (p) => p.startsWith('/license') },
 ];
 
-function HealthDot({ status }: { status: HealthStatus }) {
+function Dot({ color, label }: { color: string; label: string }) {
   return (
-    <Tooltip label={healthLabel(status)} withArrow position="right">
-      <Box w={8} h={8} style={{ borderRadius: '50%', background: `var(--mantine-color-${healthColor(status)}-6)` }} />
+    <Tooltip label={label} withArrow position="right">
+      <Box w={8} h={8} style={{ borderRadius: '50%', background: `var(--mantine-color-${color}-6)` }} />
     </Tooltip>
   );
+}
+
+function HealthDot({ status }: { status: HealthStatus }) {
+  return <Dot color={healthColor(status)} label={healthLabel(status)} />;
 }
 
 function NavigationProgress() {
@@ -63,6 +70,11 @@ export function AppLayout({ user }: { user: User }) {
   const { pathname } = useLocation();
   const { data: clusters } = useOverview();
   const { data: version } = useVersion();
+  const { data: license } = useLicense();
+  const state = licenseState(license?.license);
+  const licenseDot = needsAttention(license) ? (
+    <Dot color={licenseStateColor(state)} label={`License: ${licenseStateLabel(state)}`} />
+  ) : undefined;
 
   return (
     <AppShell
@@ -96,6 +108,7 @@ export function AppLayout({ user }: { user: User }) {
                 to={item.to}
                 label={item.label}
                 leftSection={<item.icon size={18} stroke={1.6} />}
+                rightSection={item.to === '/license' ? licenseDot : undefined}
                 active={item.active(pathname)}
                 onClick={close}
                 fw={500}
@@ -125,7 +138,8 @@ export function AppLayout({ user }: { user: User }) {
         </AppShell.Section>
         <AppShell.Section>
           <Text size="xs" c="dimmed" px="sm" py={4}>
-            Brokerium {version?.version ?? ''}
+            Brokerium {license?.edition === 'enterprise' ? 'Enterprise ' : ''}
+            {version?.version ?? ''}
             {version?.commit ? ` · ${version.commit.slice(0, 7)}` : ''}
           </Text>
         </AppShell.Section>

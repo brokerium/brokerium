@@ -8,7 +8,7 @@ Local users with argon2id password hashes and one of three roles:
 | --- | --- |
 | viewer | read everything, including the audit log |
 | operator | plus change clusters: topics, configs, ACLs, SCRAM, quotas, groups, messages, operations |
-| admin | plus manage users and delete clusters |
+| admin | plus manage users, the license key and delete clusters |
 
 Sessions are random tokens stored as SHA-256 hashes, sent as an `HttpOnly`, `SameSite=Lax`
 cookie (set `BROKERIUM_SECURE_COOKIES=true` behind HTTPS) or as `Authorization: Bearer`.
@@ -20,8 +20,8 @@ not add to cross-site requests. Responses set a strict `Content-Security-Policy`
 After five failed logins for the same user from the same address, Brokerium refuses further
 attempts for 30 seconds, doubling up to 15 minutes, and logs every failed login.
 
-SSO, per-cluster roles and audit export are planned for a paid edition
-(see the [roadmap](../ROADMAP.md)).
+SSO, per-cluster roles and audit export are planned for
+[Brokerium Enterprise](enterprise.md) (see the [roadmap](../ROADMAP.md)).
 
 ## Credentials of clusters
 
@@ -44,10 +44,29 @@ never returned by the API. Back up the key together with the database.
   `server.properties` whose names consist of letters, digits, `.`, `_` and `-` and whose values
   contain no control characters; heap options made only of `-Xms<size>` and `-Xmx<size>`. The
   server checks the same rules when cluster settings are saved and before it sends a command,
-  so neither an operator nor a server can add lines to `server.properties` or the systemd unit
-  or pass other JVM options.
-- On hosts the agent runs as root to manage the Kafka unit; Kafka runs as the `kafka` account.
-  The join token lives in `/etc/brokerium-agent.env` (mode 0600).
+  so neither an operator nor a server can add lines to `server.properties`, the systemd unit or
+  its environment file or pass other JVM options.
+- On hosts the agent runs as the `brokerium-agent` account and Kafka as `kafka`; neither runs
+  as root. The agent reaches Kafka in three ways:
+  - sudo, with a rule in `/etc/sudoers.d/brokerium-agent` that allows `systemctl start`, `stop`
+    and `restart` of `brokerium-kafka.service` and nothing else, not even `daemon-reload`;
+  - the files it owns: its state with the client key (mode 0600) in `/var/lib/brokerium-agent`,
+    `server.properties`, the Kafka releases in `/opt/brokerium/kafka` and the link `current`
+    to the active one, and `kafka.env` with the heap options, which systemd reads and which
+    pass the same checks as the configuration (only `-Xms` and `-Xmx`);
+  - the `kafka` group: the data directory is `kafka:kafka` with mode 2770 and Kafka runs with
+    `UMask=0007`, so the agent formats and wipes storage without root.
+
+  The units and the sudo rule belong to root and are written only by the install script, so
+  the agent cannot change which account Kafka runs as or what else systemd starts. It can act
+  as the `kafka` account, since it installs the releases Kafka runs, but it cannot gain root.
+  The agent unit uses `ProtectSystem=full`, `ProtectHome=yes` and `PrivateTmp=yes` and keeps
+  `NoNewPrivileges=no`, which sudo needs.
+- Hosts installed by earlier versions run the agent as root until the install command runs on
+  them again (see [Installation](install.md#hosts-with-an-agent-running-as-root)). An agent
+  running as root writes the Kafka unit itself; in lab containers the agent runs Kafka as its
+  child process.
+- The join token lives in `/etc/brokerium-agent.env` (mode 0600), which only systemd reads.
 - The install script checks the agent binary against the `SHA256SUMS` of its release.
 - Agent certificates and the certificate of the agent gateway are valid for
   `BROKERIUM_AGENT_CERT_LIFETIME` (one year by default). After two thirds of the lifetime the

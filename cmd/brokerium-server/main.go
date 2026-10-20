@@ -19,6 +19,7 @@ import (
 	"github.com/brokerium/brokerium/internal/api"
 	"github.com/brokerium/brokerium/internal/cluster"
 	"github.com/brokerium/brokerium/internal/config"
+	"github.com/brokerium/brokerium/internal/edition"
 	"github.com/brokerium/brokerium/internal/metrics"
 	"github.com/brokerium/brokerium/internal/nodes"
 	"github.com/brokerium/brokerium/internal/ops"
@@ -52,7 +53,7 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	log.Info("starting brokerium-server", "version", version.String(), "http", cfg.HTTPAddr)
+	log.Info("starting brokerium-server", "version", version.String(), "edition", edition.Name, "http", cfg.HTTPAddr)
 
 	st, err := store.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -101,6 +102,10 @@ func run(log *slog.Logger) error {
 	nodeManager := &nodes.Manager{Store: st, Gateway: gateway, Docker: dockerClient, Clusters: clusters, Log: log,
 		Cfg: nodes.Config{AgentEndpoint: cfg.AgentEndpoint, AgentImage: cfg.AgentImage, LabNetwork: cfg.LabNetwork}}
 	engine.Extend(nodeManager)
+	editionAPIs, err := setupEdition(ctx, cfg, st, clusters, engine, log)
+	if err != nil {
+		return err
+	}
 
 	go clusters.Run(ctx, cfg.SnapshotInterval)
 	go engine.Run(ctx, cfg.WorkerInterval)
@@ -111,14 +116,15 @@ func run(log *slog.Logger) error {
 	}
 
 	srv := &api.Server{Store: st, Clusters: clusters, Box: box, Log: log, SecureCookies: cfg.SecureCookies}
+	exts := append([]api.Extension{
+		&api.OperationsAPI{Engine: engine, Sampler: sampler},
+		&api.NodesAPI{Gateway: gateway, Pools: nodeManager, PublicURL: cfg.PublicURL, AgentEndpoint: cfg.AgentEndpoint,
+			Proxy: cfg.AgentProxy, NoProxy: cfg.AgentNoProxy, CertificateWarning: certWarning,
+			Transport: cfg.AgentTransport, InsecureEndpoint: cfg.AgentInsecureEndpoint, InsecureTLS: cfg.AgentInsecureTLS},
+	}, editionAPIs...)
 	httpServer := &http.Server{
-		Addr: cfg.HTTPAddr,
-		Handler: srv.Handler(
-			&api.OperationsAPI{Engine: engine, Sampler: sampler},
-			&api.NodesAPI{Gateway: gateway, Pools: nodeManager, PublicURL: cfg.PublicURL, AgentEndpoint: cfg.AgentEndpoint,
-				Proxy: cfg.AgentProxy, NoProxy: cfg.AgentNoProxy, CertificateWarning: certWarning,
-				Transport: cfg.AgentTransport, InsecureEndpoint: cfg.AgentInsecureEndpoint, InsecureTLS: cfg.AgentInsecureTLS},
-		),
+		Addr:              cfg.HTTPAddr,
+		Handler:           srv.Handler(exts...),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() { errCh <- httpServer.ListenAndServe() }()

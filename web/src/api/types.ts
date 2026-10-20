@@ -403,6 +403,8 @@ export interface OperationType {
   /** Capabilities that must all be true for the action to be offered. */
   requires: (keyof Capabilities)[];
   irreversible: boolean;
+  /** Enterprise feature the license must cover; missing for Community operations. */
+  feature?: string;
 }
 
 /**
@@ -450,9 +452,13 @@ export interface OperationParams {
 
 // ---------------------------------------------------------------- data plane
 
+export type ByteEncoding = 'utf8' | 'base64';
+
 export interface MessageHeader {
   key: string;
   value: string;
+  /** Omitted for text. */
+  encoding?: ByteEncoding;
 }
 
 export interface Message {
@@ -462,8 +468,8 @@ export interface Message {
   key: string | null;
   value: string | null;
   headers: MessageHeader[];
-  keyEncoding: 'utf8' | 'base64';
-  valueEncoding: 'utf8' | 'base64';
+  keyEncoding: ByteEncoding;
+  valueEncoding: ByteEncoding;
 }
 
 export interface Acl {
@@ -547,6 +553,48 @@ export interface AuditEntry {
   target: string;
   result: string;
   detail: unknown;
+}
+
+// ---------------------------------------------------------------- editions and licenses
+
+export type Edition = 'community' | 'enterprise';
+
+/** none: no license key. Enterprise features work in valid and grace. */
+export type LicenseState = 'none' | 'invalid' | 'valid' | 'grace' | 'expired';
+
+/** environment: BROKERIUM_LICENSE; file: BROKERIUM_LICENSE_FILE; database: added through the API. */
+export type LicenseSource = 'environment' | 'file' | 'database';
+
+/** A feature of Brokerium Enterprise. */
+export interface EditionFeature {
+  id: string;
+  title: string;
+  description: string;
+  /** The license covers the feature and is valid or in its grace period. */
+  licensed: boolean;
+}
+
+/** The license key in use. For a key that does not verify only state, source and error are set. */
+export interface LicenseInfo {
+  id: string;
+  customer: string;
+  email: string;
+  /** Feature ids, or '*' for all features. */
+  features: string[];
+  issuedAt?: string;
+  notBefore?: string;
+  expiresAt?: string;
+  graceEndsAt?: string;
+  state: Exclude<LicenseState, 'none'>;
+  source: LicenseSource;
+  error?: string;
+}
+
+/** GET /license */
+export interface LicenseView {
+  edition: Edition;
+  features: EditionFeature[];
+  license: LicenseInfo | null;
 }
 
 export interface ApiErrorBody {

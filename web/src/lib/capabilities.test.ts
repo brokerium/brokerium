@@ -47,7 +47,7 @@ const serverTypes: OperationType[] = [
     title: 'Rebalance',
     description: '',
     scope: 'cluster',
-    requires: ['reassign'],
+    requires: ['reassign', 'electLeaders'],
     irreversible: false,
   },
   {
@@ -68,18 +68,21 @@ describe('operationAvailability', () => {
   it('explains which capability is missing', () => {
     const result = operationAvailability('add-broker', caps());
     expect(result.allowed).toBe(false);
-    expect(result.reason).toContain('node provisioning');
+    expect(result.reason).toContain('node restarts');
   });
 
-  it('gates provisioning operations on provisionNodes', () => {
-    expect(operationAvailability('replace-broker', caps({ provisionNodes: true })).allowed).toBe(true);
+  it('allows node operations on agent clusters, which manage nodes without provisioning them', () => {
+    expect(operationAvailability('add-broker', caps({ restartNodes: true })).allowed).toBe(true);
+    expect(operationAvailability('replace-broker', caps({ restartNodes: true })).allowed).toBe(true);
+    expect(operationAvailability('destroy-cluster', caps({ restartNodes: true })).allowed).toBe(false);
     expect(operationAvailability('rolling-restart', caps()).allowed).toBe(false);
     expect(operationAvailability('rolling-restart', caps({ restartNodes: true })).allowed).toBe(true);
   });
 
   it('merges server requirements with the built-in ones', () => {
-    expect(missingCapabilities('drain-broker', caps({ cordon: false }))).toEqual([]);
-    expect(missingCapabilities('drain-broker', caps({ cordon: false }), serverTypes)).toEqual(['cordon']);
+    expect(missingCapabilities('rebalance', caps({ electLeaders: false }))).toEqual([]);
+    expect(missingCapabilities('rebalance', caps({ electLeaders: false }), serverTypes)).toEqual(['electLeaders']);
+    expect(missingCapabilities('drain-broker', caps({ cordon: false }))).toEqual(['cordon']);
   });
 
   it('rejects operation types the server does not offer', () => {

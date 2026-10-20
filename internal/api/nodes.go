@@ -204,8 +204,11 @@ func deref(s *string) string {
 // installScript installs brokerium-agent as a systemd service on a Linux host.
 const installScript = `#!/bin/sh
 # SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
-# Installs brokerium-agent as a systemd service. Kafka runs as its own unit
-# (brokerium-kafka.service) under the kafka account, so restarting the agent never stops Kafka.
+# Installs brokerium-agent as a systemd service under its own account, brokerium-agent. Kafka runs
+# as its own unit (brokerium-kafka.service) under the kafka account, so restarting the agent never
+# stops Kafka. The agent reaches the Kafka directories through the kafka group, and a sudo rule
+# lets it start, stop and restart that unit and nothing else. Running the script again on a host
+# whose agent runs as root moves the agent to its own account; a running Kafka keeps running.
 #
 #   BROKERIUM_AGENT_SERVER, BROKERIUM_AGENT_TOKEN  required (Nodes page of the dashboard)
 #   BROKERIUM_AGENT_VERSION                        release tag, default: latest
@@ -227,8 +230,23 @@ set -eu
 [ "$(id -u)" -eq 0 ] || { echo "run as root (sudo)" >&2; exit 1; }
 [ -z "${BROKERIUM_AGENT_CA_FILE:-}" ] || [ -r "$BROKERIUM_AGENT_CA_FILE" ] ||
   { echo "BROKERIUM_AGENT_CA_FILE $BROKERIUM_AGENT_CA_FILE is not readable" >&2; exit 1; }
+SYSTEMCTL=$(command -v systemctl) || { echo "systemctl not found: the agent runs as a systemd service" >&2; exit 1; }
+if ! command -v sudo >/dev/null || ! command -v visudo >/dev/null || [ ! -d /etc/sudoers.d ]; then
+  echo "sudo is not installed: install it (with /etc/sudoers.d) and run this again; the agent starts and stops Kafka through a sudo rule" >&2
+  exit 1
+fi
 VERSION="${BROKERIUM_AGENT_VERSION:-latest}"
+STATE=/var/lib/brokerium-agent
+KAFKA_DIR=/opt/brokerium/kafka
+LOG_DIR="$STATE/logs"
 DATA_DIR="${BROKERIUM_AGENT_KAFKA_DATA_DIR:-/var/lib/kafka/data}"
+KAFKA_CONFIG="${BROKERIUM_AGENT_KAFKA_CONFIG:-$STATE/server.properties}"
+for p in "$DATA_DIR" "$KAFKA_CONFIG"; do
+  # Both paths go into unit files.
+  case "$p" in
+    [!/]*|*[!A-Za-z0-9._/@:+-]*) echo "unsupported path $p: use an absolute path of letters, digits and ._/@:+-" >&2; exit 1 ;;
+  esac
+done
 PROXY="${HTTPS_PROXY:-${https_proxy:-}}"
 NOPROXY="${NO_PROXY:-${no_proxy:-}}"
 if [ -n "$PROXY" ]; then
@@ -247,11 +265,41 @@ elif [ "$VERSION" = latest ]; then
 else
   URL="https://github.com/brokerium/brokerium/releases/download/${VERSION}/brokerium-agent-linux-${ARCH}"
 fi
-id kafka >/dev/null 2>&1 || useradd --system --home-dir /var/lib/kafka --shell /usr/sbin/nologin kafka
-# The agent state holds its private key; kafka may only traverse it to read server.properties.
-install -d -m 0711 /var/lib/brokerium-agent
-install -d -m 0755 /opt/brokerium/kafka
-install -d -o kafka -g kafka "$DATA_DIR"
+AGENT_UNIT=/etc/systemd/system/brokerium-agent.service
+KAFKA_UNIT=/etc/systemd/system/brokerium-kafka.service
+# On a host whose agent ran as root, the files of the agent move to its account below.
+CONVERT=1
+if grep -qx 'User=brokerium-agent' "$AGENT_UNIT" 2>/dev/null; then CONVERT=0; fi
+getent group kafka >/dev/null || groupadd --system kafka
+id kafka >/dev/null 2>&1 || useradd --system --gid kafka --home-dir /var/lib/kafka --shell /usr/sbin/nologin kafka
+getent group brokerium-agent >/dev/null || groupadd --system brokerium-agent
+id brokerium-agent >/dev/null 2>&1 ||
+  useradd --system --gid brokerium-agent --home-dir "$STATE" --shell /usr/sbin/nologin brokerium-agent
+usermod -a -G kafka brokerium-agent
+# The agent unit sets ProtectHome, so the file must also live outside /home, /root and /run/user.
+case "${BROKERIUM_AGENT_CA_FILE:-}" in
+  /home/* | /root/* | /run/user/*)
+    echo "BROKERIUM_AGENT_CA_FILE must be outside /home, /root and /run/user, for example in /etc" >&2; exit 1 ;;
+esac
+[ -z "${BROKERIUM_AGENT_CA_FILE:-}" ] || runuser -u brokerium-agent -- test -r "$BROKERIUM_AGENT_CA_FILE" ||
+  { echo "BROKERIUM_AGENT_CA_FILE $BROKERIUM_AGENT_CA_FILE is not readable by the brokerium-agent account" >&2; exit 1; }
+# sudo skips files whose names contain a dot, so the rule takes effect only once visudo accepted it.
+RULE=$(mktemp /etc/sudoers.d/.brokerium-agent.XXXXXX)
+cat > "$RULE" <<EOF
+Defaults:brokerium-agent !requiretty
+brokerium-agent ALL=(root) NOPASSWD: $SYSTEMCTL start brokerium-kafka.service, $SYSTEMCTL stop brokerium-kafka.service, $SYSTEMCTL restart brokerium-kafka.service
+EOF
+chmod 0440 "$RULE"
+if ! visudo -cf "$RULE" >/dev/null; then
+  rm -f "$RULE"
+  echo "visudo rejected the sudo rule for brokerium-agent; the agent was not installed or changed" >&2
+  exit 1
+fi
+mv -f "$RULE" /etc/sudoers.d/brokerium-agent
+if ! sudo -n -l -U brokerium-agent "$SYSTEMCTL" restart brokerium-kafka.service >/dev/null 2>&1; then
+  echo "sudo ignores /etc/sudoers.d/brokerium-agent (does /etc/sudoers include /etc/sudoers.d?); the agent was not installed or changed" >&2
+  exit 1
+fi
 curl -fsSL "$URL" -o /usr/local/bin/brokerium-agent.new
 if [ -n "${BROKERIUM_AGENT_URL:-}" ]; then
   WANT="${BROKERIUM_AGENT_SHA256:-}"
@@ -266,7 +314,40 @@ if [ -n "$WANT" ] && [ "$(sha256sum /usr/local/bin/brokerium-agent.new | cut -d'
   exit 1
 fi
 chmod 0755 /usr/local/bin/brokerium-agent.new
+# Only the agent restarts. If a later step fails, it starts again with the unit systemd has loaded.
+if [ -f "$AGENT_UNIT" ]; then
+  systemctl stop brokerium-agent.service
+  trap 'systemctl start brokerium-agent.service' EXIT
+fi
 mv /usr/local/bin/brokerium-agent.new /usr/local/bin/brokerium-agent
+# The agent state holds its private key (mode 0600); kafka only traverses it to read
+# server.properties.
+install -d -m 0711 -o brokerium-agent -g brokerium-agent "$STATE"
+install -d -m 0755 -o brokerium-agent -g kafka "$KAFKA_DIR"
+# Files created in the data directory belong to the kafka group, through which the agent formats
+# and wipes it.
+install -d -m 2770 -o kafka -g kafka "$DATA_DIR"
+if [ ! -e "$LOG_DIR" ] && [ ! -h "$LOG_DIR" ]; then
+  (umask 0007 && mkdir "$LOG_DIR")
+  chown -h kafka:kafka "$LOG_DIR"
+fi
+if [ "$CONVERT" = 1 ]; then
+  for f in node.json agent.pem agent.crt agent.key ca.crt state.json server.properties; do
+    [ ! -e "$STATE/$f" ] || chown -h brokerium-agent:brokerium-agent "$STATE/$f"
+  done
+  # Should systemd restart Kafka before the agent takes over, it has to find the running release.
+  RUNNING=
+  [ ! -f "$KAFKA_UNIT" ] || RUNNING=$(sed -n 's|^ExecStart=\(/[^ ]*\)/bin/kafka-server-start\.sh .*|\1|p' "$KAFKA_UNIT")
+  if [ -n "$RUNNING" ] && [ "$RUNNING" != "$KAFKA_DIR/current" ] && [ ! -e "$KAFKA_DIR/current" ] && [ ! -h "$KAFKA_DIR/current" ]; then
+    ln -s "$RUNNING" "$KAFKA_DIR/current"
+  fi
+  chown -R brokerium-agent:kafka "$KAFKA_DIR"
+fi
+# Kafka created its files with umask 0022. The kafka account opens them to its group itself, so
+# links placed in these directories cannot make root change other files.
+runuser -u kafka -g kafka -- find "$DATA_DIR" "$LOG_DIR" -user kafka ! -type l \
+  \( ! -group kafka -o ! -perm -g=rw \) -exec chgrp kafka {} + -exec chmod g+rwX {} + ||
+  echo "some files in $DATA_DIR or $LOG_DIR stay closed to the kafka group; the agent may fail to wipe them" >&2
 umask 077
 {
   echo "BROKERIUM_AGENT_SERVER=${BROKERIUM_AGENT_SERVER}"
@@ -282,27 +363,54 @@ umask 077
   [ -z "$PROXY" ] || [ -z "$NOPROXY" ] || echo "NO_PROXY=${NOPROXY}"
 } > /etc/brokerium-agent.env
 umask 022
-cat > /etc/systemd/system/brokerium-agent.service <<'EOF'
+cat > "$KAFKA_UNIT" <<EOF
+[Unit]
+Description=Apache Kafka managed by brokerium-agent
+After=network-online.target
+
+[Service]
+User=kafka
+Group=kafka
+UMask=0007
+EnvironmentFile=-$STATE/kafka.env
+Environment=LOG_DIR=$LOG_DIR
+ExecStart=$KAFKA_DIR/current/bin/kafka-server-start.sh $KAFKA_CONFIG
+KillSignal=SIGTERM
+TimeoutStopSec=120
+Restart=on-failure
+LimitNOFILE=1000000
+
+[Install]
+WantedBy=multi-user.target
+EOF
+cat > "$AGENT_UNIT" <<EOF
 [Unit]
 Description=Brokerium agent for Apache Kafka
 After=network-online.target
 Wants=network-online.target
 
 [Service]
+User=brokerium-agent
+Group=brokerium-agent
+SupplementaryGroups=kafka
 EnvironmentFile=/etc/brokerium-agent.env
 ExecStart=/usr/local/bin/brokerium-agent run
 Restart=always
 RestartSec=5
+# sudo has to gain root for the Kafka unit: keep NoNewPrivileges off and add no option implying it.
+NoNewPrivileges=no
+ProtectSystem=full
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=$STATE $KAFKA_DIR $DATA_DIR
 
 [Install]
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable brokerium-agent.service
-# A running agent picks up the new binary and settings, for example another transport; Kafka
-# runs in its own unit and keeps running.
-systemctl restart brokerium-agent.service
-echo "brokerium-agent installed; it enrolls with the server on first start."
+systemctl enable --now brokerium-agent.service
+trap - EXIT
+echo "brokerium-agent installed; it runs as brokerium-agent and enrolls with the server on first start."
 `
 
 func (a *NodesAPI) handleInstallScript(w http.ResponseWriter, _ *http.Request) {

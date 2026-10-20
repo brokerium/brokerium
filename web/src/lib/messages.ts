@@ -23,6 +23,12 @@ export function renderValue(value: string | null, encoding: 'utf8' | 'base64'): 
   return { kind: 'text', text: value };
 }
 
+/** True for standard base64 with or without padding; whitespace is ignored, as the server does. */
+export function isBase64(text: string): boolean {
+  const clean = text.replace(/\s+/g, '');
+  return /^[A-Za-z0-9+/]*={0,2}$/.test(clean) && clean.replace(/=+$/, '').length % 4 !== 1;
+}
+
 /** Single-line preview of a value, cut to the given length. */
 export function previewValue(value: string | null, max = 120): string {
   if (value === null) return '';
