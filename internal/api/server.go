@@ -16,6 +16,8 @@ import (
 
 	"github.com/brokerium/brokerium/internal/auth"
 	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/edition"
+	"github.com/brokerium/brokerium/internal/provider/docker"
 	"github.com/brokerium/brokerium/internal/secrets"
 	"github.com/brokerium/brokerium/internal/store"
 	"github.com/brokerium/brokerium/internal/version"
@@ -41,6 +43,8 @@ type Server struct {
 	Log           *slog.Logger
 	SecureCookies bool
 	SessionTTL    time.Duration
+	// DockerClusters tells whether the server offers Docker clusters (ADR 0019).
+	DockerClusters *docker.Detector
 
 	mux    *http.ServeMux
 	logins *loginLimiter
@@ -71,6 +75,7 @@ func (s *Server) Handler(exts ...Extension) http.Handler {
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	s.mux.HandleFunc("GET /readyz", s.handleReady)
 	s.mux.HandleFunc("GET /api/v1/version", s.handleVersion)
+	s.Route("GET /api/v1/server", store.RoleViewer, s.handleServer)
 	s.mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
 	s.mux.HandleFunc("POST /api/v1/auth/logout", s.handleLogout)
 	s.Route("GET /api/v1/auth/me", store.RoleViewer, s.handleMe)
@@ -180,6 +185,35 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 	WriteJSON(w, http.StatusOK, map[string]string{"version": version.Version, "commit": version.Commit, "date": version.Date})
+}
+
+// ServerInfo describes the build and the edition of the server and the providers it offers.
+type ServerInfo struct {
+	Version   string          `json:"version"`
+	Commit    string          `json:"commit"`
+	Date      string          `json:"date"`
+	Edition   string          `json:"edition"`
+	Providers ServerProviders `json:"providers"`
+}
+
+// ServerProviders tells which providers can create clusters on this server.
+type ServerProviders struct {
+	Docker docker.Availability `json:"docker"`
+}
+
+func (s *Server) handleServer(w http.ResponseWriter, r *http.Request) {
+	WriteJSON(w, http.StatusOK, ServerInfo{Version: version.Version, Commit: version.Commit, Date: version.Date,
+		Edition: edition.Name, Providers: ServerProviders{Docker: s.DockerClusters.Check(r.Context())}})
+}
+
+// dockerUnavailable answers 409 docker_unavailable with the reason when the server does not
+// offer Docker clusters.
+func (s *Server) dockerUnavailable(w http.ResponseWriter, r *http.Request) bool {
+	if err := s.DockerClusters.Check(r.Context()).Err(); err != nil {
+		WriteError(w, http.StatusConflict, "docker_unavailable", err.Error())
+		return true
+	}
+	return false
 }
 
 // WriteJSON writes v as JSON.

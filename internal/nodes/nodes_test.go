@@ -5,9 +5,12 @@ package nodes
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/brokerium/brokerium/internal/ops"
+	"github.com/brokerium/brokerium/internal/provider/docker"
 	"github.com/brokerium/brokerium/internal/store"
 )
 
@@ -65,11 +68,73 @@ func TestRenderAgentNodes(t *testing.T) {
 	if ctrl["listeners"] != "CONTROLLER://0.0.0.0:9093" || ctrl["advertised.listeners"] != "CONTROLLER://kafka-c1.example.net:9093" {
 		t.Errorf("agent controller listeners: %v / %v", ctrl["listeners"], ctrl["advertised.listeners"])
 	}
-	if got := brokerAddress(s, false, "kafka-1.example.net", 101); got != "kafka-1.example.net:9092" {
-		t.Errorf("agent broker address %s", got)
+}
+
+func TestAddresses(t *testing.T) {
+	t.Parallel()
+	s := settingsOf(&store.Cluster{Settings: map[string]any{"portBase": 21000}})
+	tests := []struct {
+		name                       string
+		docker, inContainer        bool
+		node                       string
+		id                         int32
+		wantBroker, wantController string
+	}{
+		{name: "agent node", node: "kafka-1.example.net", id: 101,
+			wantBroker: "kafka-1.example.net:9092", wantController: "kafka-1.example.net:9093"},
+		{name: "agent node, server in a container", inContainer: true, node: "kafka-1.example.net", id: 101,
+			wantBroker: "kafka-1.example.net:9092", wantController: "kafka-1.example.net:9093"},
+		{name: "Docker node, server on the Docker host", docker: true, node: "lab-b101", id: 101,
+			wantBroker: "localhost:21101", wantController: "localhost:21101"},
+		{name: "Docker controller, server on the Docker host", docker: true, node: "lab-c2", id: 2,
+			wantBroker: "localhost:21002", wantController: "localhost:21002"},
+		{name: "Docker node, server in a container on the lab network", docker: true, inContainer: true, node: "lab-b101", id: 101,
+			wantBroker: "lab-b101:9092", wantController: "lab-b101:9093"},
 	}
-	if got := brokerAddress(s, true, "lab-b101", 101); got != "localhost:21101" {
-		t.Errorf("docker broker address %s", got)
+	for _, tt := range tests {
+		m := &Manager{Cfg: Config{ServerInContainer: tt.inContainer}}
+		if got := m.brokerAddress(s, tt.docker, tt.node, tt.id); got != tt.wantBroker {
+			t.Errorf("%s: broker address %s, want %s", tt.name, got, tt.wantBroker)
+		}
+		if got := m.controllerAddress(s, tt.docker, tt.node, tt.id); got != tt.wantController {
+			t.Errorf("%s: controller address %s, want %s", tt.name, got, tt.wantController)
+		}
+	}
+}
+
+func TestCheckPlan(t *testing.T) {
+	t.Parallel()
+	on := docker.NewDetector(docker.ModeOn, "unix:///nonexistent/docker.sock")
+	off := docker.NewDetector(docker.ModeOff, "unix:///nonexistent/docker.sock")
+	restart := []string{ops.KindHealthGate, KindRestart, ops.KindElectPreferred}
+	rebalance := []string{ops.KindHealthGate, ops.KindThrottle, ops.KindReassign, ops.KindWaitReassign, ops.KindClearThrottle}
+	decommission := []string{ops.KindCordon, ops.KindVerifyEmpty, KindRemoveNode, ops.KindUnregisterBroker}
+	tests := []struct {
+		name     string
+		provider string
+		detector *docker.Detector
+		kinds    []string
+		wantErr  bool
+	}{
+		{"Docker cluster, Docker clusters available", store.ProviderDocker, on, restart, false},
+		{"Docker cluster, rolling restart", store.ProviderDocker, off, restart, true},
+		{"Docker cluster, create nodes", store.ProviderDocker, off, []string{KindSetSettings, KindProvision, KindWaitAgent}, true},
+		{"Docker cluster, decommission a broker", store.ProviderDocker, off, decommission, true},
+		{"Docker cluster, rebalance", store.ProviderDocker, off, rebalance, false},
+		{"Docker cluster without a detector", store.ProviderDocker, nil, restart, true},
+		{"agent cluster", store.ProviderAgent, off, restart, false},
+		{"external cluster", store.ProviderExternal, nil, decommission, false},
+	}
+	for _, tt := range tests {
+		m := &Manager{DockerClusters: tt.detector}
+		err := m.CheckPlan(t.Context(), &store.Cluster{Name: "lab", Provider: tt.provider}, tt.kinds)
+		if (err != nil) != tt.wantErr || (err != nil && !errors.Is(err, docker.ErrUnavailable)) {
+			t.Errorf("%s: CheckPlan = %v, want an error: %v", tt.name, err, tt.wantErr)
+		}
+	}
+	err := (&Manager{DockerClusters: off}).CheckPlan(t.Context(), &store.Cluster{Provider: store.ProviderDocker}, restart)
+	if err == nil || !strings.Contains(err.Error(), "BROKERIUM_DOCKER_PROVIDER=off") {
+		t.Errorf("CheckPlan = %v, want the reason", err)
 	}
 }
 

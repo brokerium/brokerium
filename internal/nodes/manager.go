@@ -29,6 +29,9 @@ type Config struct {
 	AgentEndpoint string
 	AgentImage    string
 	LabNetwork    string
+	// ServerInContainer is set when the server runs in a container on LabNetwork; it reaches the
+	// nodes of Docker clusters by container name instead of through ports published on localhost.
+	ServerInContainer bool
 }
 
 // Manager implements ops.NodeManager.
@@ -39,6 +42,8 @@ type Manager struct {
 	Clusters *cluster.Service
 	Log      *slog.Logger
 	Cfg      Config
+	// DockerClusters tells whether the server offers Docker clusters (ADR 0019).
+	DockerClusters *docker.Detector
 }
 
 var versionRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
@@ -205,14 +210,14 @@ func (m *Manager) planBootstrap(ctx context.Context, p *ops.Planner, raw json.Ra
 	for i := 1; i <= params.Controllers; i++ {
 		name := NodeName(p.Cluster.Name, RoleController, int32(i))
 		controllers = append(controllers, name)
-		s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, controllerAddress(s, docker, name, int32(i)))
+		s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, m.controllerAddress(s, docker, name, int32(i)))
 		initial = append(initial, fmt.Sprintf("%d@%s:9093:%s", i, name, RandomUUID()))
 		voters = append(voters, fmt.Sprintf("%d@%s:9093", i, name))
 	}
 	var bootstrap []string
 	for i := 0; i < params.Brokers; i++ {
 		id := int32(101 + i)
-		bootstrap = append(bootstrap, brokerAddress(s, docker, NodeName(p.Cluster.Name, RoleBroker, id), id))
+		bootstrap = append(bootstrap, m.brokerAddress(s, docker, NodeName(p.Cluster.Name, RoleBroker, id), id))
 	}
 	steps := []ops.StepSpec{{Name: "Save cluster settings", Kind: KindSetSettings,
 		Args: NodeArgs{Settings: &s, BootstrapServers: bootstrap}}}

@@ -80,6 +80,10 @@ spec:
               value: {{ ternary "1" "0" .Values.debug | quote }}
             - name: BROKERIUM_DATA_DIR
               value: /var/lib/brokerium
+            # Docker clusters belong to the Docker installation; in Kubernetes, Kafka runs with
+            # Strimzi or with agents.
+            - name: BROKERIUM_DOCKER_PROVIDER
+              value: "off"
             {{- with include "brokerium.licenseSecret" . }}
             - name: BROKERIUM_LICENSE
               valueFrom: { secretKeyRef: { name: {{ . }}, key: {{ $.Values.license.secretKey }} } }

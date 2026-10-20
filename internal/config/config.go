@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -43,9 +44,11 @@ type Server struct {
 	AgentInsecureEndpoint string
 	// AgentInsecureTLS is how they dial it: system, skip-verify or none.
 	AgentInsecureTLS string
-	DockerHost       string
-	LabNetwork       string
-	AgentImage       string
+	// DockerProvider offers Docker clusters: auto (in the Docker installation only), on or off.
+	DockerProvider string
+	DockerHost     string
+	LabNetwork     string
+	AgentImage     string
 	// AgentCertLifetime of agent certificates and the agent gateway certificate.
 	AgentCertLifetime time.Duration
 	SnapshotInterval  time.Duration
@@ -74,6 +77,7 @@ func LoadServer() (Server, error) {
 		AgentTransport:        env("BROKERIUM_AGENT_TRANSPORT", "mtls"),
 		AgentInsecureEndpoint: os.Getenv("BROKERIUM_AGENT_INSECURE_ENDPOINT"),
 		AgentInsecureTLS:      env("BROKERIUM_AGENT_INSECURE_TLS", "system"),
+		DockerProvider:        env("BROKERIUM_DOCKER_PROVIDER", "auto"),
 		DockerHost:            env("BROKERIUM_DOCKER_HOST", "unix:///var/run/docker.sock"),
 		LabNetwork:            env("BROKERIUM_LAB_NETWORK", "brokerium-lab"),
 		AgentImage:            env("BROKERIUM_AGENT_IMAGE", defaultAgentImage(version.Version)),
@@ -85,11 +89,20 @@ func LoadServer() (Server, error) {
 		LicenseFile:           os.Getenv("BROKERIUM_LICENSE_FILE"),
 	}
 	c.AgentServerNames = splitList(env("BROKERIUM_AGENT_SERVER_NAMES", "localhost,host.docker.internal,brokerium,brokerium-server"))
+	// Agents check the gateway certificate against the host they dial.
+	if host, _, err := net.SplitHostPort(c.AgentEndpoint); err == nil && host != "" && !slices.Contains(c.AgentServerNames, host) {
+		c.AgentServerNames = append(c.AgentServerNames, host)
+	}
 	if c.AgentCertLifetime < time.Minute {
 		return c, errors.New("BROKERIUM_AGENT_CERT_LIFETIME must be at least 1m")
 	}
 	if err := c.checkAgentTransport(); err != nil {
 		return c, err
+	}
+	switch c.DockerProvider {
+	case "auto", "on", "off":
+	default:
+		return c, fmt.Errorf("BROKERIUM_DOCKER_PROVIDER must be auto, on or off, not %q", c.DockerProvider)
 	}
 
 	if err := os.MkdirAll(c.DataDir, 0o700); err != nil {

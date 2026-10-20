@@ -6,11 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/brokerium/brokerium/internal/edition"
+	"github.com/brokerium/brokerium/internal/store"
 )
 
 func TestRegisterEnterpriseOperation(t *testing.T) {
@@ -37,5 +40,42 @@ func TestRegisterEnterpriseOperation(t *testing.T) {
 	}
 	if planned {
 		t.Error("the operation was planned without a license")
+	}
+}
+
+// refusingNodes is a node manager that refuses one step kind.
+type refusingNodes struct{ kind string }
+
+func (refusingNodes) StepKinds() map[string]StepFunc                      { return nil }
+func (refusingNodes) Types() []OpType                                     { return nil }
+func (refusingNodes) StopBrokerStep(*Planner, int32) (StepSpec, bool)     { return StepSpec{}, false }
+func (refusingNodes) StopControllerStep(*Planner, int32) (StepSpec, bool) { return StepSpec{}, false }
+func (n refusingNodes) CheckPlan(_ context.Context, c *store.Cluster, kinds []string) error {
+	if slices.Contains(kinds, n.kind) {
+		return fmt.Errorf("%s cannot run on %s now", n.kind, c.Name)
+	}
+	return nil
+}
+
+func TestExtendChecksPlans(t *testing.T) {
+	t.Parallel()
+	e := New(nil, nil, nil, slog.New(slog.DiscardHandler))
+	if err := e.checkPlan(t.Context(), &store.Cluster{Name: "lab"}, []string{"node-provision"}); err != nil {
+		t.Fatalf("checkPlan without node managers = %v", err)
+	}
+	e.Extend(refusingNodes{kind: "node-provision"})
+	tests := []struct {
+		kinds   []string
+		wantErr string
+	}{
+		{kinds: []string{KindHealthGate, KindReassign, KindWaitReassign}},
+		{kinds: []string{KindHealthGate, "node-provision", "node-start"}, wantErr: "node-provision cannot run on lab now"},
+		{kinds: nil},
+	}
+	for _, tt := range tests {
+		err := e.checkPlan(t.Context(), &store.Cluster{Name: "lab"}, tt.kinds)
+		if (err == nil) != (tt.wantErr == "") || (err != nil && err.Error() != tt.wantErr) {
+			t.Errorf("checkPlan(%v) = %v, want %q", tt.kinds, err, tt.wantErr)
+		}
 	}
 }

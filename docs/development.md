@@ -45,7 +45,7 @@ activate mise in your shell.
 | `make lab-up` | Start PostgreSQL and Kafka cluster alpha (3 controllers + 3 brokers, dynamic quorum) |
 | `make lab-up PROFILES="alpha beta gamma"` | Start more lab clusters |
 | `make lab-down` / `make lab-reset` | Stop the lab / stop and delete all lab volumes |
-| `make dev` | Run the server on the host against the lab (http://localhost:8080) |
+| `make dev` | Run the server on the host against the lab (http://localhost:8080), with Docker clusters (`BROKERIUM_DOCKER_PROVIDER=on`) |
 | `make web-dev` | Vite dev server for the dashboard with API proxy |
 | `make build` | Build the dashboard and both binaries into `bin/` |
 | `make build EDITION=enterprise` | The same for Brokerium Enterprise: `bin/brokerium-server-enterprise` with the Enterprise dashboard |
@@ -83,7 +83,8 @@ Release builds never use `licensetest`, and the release workflow refuses binarie
 
 `make e2e` runs the scenarios in `test/e2e` against a running lab and server. Variables:
 
-- `BROKERIUM_E2E_HEAVY=1` enables scenarios that create Docker clusters.
+- `BROKERIUM_E2E_HEAVY=1` enables scenarios that create Docker clusters. A server on the host
+  offers them only with `BROKERIUM_DOCKER_PROVIDER=on`, which `make dev` sets.
 - `BROKERIUM_E2E_STRIMZI_KUBECONFIG` points to the kubeconfig of the Strimzi lab.
 - `BROKERIUM_E2E_VM=1` with `BROKERIUM_E2E_URL` and `BROKERIUM_E2E_CONTROLLERS` runs the
   agent installer scenarios against the VM lab. With `BROKERIUM_E2E_VM_PREVIOUS` set to a
@@ -113,7 +114,11 @@ A few facts that matter while developing:
 - The lab needs about 6 CPUs and 16 GB of memory for Docker; JVM heaps are 512 MB for brokers
   and 384 MB for controllers. Start only the profiles you need.
 - Docker clusters created by the Docker provider get their own port base and use the lab node
-  image `bvaliev/brokerium-agent:lab`; rebuild it with `make images` after agent changes.
+  image `bvaliev/brokerium-agent:lab`; rebuild it with `make images` after agent changes. A
+  server on the host offers Docker clusters only with `BROKERIUM_DOCKER_PROVIDER=on` and reaches
+  their nodes through the ports they publish on localhost; a server in a container reaches them
+  by container name ([ADR 0019](adr/0019-docker-clusters-for-docker-installations.md)). The
+  server of the VM lab runs in a container without the Docker socket and offers none.
 - Strimzi lab: kind cluster `brokerium`, Kafka `lab` with node pools `controllers` (ids 0-9)
   and `brokers` (ids 100+), node ports 32100-32105 on localhost.
 - VM lab: Debian containers with systemd and the server container on port 18080.

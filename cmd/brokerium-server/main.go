@@ -94,13 +94,16 @@ func run(log *slog.Logger) error {
 	}
 	gateway := agentgw.New(st, ca, box, log)
 	gateway.CertLifetime = cfg.AgentCertLifetime
-	dockerClient, err := docker.New(cfg.DockerHost)
-	if err != nil {
-		log.Info("docker provider disabled", "reason", err)
-		dockerClient = nil
+	dockerClusters := docker.NewDetector(cfg.DockerProvider, cfg.DockerHost)
+	if a := dockerClusters.Check(ctx); a.Available {
+		log.Info("docker clusters available", "mode", cfg.DockerProvider, "network", cfg.LabNetwork,
+			"inContainer", dockerClusters.InContainer())
+	} else {
+		log.Info("docker clusters unavailable", "mode", cfg.DockerProvider, "reason", a.Reason)
 	}
-	nodeManager := &nodes.Manager{Store: st, Gateway: gateway, Docker: dockerClient, Clusters: clusters, Log: log,
-		Cfg: nodes.Config{AgentEndpoint: cfg.AgentEndpoint, AgentImage: cfg.AgentImage, LabNetwork: cfg.LabNetwork}}
+	nodeManager := &nodes.Manager{Store: st, Gateway: gateway, Docker: dockerClusters.Client(), DockerClusters: dockerClusters,
+		Clusters: clusters, Log: log, Cfg: nodes.Config{AgentEndpoint: cfg.AgentEndpoint, AgentImage: cfg.AgentImage,
+			LabNetwork: cfg.LabNetwork, ServerInContainer: dockerClusters.InContainer()}}
 	engine.Extend(nodeManager)
 	editionAPIs, err := setupEdition(ctx, cfg, st, clusters, engine, log)
 	if err != nil {
@@ -115,7 +118,8 @@ func run(log *slog.Logger) error {
 		go func() { errCh <- gateway.ServeInsecure(ctx, cfg.AgentInsecureAddr) }()
 	}
 
-	srv := &api.Server{Store: st, Clusters: clusters, Box: box, Log: log, SecureCookies: cfg.SecureCookies}
+	srv := &api.Server{Store: st, Clusters: clusters, Box: box, Log: log, SecureCookies: cfg.SecureCookies,
+		DockerClusters: dockerClusters}
 	exts := append([]api.Extension{
 		&api.OperationsAPI{Engine: engine, Sampler: sampler},
 		&api.NodesAPI{Gateway: gateway, Pools: nodeManager, PublicURL: cfg.PublicURL, AgentEndpoint: cfg.AgentEndpoint,

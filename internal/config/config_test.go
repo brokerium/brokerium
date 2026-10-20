@@ -55,6 +55,65 @@ func TestAgentTransportSettings(t *testing.T) {
 	}
 }
 
+func TestDockerProviderSetting(t *testing.T) {
+	tests := []struct{ value, want, wantErrPart string }{
+		{value: "", want: "auto"},
+		{value: "auto", want: "auto"},
+		{value: "on", want: "on"},
+		{value: "off", want: "off"},
+		{value: "true", wantErrPart: `BROKERIUM_DOCKER_PROVIDER must be auto, on or off, not "true"`},
+		{value: "On", wantErrPart: "BROKERIUM_DOCKER_PROVIDER must be"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			t.Setenv("BROKERIUM_DATA_DIR", t.TempDir())
+			t.Setenv("BROKERIUM_SECRET_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+			t.Setenv("BROKERIUM_DOCKER_PROVIDER", tt.value)
+			c, err := LoadServer()
+			if tt.wantErrPart != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrPart) {
+					t.Fatalf("LoadServer error = %v, want one containing %q", err, tt.wantErrPart)
+				}
+				return
+			}
+			if err != nil || c.DockerProvider != tt.want {
+				t.Fatalf("LoadServer = %q, %v, want %q", c.DockerProvider, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestAgentServerNames(t *testing.T) {
+	tests := []struct {
+		name, endpoint, names string
+		want                  []string
+	}{
+		{name: "defaults", want: []string{"localhost", "host.docker.internal", "brokerium", "brokerium-server"}},
+		{name: "endpoint of the Docker installation", endpoint: "brokerium:8443",
+			want: []string{"localhost", "host.docker.internal", "brokerium", "brokerium-server"}},
+		{name: "another container name", endpoint: "brokerium-verify:8443",
+			want: []string{"localhost", "host.docker.internal", "brokerium", "brokerium-server", "brokerium-verify"}},
+		{name: "explicit names", endpoint: "agents.example.com:443", names: "brokerium.internal",
+			want: []string{"brokerium.internal", "agents.example.com"}},
+		{name: "IP address", endpoint: "[2001:db8::1]:8443", names: "localhost", want: []string{"localhost", "2001:db8::1"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("BROKERIUM_DATA_DIR", t.TempDir())
+			t.Setenv("BROKERIUM_SECRET_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+			t.Setenv("BROKERIUM_AGENT_ENDPOINT", tt.endpoint)
+			t.Setenv("BROKERIUM_AGENT_SERVER_NAMES", tt.names)
+			c, err := LoadServer()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Join(c.AgentServerNames, ",") != strings.Join(tt.want, ",") {
+				t.Errorf("AgentServerNames = %v, want %v", c.AgentServerNames, tt.want)
+			}
+		})
+	}
+}
+
 func TestDefaultAgentImage(t *testing.T) {
 	t.Parallel()
 	tests := map[string]string{
