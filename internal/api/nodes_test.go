@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,6 +51,31 @@ func TestInstallScriptSyntax(t *testing.T) {
 	}
 	if out, err := exec.Command(sh, "-n", path).CombinedOutput(); err != nil {
 		t.Fatalf("sh -n: %v: %s", err, out)
+	}
+}
+
+// TestInstallScriptPrivileges checks what the installer lets the agent do as root and that the
+// agent unit keeps sudo working: options that set the no new privileges flag or restrict the
+// capabilities of root make every start and stop of Kafka fail.
+func TestInstallScriptPrivileges(t *testing.T) {
+	t.Parallel()
+	const rule = "brokerium-agent ALL=(root) NOPASSWD: $SYSTEMCTL start brokerium-kafka.service, " +
+		"$SYSTEMCTL stop brokerium-kafka.service, $SYSTEMCTL restart brokerium-kafka.service\n"
+	if strings.Count(installScript, "NOPASSWD") != 1 || !strings.Contains(installScript, "\n"+rule) {
+		t.Errorf("the sudo rule must allow only %q", rule)
+	}
+	_, unit, _ := strings.Cut(installScript, `cat > "$AGENT_UNIT" <<EOF`)
+	unit, _, found := strings.Cut(unit, "\nEOF\n")
+	if !found || !strings.Contains(unit, "\nUser=brokerium-agent\n") || !strings.Contains(unit, "\nNoNewPrivileges=no\n") {
+		t.Fatalf("agent unit without User=brokerium-agent and NoNewPrivileges=no:%s", unit)
+	}
+	for _, option := range []string{"SystemCallFilter", "SystemCallArchitectures", "RestrictAddressFamilies", "RestrictNamespaces",
+		"PrivateDevices", "ProtectKernelTunables", "ProtectKernelModules", "ProtectKernelLogs", "ProtectClock",
+		"MemoryDenyWriteExecute", "RestrictRealtime", "RestrictSUIDSGID", "LockPersonality", "DynamicUser", "PrivateUsers",
+		"CapabilityBoundingSet", "AmbientCapabilities"} {
+		if strings.Contains(unit, "\n"+option+"=") {
+			t.Errorf("the agent unit sets %s", option)
+		}
 	}
 }
 
