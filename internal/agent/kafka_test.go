@@ -85,6 +85,28 @@ func TestParseJavaVersion(t *testing.T) {
 	}
 }
 
+func TestWriteConfigRejectsUnsafeValues(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	k := newKafka(Config{DataDir: dir, KafkaDir: dir, KafkaDataDir: dir})
+	tests := map[string]struct {
+		props map[string]string
+		heap  string
+	}{
+		"unit directive in the heap": {map[string]string{"node.id": "101"}, "-Xmx1g\nUser=root"},
+		"JVM option in the heap":     {map[string]string{"node.id": "101"}, "-XX:OnOutOfMemoryError=id"},
+		"line break in a value":      {map[string]string{"node.id": "101\nprocess.roles=controller"}, ""},
+	}
+	for name, tt := range tests {
+		if err := k.WriteConfig(tt.props, tt.heap); err == nil {
+			t.Errorf("%s: WriteConfig accepted it", name)
+		}
+	}
+	if _, err := os.Stat(k.configPath()); !os.IsNotExist(err) {
+		t.Errorf("rejected configurations must not be written: %v", err)
+	}
+}
+
 func TestFormatArgs(t *testing.T) {
 	t.Parallel()
 	const id = "-T24WIV1qAW8jTuuHea1pw"
