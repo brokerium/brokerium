@@ -110,9 +110,10 @@ write the configuration, format storage, start, stop, report status).
    ```
 
 2. The script installs `/usr/local/bin/brokerium-agent`, writes `/etc/brokerium-agent.env`
-   (mode 0600) and starts `brokerium-agent.service`. Kafka itself runs as
-   `brokerium-kafka.service` under the `kafka` account, so restarting or upgrading the agent
-   never stops Kafka. Hosts need Java 17 or later and `curl`.
+   (mode 0600) and starts `brokerium-agent.service`, which runs as the `brokerium-agent`
+   account, not as root. Kafka itself runs as `brokerium-kafka.service` under the `kafka`
+   account, so restarting or upgrading the agent never stops Kafka. Hosts need systemd, sudo,
+   Java 17 or later and `curl`.
 3. Name hosts the way Brokerium names nodes of a cluster: `<cluster>-c<id>` for controllers
    (ids 1-99) and `<cluster>-b<id>` for brokers (ids from 101). Brokerium advertises these names
    as listener addresses, so they must resolve in DNS for clients and other nodes.
@@ -121,6 +122,49 @@ Installer variables: `BROKERIUM_AGENT_VERSION` (release tag), `BROKERIUM_AGENT_U
 from your own mirror) with `BROKERIUM_AGENT_SHA256` (its expected checksum),
 `BROKERIUM_AGENT_KAFKA_DATA_DIR` (log.dirs, default `/var/lib/kafka/data`). Binaries from
 GitHub releases are always checked against the `SHA256SUMS` of the release.
+
+### What the installer sets up
+
+| Account or path | Owner and mode | Purpose |
+| --- | --- | --- |
+| `kafka` | system account without login | Runs Kafka. |
+| `brokerium-agent` | system account without login, member of `kafka` | Runs the agent. |
+| `/var/lib/brokerium-agent` | `brokerium-agent`, 0711 | Agent state: identity, client certificate and key (0600), `server.properties`, `kafka.env`. Kafka writes its logs to `logs/`. |
+| `/opt/brokerium/kafka` | `brokerium-agent:kafka`, 0755 | Kafka releases the agent installed; `current` points at the active one. |
+| `/var/lib/kafka/data` | `kafka:kafka`, 2770 | Kafka data. New files belong to the `kafka` group, through which the agent formats and wipes storage. |
+| `brokerium-kafka.service` | root | `User=kafka`, `UMask=0007`, heap options from `kafka.env`, starts the release behind `current`. |
+| `brokerium-agent.service` | root | `User=brokerium-agent`, `SupplementaryGroups=kafka`, `ProtectSystem=full`, `ProtectHome=yes`, `PrivateTmp=yes`. |
+| `/etc/sudoers.d/brokerium-agent` | root, 0440 | The sudo rule below. |
+
+The agent controls Kafka through one sudo rule (the path of `systemctl` is the one on the
+host):
+
+```text
+Defaults:brokerium-agent !requiretty
+brokerium-agent ALL=(root) NOPASSWD: /usr/bin/systemctl start brokerium-kafka.service, /usr/bin/systemctl stop brokerium-kafka.service, /usr/bin/systemctl restart brokerium-kafka.service
+```
+
+The script checks the rule with `visudo` and `sudo -l` before it relies on it. It stops
+without changing the agent when sudo is not installed, when `visudo` rejects the rule or when
+`/etc/sudoers` does not include `/etc/sudoers.d`. sudo cannot gain root when the no new
+privileges flag is set, so the agent unit keeps `NoNewPrivileges=no` and avoids options that
+imply it, such as `SystemCallFilter=`, `RestrictNamespaces=` or `PrivateDevices=`.
+
+### Hosts with an agent running as root
+
+Agents installed by earlier versions of the script run as root and write the Kafka unit
+themselves. Run the install command from the **Nodes** page on such a host again; the agent
+keeps its identity, so the new join token stays unused. The script:
+
+- stops the agent and gives its state and the Kafka releases to `brokerium-agent`;
+- lets the `kafka` account open its data and log files to the `kafka` group;
+- points `/opt/brokerium/kafka/current` at the release Kafka runs, writes the unit and the sudo
+  rule above and starts the agent under its own account.
+
+Kafka keeps running from the unit the root agent wrote until it restarts; should systemd
+restart it, it starts the same release. Run a rolling restart afterwards to move Kafka to the
+new unit. Directories Kafka creates before that restart stay closed to the group: run the
+install command once more after the restart, so that the agent can wipe them.
 
 ### Agents behind an HTTP proxy
 
@@ -154,4 +198,6 @@ Set `BROKERIUM_AGENT_KAFKA_CONFIG` to the node's `server.properties` and
 `BROKERIUM_AGENT_PREINSTALLED` to its Kafka directory. The agent then never rewrites that
 configuration and never formats storage; the server binds the node to the cluster from its
 `meta.properties` (node id, role). Restarts and upgrades work; reconfiguration stays with
-you. Combined broker+controller nodes are not adopted.
+you. Combined broker+controller nodes are not adopted. The agent reads that `server.properties`
+and the `meta.properties` of the first log directory as `brokerium-agent`, so both must be
+readable for the `kafka` group or for everyone.

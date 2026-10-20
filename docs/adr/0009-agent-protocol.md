@@ -25,3 +25,12 @@ the agent can do on a Kafka host.
 - The server needs a reachable gRPC port and a CA. Agents renew their certificates over the
   mutual TLS connection (ADR 0014).
 - New capabilities on hosts require a new agent version, which is intentional.
+- On hosts the agent runs without root, as the `brokerium-agent` account in the `kafka` group.
+  The install script writes a static Kafka unit and a sudo rule that allows only starting,
+  stopping and restarting it; the agent switches releases through the link
+  `/opt/brokerium/kafka/current`, passes heap options through an environment file of the unit
+  and formats and wipes storage through the group. Commands that would need more, such as
+  changing the unit, need a new installer, not just a new agent. Agents that run as root on
+  hosts installed earlier still write the unit themselves; running the install command again
+  converts such a host without restarting Kafka. In lab containers Kafka stays a child process
+  of the agent.
