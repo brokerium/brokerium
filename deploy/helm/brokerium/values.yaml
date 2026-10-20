@@ -64,6 +64,18 @@ agents:
   proxy:
     https: ""
     noProxy: ""
+  # Plaintext gRPC listener (service port grpc-insecure) for agents behind a reverse proxy that
+  # terminates TLS, such as OpenResty or nginx with grpc_pass. Agents and server authenticate
+  # every message instead of the connection. When enabled, the install command on the Nodes
+  # page uses this transport; agents installed for mutual TLS keep working.
+  insecure:
+    enabled: false
+    port: 8444
+    # host:port agents dial: the proxy, for example agents.example.com:443. Required when enabled.
+    endpoint: ""
+    # TLS between agents and the proxy: system (verified against the system CAs of the host),
+    # skip-verify or none (plaintext).
+    tls: system
 
 # ClusterIP service with both ports, always created.
 service:
@@ -76,7 +88,8 @@ service:
 # the TLS annotations of your provider, or serve the dashboard through the Gateway instead.
 loadBalancer:
   enabled: false
-  # http: dashboard and API; grpc: agent gateway (mutual TLS).
+  # http: dashboard and API; grpc: agent gateway (mutual TLS); grpc-insecure: the plaintext agent
+  # listener of agents.insecure, for a proxy outside the Kubernetes cluster.
   ports: [http, grpc]
   # DNS name for external-dns (annotation external-dns.alpha.kubernetes.io/hostname).
   hostname: ""

@@ -1860,6 +1860,12 @@ components:
         kafkaNodeId: { type: [integer, "null"] }
         hostname: { type: string }
         agentVersion: { type: string }
+        transport:
+          type: string
+          enum: [mtls, insecure]
+          description: >-
+            Transport of the last enrollment: mtls (client certificate) or insecure (signed
+            messages for agents behind a TLS-terminating proxy, no certificate).
         status:
           type: object
           description: Last status reported by the agent.

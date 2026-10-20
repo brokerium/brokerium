@@ -39,5 +39,17 @@ Agents dial {{ include "brokerium.agentEndpoint" . }}
 {{- end }}
 Strimzi clusters in this Kubernetes cluster can use in-cluster access
 {{- if not .Values.rbac.strimzi }} once rbac.strimzi is enabled{{ end }}.
+{{- with .Values.agents.insecure }}
+{{- if .enabled }}
+
+Agents behind a TLS-terminating proxy dial {{ .endpoint }} (tls {{ .tls }}); the install command
+on the Nodes page uses this transport. Point the proxy (for example nginx with grpc_pass) at
+  grpc://{{ $name }}.{{ $.Release.Namespace }}.svc:{{ .port }}
+{{- if and $.Values.loadBalancer.enabled (has "grpc-insecure" $.Values.loadBalancer.ports) }}
+  or port {{ .port }} of the LoadBalancer service {{ $name }}-lb
+{{- end }}
+This port speaks plaintext HTTP/2: reach it only over a network you trust.
+{{- end }}
+{{- end }}
 
 Keep the Secret {{ include "brokerium.secretName" . }}: its secret-key decrypts stored cluster credentials.

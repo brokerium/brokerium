@@ -6,11 +6,15 @@ package brokerium.agent.v1;
 
 option go_package = "github.com/brokerium/brokerium/proto/brokerium/agent/v1;agentv1";
 
-// AgentService is served by brokerium-server; agents connect out to it (ADR 0009).
+// AgentService is served by brokerium-server; agents connect out to it (ADR 0009). Agents behind
+// TLS-terminating proxies use the insecure transport (ADR 0017): the same calls on a listener of
+// its own, with an enrollment proof instead of the join token and signed session messages.
 service AgentService {
-  // Enroll exchanges a single-use join token and a CSR for a client certificate.
+  // Enroll exchanges a single-use join token for the credentials of a node: a client
+  // certificate for a CSR (mutual TLS) or a node secret for an enrollment proof (insecure
+  // transport).
   rpc Enroll(EnrollRequest) returns (EnrollResponse);
-  // Connect is the long-lived mTLS stream: the server sends commands, the agent answers
+  // Connect is the long-lived command stream: the server sends commands, the agent answers
   // with results and periodic status reports.
   rpc Connect(stream AgentMessage) returns (stream ServerMessage);
   // RenewCertificate signs a new client certificate for the node of the calling mTLS client
@@ -28,17 +32,49 @@ message RenewCertificateResponse {
 }
 
 message EnrollRequest {
+  // Mutual TLS: the join token and a CSR.
   string token = 1;
   bytes csr_der = 2;
   string hostname = 3;
   string agent_version = 4;
+  // Insecure transport: replaces token and csr_der.
+  EnrollProof proof = 5;
+}
+
+// EnrollProof shows that the agent holds a join token without sending it. Its key is the hash
+// the server stores for the token: the lowercase hex SHA-256 of the token secret, as text.
+message EnrollProof {
+  // SHA-256 of the key; it identifies the token.
+  bytes token_lookup = 1;
+  // X25519 public key of the agent for this enrollment; the node secret is encrypted to it.
+  bytes public_key = 2;
+  // 16 random bytes.
+  bytes nonce = 3;
+  // HMAC-SHA256 with the key over token_lookup, public_key, nonce, hostname and agent_version.
+  bytes mac = 4;
 }
 
 message EnrollResponse {
   string node_id = 1;
   string node_name = 2;
+  // Mutual TLS: the client certificate.
   bytes cert_der = 3;
   bytes ca_cert_der = 4;
+  // Insecure transport: the node secret, encrypted to the public key of the proof.
+  EncryptedSecret node_secret = 5;
+  // Insecure transport: ECDSA P-256 signature (ASN.1) of the CA key over the MAC of the proof,
+  // node_id, node_name, ca_cert_der and node_secret.
+  bytes signature = 6;
+}
+
+// EncryptedSecret is the 32-byte node secret, encrypted with AES-256-GCM (the node id as
+// additional data) under a key derived by HKDF-SHA256 from the X25519 shared secret.
+message EncryptedSecret {
+  // Ephemeral X25519 public key of the server.
+  bytes public_key = 1;
+  // AES-GCM nonce.
+  bytes nonce = 2;
+  bytes ciphertext = 3;
 }
 
 message AgentMessage {
@@ -46,7 +82,45 @@ message AgentMessage {
     Hello hello = 1;
     CommandResult result = 2;
     NodeStatus status = 3;
+    // Insecure transport: the first message of a stream.
+    SessionHello session_hello = 4;
+    // Insecure transport: every later message. It carries an AgentMessage with hello, result
+    // or status.
+    SignedMessage signed = 5;
   }
+}
+
+// SessionHello opens a stream of the insecure transport.
+message SessionHello {
+  string node_id = 1;
+  // 16 random bytes, new for every stream.
+  bytes agent_nonce = 2;
+  // Unix time in milliseconds; the server accepts five minutes of difference to its clock.
+  int64 timestamp_ms = 3;
+  // HMAC-SHA256 with the node secret over node_id, agent_nonce and timestamp_ms.
+  bytes mac = 4;
+}
+
+// SessionAccept answers a session hello.
+message SessionAccept {
+  // 16 random bytes, new for every stream.
+  bytes server_nonce = 1;
+  // ECDSA P-256 signature (ASN.1) of the CA key over the node id, the agent nonce and
+  // server_nonce.
+  bytes signature = 2;
+}
+
+// SignedMessage carries one message of the insecure transport after the session handshake.
+message SignedMessage {
+  // 1 for the first message of each direction, one more for every further message.
+  uint64 seq = 1;
+  // Deterministic protobuf encoding of the AgentMessage or ServerMessage it carries.
+  bytes signed_body = 2;
+  // Server messages: ECDSA P-256 signature (ASN.1) of the CA key over the node id, both
+  // nonces, seq and signed_body.
+  bytes signature = 3;
+  // Agent messages: HMAC-SHA256 with the node secret over the same fields.
+  bytes mac = 4;
 }
 
 message Hello {
@@ -57,6 +131,10 @@ message Hello {
 message ServerMessage {
   oneof body {
     Command command = 1;
+    // Insecure transport: the answer to the session hello.
+    SessionAccept session_accept = 2;
+    // Insecure transport: every later message. It carries a ServerMessage with a command.
+    SignedMessage signed = 3;
   }
 }
 

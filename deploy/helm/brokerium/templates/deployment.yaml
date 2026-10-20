@@ -34,6 +34,9 @@ spec:
           ports:
             - { name: http, containerPort: 8080 }
             - { name: grpc, containerPort: 8443 }
+            {{- if .Values.agents.insecure.enabled }}
+            - { name: grpc-insecure, containerPort: {{ .Values.agents.insecure.port }} }
+            {{- end }}
           env:
             - name: BROKERIUM_DATABASE_URL
               valueFrom: { secretKeyRef: { name: {{ $secret }}, key: database-url } }
@@ -56,6 +59,18 @@ spec:
             {{- with .Values.agents.proxy.noProxy }}
             - name: BROKERIUM_AGENT_NO_PROXY
               value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.agents.insecure }}
+            {{- if .enabled }}
+            - name: BROKERIUM_AGENT_INSECURE_ADDR
+              value: {{ printf ":%d" (int .port) | quote }}
+            - name: BROKERIUM_AGENT_TRANSPORT
+              value: insecure
+            - name: BROKERIUM_AGENT_INSECURE_ENDPOINT
+              value: {{ required "agents.insecure.endpoint is required when agents.insecure.enabled is true" .endpoint | quote }}
+            - name: BROKERIUM_AGENT_INSECURE_TLS
+              value: {{ .tls | quote }}
+            {{- end }}
             {{- end }}
             - name: BROKERIUM_SECURE_COOKIES
               value: {{ or .Values.secureCookies (hasPrefix "https://" (include "brokerium.publicURL" .)) | quote }}

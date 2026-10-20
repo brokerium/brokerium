@@ -521,6 +521,8 @@ export interface AgentNode {
   kafkaNodeId: number | null;
   hostname: string;
   agentVersion: string;
+  /** insecure: signed messages behind a TLS-terminating proxy instead of a client certificate. */
+  transport: 'mtls' | 'insecure';
   status: NodeStatus;
   labels: Record<string, string> | null;
   providerRef: string;

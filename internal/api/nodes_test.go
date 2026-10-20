@@ -28,6 +28,17 @@ func TestInstallCommand(t *testing.T) {
 				"sudo HTTPS_PROXY='http://proxy.corp:3128' NO_PROXY='localhost,.corp' BROKERIUM_AGENT_SERVER=agents.example.com:8443 BROKERIUM_AGENT_TOKEN=brk1.t sh"},
 		{"quote in the proxy", NodesAPI{PublicURL: "https://b", AgentEndpoint: "a:1", Proxy: "http://u:p'w@proxy:3128"},
 			`HTTPS_PROXY='http://u:p'\''w@proxy:3128' curl -fsSL https://b/api/v1/agent/install.sh | sudo HTTPS_PROXY='http://u:p'\''w@proxy:3128' BROKERIUM_AGENT_SERVER=a:1 BROKERIUM_AGENT_TOKEN=brk1.t sh`},
+		{"insecure transport", NodesAPI{PublicURL: "https://brokerium.example.com", AgentEndpoint: "agents.example.com:8443",
+			Transport: "insecure", InsecureEndpoint: "agents.example.com:443", InsecureTLS: "system"},
+			"curl -fsSL https://brokerium.example.com/api/v1/agent/install.sh | sudo BROKERIUM_AGENT_TRANSPORT=insecure " +
+				"BROKERIUM_AGENT_TLS=system BROKERIUM_AGENT_SERVER=agents.example.com:443 BROKERIUM_AGENT_TOKEN=brk1.t sh"},
+		{"insecure transport through an HTTP proxy", NodesAPI{PublicURL: "https://b", AgentEndpoint: "a:8443",
+			Proxy: "http://proxy.corp:3128", Transport: "insecure", InsecureEndpoint: "agents.corp:80", InsecureTLS: "none"},
+			"HTTPS_PROXY='http://proxy.corp:3128' curl -fsSL https://b/api/v1/agent/install.sh | sudo HTTPS_PROXY='http://proxy.corp:3128' " +
+				"BROKERIUM_AGENT_TRANSPORT=insecure BROKERIUM_AGENT_TLS=none BROKERIUM_AGENT_SERVER=agents.corp:80 BROKERIUM_AGENT_TOKEN=brk1.t sh"},
+		{"mutual TLS keeps the gateway endpoint", NodesAPI{PublicURL: "https://b", AgentEndpoint: "a:8443", Transport: "mtls",
+			InsecureEndpoint: "agents.corp:443", InsecureTLS: "system"},
+			"curl -fsSL https://b/api/v1/agent/install.sh | sudo BROKERIUM_AGENT_SERVER=a:8443 BROKERIUM_AGENT_TOKEN=brk1.t sh"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/brokerium/brokerium/internal/auth"
+	"github.com/brokerium/brokerium/internal/secrets"
 	"github.com/brokerium/brokerium/internal/store"
 	agentv1 "github.com/brokerium/brokerium/proto/brokerium/agent/v1"
 )
@@ -51,7 +52,9 @@ type Gateway struct {
 	agentv1.UnimplementedAgentServiceServer
 	Store *store.Store
 	CA    *CA
-	Log   *slog.Logger
+	// Box seals the node secrets of the insecure transport.
+	Box *secrets.Box
+	Log *slog.Logger
 	// CertLifetime of agent certificates and of the certificate the gateway serves.
 	CertLifetime time.Duration
 
@@ -61,8 +64,8 @@ type Gateway struct {
 }
 
 // New creates a gateway.
-func New(st *store.Store, ca *CA, log *slog.Logger) *Gateway {
-	return &Gateway{Store: st, CA: ca, Log: log, CertLifetime: DefaultCertLifetime, sessions: map[string]*session{}}
+func New(st *store.Store, ca *CA, box *secrets.Box, log *slog.Logger) *Gateway {
+	return &Gateway{Store: st, CA: ca, Box: box, Log: log, CertLifetime: DefaultCertLifetime, sessions: map[string]*session{}}
 }
 
 // NewJoinToken creates a single-use token for a node name.
@@ -88,11 +91,7 @@ func (g *Gateway) Serve(ctx context.Context, addr string, serverNames []string) 
 		ClientAuth:     tls.VerifyClientCertIfGiven,
 		ClientCAs:      g.CA.Pool(),
 	}
-	srv := grpc.NewServer(
-		grpc.Creds(credentials.NewTLS(tlsCfg)),
-		grpc.KeepaliveParams(keepalive.ServerParameters{Time: 30 * time.Second, Timeout: 10 * time.Second}),
-		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: 10 * time.Second, PermitWithoutStream: true}),
-	)
+	srv := grpc.NewServer(append(keepaliveOptions(), grpc.Creds(credentials.NewTLS(tlsCfg)))...)
 	agentv1.RegisterAgentServiceServer(srv, g)
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -106,8 +105,18 @@ func (g *Gateway) Serve(ctx context.Context, addr string, serverNames []string) 
 	return srv.Serve(lis)
 }
 
+func keepaliveOptions() []grpc.ServerOption {
+	return []grpc.ServerOption{
+		grpc.KeepaliveParams(keepalive.ServerParameters{Time: 30 * time.Second, Timeout: 10 * time.Second}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: 10 * time.Second, PermitWithoutStream: true}),
+	}
+}
+
 // Enroll exchanges a join token and CSR for a client certificate.
 func (g *Gateway) Enroll(ctx context.Context, req *agentv1.EnrollRequest) (*agentv1.EnrollResponse, error) {
+	if req.GetProof() != nil {
+		return nil, status.Error(codes.InvalidArgument, "enrollment proofs are accepted on the insecure agent listener only")
+	}
 	parts := strings.Split(req.GetToken(), ".")
 	if len(parts) != 3 || parts[0] != TokenPrefix {
 		return nil, status.Error(codes.InvalidArgument, "malformed join token")
@@ -116,6 +125,23 @@ func (g *Gateway) Enroll(ctx context.Context, req *agentv1.EnrollRequest) (*agen
 	if err != nil {
 		return nil, status.Error(codes.PermissionDenied, "join token is invalid, used or expired")
 	}
+	node, err := g.enrolledNode(ctx, tok)
+	if err != nil {
+		return nil, err
+	}
+	cert, err := g.CA.SignAgent(req.GetCsrDer(), node.ID, g.CertLifetime)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if err := g.Store.UpdateNodeEnrollment(ctx, node.ID, cert.Fingerprint, cert.NotAfter, req.GetHostname(), req.GetAgentVersion()); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	g.Log.Info("agent enrolled", "node", node.Name, "id", node.ID, "hostname", req.GetHostname(), "transport", store.TransportMTLS)
+	return &agentv1.EnrollResponse{NodeId: node.ID, NodeName: node.Name, CertDer: cert.DER, CaCertDer: g.CA.DER}, nil
+}
+
+// enrolledNode returns the node of a join token, creating it at its first enrollment.
+func (g *Gateway) enrolledNode(ctx context.Context, tok *store.JoinToken) (*store.Node, error) {
 	node, err := g.Store.GetNodeByName(ctx, tok.NodeName)
 	if errors.Is(err, store.ErrNotFound) {
 		node = &store.Node{Name: tok.NodeName, ClusterID: tok.ClusterID, Status: json.RawMessage("{}")}
@@ -125,15 +151,7 @@ func (g *Gateway) Enroll(ctx context.Context, req *agentv1.EnrollRequest) (*agen
 	} else if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	cert, err := g.CA.SignAgent(req.GetCsrDer(), node.ID, g.CertLifetime)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	if err := g.Store.UpdateNodeEnrollment(ctx, node.ID, cert.Fingerprint, cert.NotAfter, req.GetHostname(), req.GetAgentVersion()); err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	g.Log.Info("agent enrolled", "node", node.Name, "id", node.ID, "hostname", req.GetHostname())
-	return &agentv1.EnrollResponse{NodeId: node.ID, NodeName: node.Name, CertDer: cert.DER, CaCertDer: g.CA.DER}, nil
+	return node, nil
 }
 
 // RenewCertificate signs a new certificate for the node of the calling certificate. The calling
@@ -171,6 +189,9 @@ func (g *Gateway) authenticate(ctx context.Context) (*store.Node, *x509.Certific
 	if err != nil {
 		return nil, nil, status.Error(codes.PermissionDenied, "unknown node")
 	}
+	if node.Transport == store.TransportInsecure {
+		return nil, nil, status.Error(codes.PermissionDenied, "the node was enrolled again with the insecure transport")
+	}
 	if fp := fingerprint(leaf); fp != node.CertFingerprint && (node.PrevCertFingerprint == "" || fp != node.PrevCertFingerprint) {
 		return nil, nil, status.Error(codes.PermissionDenied, "certificate was replaced by a newer enrollment")
 	}
@@ -194,6 +215,20 @@ func (g *Gateway) Connect(stream agentv1.AgentService_ConnectServer) error {
 			g.Log.Warn("recording the agent certificate", "node", node.Name, "error", err)
 		}
 	}
+	return g.serve(node, stream, nil)
+}
+
+// agentStream is a Connect stream as sessions use it: the gRPC stream itself with mutual TLS, a
+// signedStream with the insecure transport.
+type agentStream interface {
+	Context() context.Context
+	Send(*agentv1.ServerMessage) error
+	Recv() (*agentv1.AgentMessage, error)
+}
+
+// serve runs the session of an authenticated agent until its stream ends. first is a message
+// the handshake of the stream already received.
+func (g *Gateway) serve(node *store.Node, stream agentStream, first *agentv1.AgentMessage) error {
 	s := &session{nodeID: node.ID, send: make(chan *agentv1.ServerMessage, 16), done: make(chan struct{}),
 		waiters: map[string]chan *agentv1.CommandResult{}}
 	g.mu.Lock()
@@ -202,7 +237,7 @@ func (g *Gateway) Connect(stream agentv1.AgentService_ConnectServer) error {
 	}
 	g.sessions[node.ID] = s
 	g.mu.Unlock()
-	g.Log.Info("agent connected", "node", node.Name)
+	g.Log.Info("agent connected", "node", node.Name, "transport", node.Transport)
 	defer func() {
 		s.close()
 		g.mu.Lock()
@@ -212,6 +247,9 @@ func (g *Gateway) Connect(stream agentv1.AgentService_ConnectServer) error {
 		g.mu.Unlock()
 		g.Log.Info("agent disconnected", "node", node.Name)
 	}()
+	if first != nil {
+		g.handle(stream.Context(), s, first)
+	}
 
 	errCh := make(chan error, 2)
 	go func() {

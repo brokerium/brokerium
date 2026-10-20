@@ -57,11 +57,13 @@ Keys are verified offline and the server never reports usage. See
 
 ## Networking
 
-The server listens on two ports:
+The server listens on two ports, and on a third with `agents.insecure.enabled`:
 
 - `http` (8080): dashboard and API, plain HTTP;
 - `grpc` (8443): the agent gateway, which authenticates agents on Kafka hosts with mutual TLS
-  against its own CA. Proxies must pass this port through as TCP or TLS, never terminate TLS.
+  against its own CA. Proxies must pass this port through as TCP or TLS, never terminate TLS;
+- `grpc-insecure` (8444): plaintext gRPC for agents behind a proxy that terminates TLS (see
+  [below](#agents-behind-a-tls-terminating-proxy)).
 
 A ClusterIP service named after the release (`brokerium` in these examples) always carries both
 ports. Agents inside the Kubernetes cluster and Strimzi clusters managed through in-cluster
@@ -124,6 +126,31 @@ loadBalancer:
 
 The `http` port serves plain HTTP: expose it only on internal networks, with the TLS annotations
 of your provider, or serve the dashboard through the Gateway instead.
+
+### Agents behind a TLS-terminating proxy
+
+When agents can reach the server only through a reverse proxy that terminates TLS, for example
+OpenResty or nginx with `grpc_pass`, mutual TLS cannot work: the proxy shows its own certificate
+and keeps the client certificate. `agents.insecure` adds a plaintext gRPC listener for the
+insecure agent transport, where the server signs every command with its CA key and agents
+authenticate every message with a secret from their enrollment:
+
+```yaml
+agents:
+  insecure:
+    enabled: true
+    # The proxy agents dial.
+    endpoint: agents.example.com:443
+    # TLS between agents and the proxy: system, skip-verify or none.
+    tls: system
+```
+
+The service port `grpc-insecure` (8444, `appProtocol: kubernetes.io/h2c`) speaks HTTP/2 without
+TLS: point the proxy at `grpc://<service>.<namespace>.svc:8444`, or add `grpc-insecure` to
+`loadBalancer.ports` for a proxy outside the Kubernetes cluster, and keep the path from the proxy
+to the server on a network you trust. The install command on the **Nodes** page then uses the
+insecure transport; agents installed for mutual TLS keep working. The installation guide shows a
+[proxy configuration and the alternatives with mutual TLS](https://brokerium.kaufen/docs/guide/install/#agents-behind-a-tls-terminating-proxy).
 
 ### Derived addresses
 

@@ -2,7 +2,10 @@
 {{- with .Values.loadBalancer }}
 {{- if .enabled }}
 {{- if not .ports }}
-{{- fail "loadBalancer.ports needs http, grpc or both" }}
+{{- fail "loadBalancer.ports needs http, grpc, grpc-insecure or several of them" }}
+{{- end }}
+{{- if and (has "grpc-insecure" .ports) (not $.Values.agents.insecure.enabled) }}
+{{- fail "loadBalancer.ports grpc-insecure needs agents.insecure.enabled" }}
 {{- end }}
 {{- $annotations := .annotations | default dict }}
 {{- if .hostname }}
@@ -34,6 +37,9 @@ spec:
     {{- end }}
     {{- if has "grpc" .ports }}
     - { name: grpc, port: {{ $.Values.service.grpc }}, targetPort: grpc }
+    {{- end }}
+    {{- if has "grpc-insecure" .ports }}
+    - { name: grpc-insecure, port: {{ $.Values.agents.insecure.port }}, targetPort: grpc-insecure, appProtocol: kubernetes.io/h2c }
     {{- end }}
 {{- end }}
 {{- end }}

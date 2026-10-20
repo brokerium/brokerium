@@ -92,6 +92,21 @@
             "https": { "type": "string", "pattern": "^(https?://.+)?$" },
             "noProxy": { "type": "string" }
           }
+        },
+        "insecure": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Plaintext gRPC listener for agents behind a reverse proxy that terminates TLS; messages are authenticated instead.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "port": { "$ref": "#/definitions/port" },
+            "endpoint": {
+              "type": "string",
+              "pattern": "^(.+:[0-9]+)?$",
+              "description": "host:port agents dial, the proxy; required when enabled."
+            },
+            "tls": { "enum": ["system", "skip-verify", "none"] }
+          }
         }
       }
     },
@@ -113,7 +128,7 @@
         "enabled": { "type": "boolean" },
         "ports": {
           "type": "array",
-          "items": { "enum": ["http", "grpc"] },
+          "items": { "enum": ["http", "grpc", "grpc-insecure"] },
           "minItems": 1,
           "uniqueItems": true
         },

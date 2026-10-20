@@ -83,6 +83,36 @@ never returned by the API. Back up the key together with the database.
   join token on the host: the agent enrolls again under the same node name and Kafka is not
   touched.
 
+### Agents behind a TLS-terminating proxy
+
+A proxy that terminates TLS breaks the CA check of the join token and mutual TLS. With
+`BROKERIUM_AGENT_TRANSPORT=insecure` the agent trusts the connection for nothing and the
+messages carry the authenticity instead ([ADR 0017](../adr/0017-agent-transport-behind-proxies.md),
+[setup](install.md#agents-behind-a-tls-terminating-proxy)):
+
+- Enrollment: the agent proves the join token with an HMAC keyed by the hash the server stores
+  for the token, so the token secret never leaves the host. The proof covers a new X25519 key of
+  the agent; the server answers with a random 32-byte node secret encrypted to that key
+  (X25519, HKDF-SHA256, AES-256-GCM) and signed with its CA key, and the agent checks the CA
+  against the fingerprint in the token. A proof that does not match leaves the token valid; a
+  used token cannot be redeemed again.
+- The server keeps the node secret sealed with its secret key, like cluster credentials; the
+  agent keeps it in `/var/lib/brokerium-agent/node.secret` (mode 0600).
+- Sessions: agent and server each contribute a random nonce, and the agent's hello must be less
+  than five minutes old. Every command carries a sequence number and an ECDSA P-256 signature of
+  the CA over the node, both nonces, the number and the command; every message of the agent
+  carries an HMAC with the node secret over the same fields. The agent executes only commands
+  that verify, the server uses results and status only after they verify, and any failure ends
+  the session and is logged. Messages of earlier sessions or of other nodes are refused, and
+  reordered or dropped messages are detected.
+- The transport gives no confidentiality: the proxy and every segment without TLS read commands,
+  results and status. Keep TLS up to the proxy (`BROKERIUM_AGENT_TLS=system` verifies its
+  certificate) and the plaintext listener on a network you trust. Anyone on the path can still
+  block connections, or use up a join token by forwarding its request first.
+- Nodes of the insecure transport have no certificate, and their secret neither expires nor
+  rotates. Enrolling the node again with a new join token replaces it; enrolling with the other
+  transport revokes the credentials of the old one.
+
 ## Reporting vulnerabilities
 
 See [SECURITY.md](../../SECURITY.md).

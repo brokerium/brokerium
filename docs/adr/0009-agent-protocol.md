@@ -24,6 +24,8 @@ the agent can do on a Kafka host.
 
 - The server needs a reachable gRPC port and a CA. Agents renew their certificates over the
   mutual TLS connection (ADR 0014).
+- A proxy that terminates TLS breaks both the CA pinning and mutual TLS. Agents behind such a
+  proxy use the optional insecure transport, which signs the messages instead (ADR 0017).
 - New capabilities on hosts require a new agent version, which is intentional.
 - On hosts the agent runs without root, as the `brokerium-agent` account in the `kafka` group.
   The install script writes a static Kafka unit and a sudo rule that allows only starting,

@@ -92,7 +92,7 @@ func run(log *slog.Logger) error {
 		return fmt.Errorf("loading agent CA: %w (if the database was created by a server with another secret key, "+
 			"set BROKERIUM_SECRET_KEY to that key or keep BROKERIUM_DATA_DIR on a persistent volume)", err)
 	}
-	gateway := agentgw.New(st, ca, log)
+	gateway := agentgw.New(st, ca, box, log)
 	gateway.CertLifetime = cfg.AgentCertLifetime
 	dockerClient, err := docker.New(cfg.DockerHost)
 	if err != nil {
@@ -109,14 +109,18 @@ func run(log *slog.Logger) error {
 
 	go clusters.Run(ctx, cfg.SnapshotInterval)
 	go engine.Run(ctx, cfg.WorkerInterval)
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3)
 	go func() { errCh <- gateway.Serve(ctx, cfg.GRPCAddr, cfg.AgentServerNames) }()
+	if cfg.AgentInsecureAddr != "" {
+		go func() { errCh <- gateway.ServeInsecure(ctx, cfg.AgentInsecureAddr) }()
+	}
 
 	srv := &api.Server{Store: st, Clusters: clusters, Box: box, Log: log, SecureCookies: cfg.SecureCookies}
 	exts := append([]api.Extension{
 		&api.OperationsAPI{Engine: engine, Sampler: sampler},
 		&api.NodesAPI{Gateway: gateway, Pools: nodeManager, PublicURL: cfg.PublicURL, AgentEndpoint: cfg.AgentEndpoint,
-			Proxy: cfg.AgentProxy, NoProxy: cfg.AgentNoProxy, CertificateWarning: certWarning},
+			Proxy: cfg.AgentProxy, NoProxy: cfg.AgentNoProxy, CertificateWarning: certWarning,
+			Transport: cfg.AgentTransport, InsecureEndpoint: cfg.AgentInsecureEndpoint, InsecureTLS: cfg.AgentInsecureTLS},
 	}, editionAPIs...)
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,

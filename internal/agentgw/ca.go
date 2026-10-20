@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 
 // Package agentgw is the server side of the agent protocol (ADR 0009): an internal certificate
-// authority, enrollment with join tokens and the mTLS command stream.
+// authority, enrollment with join tokens and the mTLS command stream, and the insecure transport
+// with signed messages for agents behind TLS-terminating proxies (ADR 0017).
 package agentgw
 
 import (

@@ -8,16 +8,24 @@ import (
 	"time"
 )
 
+// Transports an agent enrolls with (ADR 0017).
+const (
+	TransportMTLS     = "mtls"
+	TransportInsecure = "insecure"
+)
+
 // Node is a host running brokerium-agent.
 type Node struct {
-	ID              string  `json:"id"`
-	Name            string  `json:"name"`
-	ClusterID       *string `json:"clusterId"`
-	Role            string  `json:"role"`
-	KafkaNodeID     *int32  `json:"kafkaNodeId"`
-	Hostname        string  `json:"hostname"`
-	AgentVersion    string  `json:"agentVersion"`
-	CertFingerprint string  `json:"-"`
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	ClusterID    *string `json:"clusterId"`
+	Role         string  `json:"role"`
+	KafkaNodeID  *int32  `json:"kafkaNodeId"`
+	Hostname     string  `json:"hostname"`
+	AgentVersion string  `json:"agentVersion"`
+	// Transport of the last enrollment: mtls (client certificate) or insecure (node secret).
+	Transport       string `json:"transport"`
+	CertFingerprint string `json:"-"`
 	// PrevCertFingerprint is the certificate a renewal was requested with; it stays valid until
 	// the agent connects with the renewed certificate.
 	PrevCertFingerprint string            `json:"-"`
@@ -29,13 +37,13 @@ type Node struct {
 	CreatedAt           time.Time         `json:"createdAt"`
 }
 
-const nodeColumns = `id, name, cluster_id, role, kafka_node_id, hostname, agent_version, cert_fingerprint,
+const nodeColumns = `id, name, cluster_id, role, kafka_node_id, hostname, agent_version, transport, cert_fingerprint,
 	prev_cert_fingerprint, cert_not_after, status, labels, provider_ref, last_seen_at, created_at`
 
 func scanNode(row scanner) (*Node, error) {
 	var n Node
 	var labels []byte
-	if err := row.Scan(&n.ID, &n.Name, &n.ClusterID, &n.Role, &n.KafkaNodeID, &n.Hostname, &n.AgentVersion,
+	if err := row.Scan(&n.ID, &n.Name, &n.ClusterID, &n.Role, &n.KafkaNodeID, &n.Hostname, &n.AgentVersion, &n.Transport,
 		&n.CertFingerprint, &n.PrevCertFingerprint, &n.CertNotAfter, &n.Status, &labels, &n.ProviderRef,
 		&n.LastSeenAt, &n.CreatedAt); err != nil {
 		return nil, notFound(err)
@@ -85,11 +93,31 @@ func (s *Store) ListNodes(ctx context.Context, clusterID string) ([]*Node, error
 	return out, rows.Err()
 }
 
-// UpdateNodeEnrollment stores the certificate fingerprint and agent details after enrollment.
+// UpdateNodeEnrollment stores the certificate fingerprint and agent details after an
+// enrollment with mutual TLS. The node secret of an earlier insecure enrollment is dropped.
 func (s *Store) UpdateNodeEnrollment(ctx context.Context, id, fingerprint string, notAfter time.Time, hostname, agentVersion string) error {
-	_, err := s.Pool.Exec(ctx, `UPDATE nodes SET cert_fingerprint=$2, cert_not_after=$3, prev_cert_fingerprint='',
-		hostname=$4, agent_version=$5, last_seen_at=now() WHERE id=$1`, id, fingerprint, notAfter, hostname, agentVersion)
+	_, err := s.Pool.Exec(ctx, `UPDATE nodes SET transport='mtls', secret_ciphertext=NULL, cert_fingerprint=$2,
+		cert_not_after=$3, prev_cert_fingerprint='', hostname=$4, agent_version=$5, last_seen_at=now() WHERE id=$1`,
+		id, fingerprint, notAfter, hostname, agentVersion)
 	return err
+}
+
+// UpdateNodeInsecureEnrollment stores the sealed node secret and agent details after an
+// enrollment with the insecure transport. The certificates of earlier enrollments no longer
+// authenticate.
+func (s *Store) UpdateNodeInsecureEnrollment(ctx context.Context, id string, sealedSecret []byte, hostname, agentVersion string) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE nodes SET transport='insecure', secret_ciphertext=$2, cert_fingerprint='',
+		prev_cert_fingerprint='', cert_not_after=NULL, hostname=$3, agent_version=$4, last_seen_at=now() WHERE id=$1`,
+		id, sealedSecret, hostname, agentVersion)
+	return err
+}
+
+// NodeSecret returns the sealed secret of a node enrolled with the insecure transport.
+func (s *Store) NodeSecret(ctx context.Context, id string) ([]byte, error) {
+	var sealed []byte
+	err := s.Pool.QueryRow(ctx, `SELECT secret_ciphertext FROM nodes WHERE id=$1 AND transport='insecure'
+		AND secret_ciphertext IS NOT NULL`, id).Scan(&sealed)
+	return sealed, notFound(err)
 }
 
 // RenewNodeCertificate makes a renewed certificate current and keeps the certificate the renewal
@@ -149,6 +177,19 @@ func (s *Store) CreateJoinToken(ctx context.Context, t *JoinToken) error {
 	return s.Pool.QueryRow(ctx, `INSERT INTO join_tokens (token_hash, node_name, cluster_id, created_by, expires_at)
 		VALUES ($1,$2,$3,$4,$5) RETURNING created_at`, t.TokenHash, t.NodeName, t.ClusterID, t.CreatedBy, t.ExpiresAt).
 		Scan(&t.CreatedAt)
+}
+
+// FindJoinToken returns the unused, unexpired token whose hash has the given SHA-256, the
+// lookup of an enrollment proof.
+func (s *Store) FindJoinToken(ctx context.Context, lookup []byte) (*JoinToken, error) {
+	var t JoinToken
+	err := s.Pool.QueryRow(ctx, `SELECT token_hash, node_name, cluster_id, created_by, expires_at, used_at, created_at
+		FROM join_tokens WHERE sha256(convert_to(token_hash, 'UTF8')) = $1 AND used_at IS NULL AND expires_at > now()`, lookup).
+		Scan(&t.TokenHash, &t.NodeName, &t.ClusterID, &t.CreatedBy, &t.ExpiresAt, &t.UsedAt, &t.CreatedAt)
+	if err != nil {
+		return nil, notFound(err)
+	}
+	return &t, nil
 }
 
 // ConsumeJoinToken marks an unused, unexpired token as used and returns it.

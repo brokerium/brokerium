@@ -37,6 +37,20 @@ import { formatBytes, formatDateTime, formatRelativeTime } from '../lib/format';
 
 /** Expiry of the agent certificate; agents renew it after two thirds of its lifetime. */
 function Certificate({ node }: { node: AgentNode }) {
+  if (node.transport === 'insecure') {
+    return (
+      <Tooltip
+        label="Insecure transport behind a TLS-terminating proxy: messages are signed instead of using a client certificate."
+        withArrow
+        multiline
+        maw={280}
+      >
+        <Badge size="sm" variant="light" color="gray">
+          signed messages
+        </Badge>
+      </Tooltip>
+    );
+  }
   const state = node.certificateState;
   switch (state) {
     case '':

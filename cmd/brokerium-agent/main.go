@@ -59,6 +59,11 @@ func flags() (*flag.FlagSet, *agent.Config) {
 	cfg := &agent.Config{}
 	fs.StringVar(&cfg.Server, "server", env("BROKERIUM_AGENT_SERVER", ""), "server gRPC address host:port")
 	fs.StringVar(&cfg.Token, "token", env("BROKERIUM_AGENT_TOKEN", ""), "join token (first run only)")
+	fs.StringVar(&cfg.Transport, "transport", env("BROKERIUM_AGENT_TRANSPORT", agent.TransportMTLS),
+		"mtls, or insecure for a server behind a proxy that terminates TLS (messages are signed instead)")
+	fs.StringVar(&cfg.TLS, "tls", env("BROKERIUM_AGENT_TLS", agent.TLSSystem),
+		"insecure transport: system (verify the proxy with the system CAs and --ca-file), skip-verify or none (plaintext)")
+	fs.StringVar(&cfg.CAFile, "ca-file", env("BROKERIUM_AGENT_CA_FILE", ""), "insecure transport: PEM file with extra CAs for --tls system")
 	fs.StringVar(&cfg.DataDir, "data-dir", env("BROKERIUM_AGENT_DATA_DIR", "/var/lib/brokerium-agent"), "agent state directory")
 	fs.StringVar(&cfg.KafkaDir, "kafka-dir", env("BROKERIUM_AGENT_KAFKA_DIR", "/opt/brokerium/kafka"), "where Kafka releases are installed")
 	fs.StringVar(&cfg.KafkaDataDir, "kafka-data-dir", env("BROKERIUM_AGENT_KAFKA_DATA_DIR", "/var/lib/kafka/data"), "Kafka log.dirs")
@@ -82,6 +87,6 @@ func run(cfg agent.Config) error {
 	if err != nil {
 		return err
 	}
-	log.Info("starting brokerium-agent", "version", version.String(), "server", cfg.Server)
+	log.Info("starting brokerium-agent", "version", version.String(), "server", cfg.Server, "transport", cfg.Transport)
 	return a.Run(ctx)
 }
