@@ -14,6 +14,8 @@ import (
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kgo"
+
+	"github.com/brokerium/brokerium/internal/kafka"
 )
 
 func TestPlanDelete(t *testing.T) {
@@ -96,9 +98,9 @@ func TestDeletable(t *testing.T) {
 	}
 }
 
-// fakeCluster starts an in-memory Kafka cluster with the topic "events" of two partitions and
-// returns a client that produces to explicit partitions.
-func fakeCluster(t *testing.T) (*kgo.Client, *kadm.Client) {
+// fakeKafka starts an in-memory Kafka cluster with the topic "events" of two partitions and
+// returns a client that produces to explicit partitions and the profile of the cluster.
+func fakeKafka(t *testing.T) (*kgo.Client, *kadm.Client, kafka.Profile) {
 	t.Helper()
 	c, err := kfake.NewCluster(kfake.NumBrokers(1), kfake.SeedTopics(2, "events"))
 	if err != nil {
@@ -110,7 +112,13 @@ func fakeCluster(t *testing.T) (*kgo.Client, *kadm.Client) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cl.Close)
-	return cl, kadm.NewClient(cl)
+	return cl, kadm.NewClient(cl), kafka.Profile{BootstrapServers: c.ListenAddrs()}
+}
+
+func fakeCluster(t *testing.T) (*kgo.Client, *kadm.Client) {
+	t.Helper()
+	cl, adm, _ := fakeKafka(t)
+	return cl, adm
 }
 
 // produceRecords writes n records with timestamps one second apart from base.

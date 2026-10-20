@@ -47,6 +47,7 @@ func Setup(ctx context.Context, d Deps) ([]api.Extension, error) {
 	}
 	edition.SetManager(m)
 	go m.Run(ctx, evaluateEvery)
+	d.Engine.Register(messagetools.OperationTypes(), messagetools.StepKinds())
 	return []api.Extension{featureRoutes{feature: edition.MessageTools, routes: messagetools.Routes}}, nil
 }
 

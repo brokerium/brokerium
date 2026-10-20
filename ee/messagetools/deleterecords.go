@@ -202,6 +202,35 @@ func DeleteRecords(ctx context.Context, adm *kadm.Client, topic string, req Dele
 	return result, nil
 }
 
+func deleteAudit(req DeleteRequest, res *DeleteResult) map[string]any {
+	detail := map[string]any{}
+	switch {
+	case req.All:
+		detail["mode"] = "all"
+	case req.BeforeTimestamp != nil:
+		detail["mode"], detail["beforeTimestamp"] = "time", *req.BeforeTimestamp
+	default:
+		detail["mode"] = "offsets"
+	}
+	if res != nil {
+		before := map[int32]int64{}
+		for _, p := range res.Partitions {
+			if p.Error == "" {
+				before[p.Partition] = p.DeleteBefore
+			}
+		}
+		detail["records"], detail["deleteBefore"] = res.Records, before
+	}
+	return detail
+}
+
+func auditResult(res *DeleteResult, err error) error {
+	if err == nil && res != nil && res.Failed > 0 {
+		return fmt.Errorf("%d of %d partitions failed", res.Failed, len(res.Partitions))
+	}
+	return err
+}
+
 // listed turns listed offsets of one topic into offsets per partition.
 func listed(offsets kadm.ListedOffsets, err error) (map[int32]int64, error) {
 	if err != nil {

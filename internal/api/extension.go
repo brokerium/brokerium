@@ -6,6 +6,8 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/twmb/franz-go/pkg/kgo"
+
 	"github.com/brokerium/brokerium/internal/cluster"
 	"github.com/brokerium/brokerium/internal/kafka"
 )
@@ -32,4 +34,9 @@ func KafkaError(w http.ResponseWriter, err error) {
 // RequestTimeout bounds the Kafka requests that serve an API request.
 func RequestTimeout(r *http.Request) (context.Context, context.CancelFunc) {
 	return timeout(r)
+}
+
+// NewMessage converts a record into the form the dashboard shows; long values are cut.
+func NewMessage(rec *kgo.Record) Message {
+	return toMessage(rec)
 }

@@ -11,10 +11,12 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/brokerium/brokerium/internal/config"
 	"github.com/brokerium/brokerium/internal/edition"
+	"github.com/brokerium/brokerium/internal/ops"
 )
 
 type fakeManager struct{ allowed bool }
@@ -65,8 +67,14 @@ func TestSetup(t *testing.T) {
 	t.Cleanup(func() { edition.SetManager(nil) })
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	if _, err := Setup(ctx, Deps{Config: config.Server{License: "brk-lic-1.x.y"}, Log: slog.New(slog.DiscardHandler)}); err != nil {
+	log := slog.New(slog.DiscardHandler)
+	engine := ops.New(nil, nil, nil, log)
+	exts, err := Setup(ctx, Deps{Config: config.Server{License: "brk-lic-1.x.y"}, Engine: engine, Log: log})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if len(exts) != 1 || !slices.ContainsFunc(engine.Types(), func(op ops.OpType) bool { return op.Type == "copy-messages" }) {
+		t.Errorf("Setup returned %d extensions and registered %d operation types", len(exts), len(engine.Types()))
 	}
 	m := edition.CurrentManager()
 	if m == nil {
