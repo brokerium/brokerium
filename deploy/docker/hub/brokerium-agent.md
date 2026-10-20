@@ -21,9 +21,8 @@ COPY --from=bvaliev/brokerium-agent:latest /usr/local/bin/brokerium-agent /usr/l
 | Tag | Meaning |
 | --- | --- |
 | `latest`, `0.3`, `0.3.0` | The latest release, the latest patch of a minor version, an exact release |
-| `edge` | The current `main` branch, for testing |
-| `sha-<commit>` | The build of one commit |
-| `0.3.0-lab`, `lab` | Lab node image of a release and of `main`: Apache Kafka with the agent as the main process, for the Docker provider of the server |
+| `edge` | A nightly build of the `main` branch, for testing |
+| `0.3.0-lab`, `lab` | Lab node image of a release and the nightly one of `main`: Apache Kafka with the agent as the main process, for the Docker provider of the server |
 
 Images are built for `linux/amd64` and `linux/arm64` on a distroless base, run as the non-root
 user 65532 and carry the license in `/licenses`. The lab node images are built on the official
