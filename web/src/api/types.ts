@@ -450,9 +450,13 @@ export interface OperationParams {
 
 // ---------------------------------------------------------------- data plane
 
+export type ByteEncoding = 'utf8' | 'base64';
+
 export interface MessageHeader {
   key: string;
   value: string;
+  /** Omitted for text. */
+  encoding?: ByteEncoding;
 }
 
 export interface Message {
@@ -462,8 +466,8 @@ export interface Message {
   key: string | null;
   value: string | null;
   headers: MessageHeader[];
-  keyEncoding: 'utf8' | 'base64';
-  valueEncoding: 'utf8' | 'base64';
+  keyEncoding: ByteEncoding;
+  valueEncoding: ByteEncoding;
 }
 
 export interface Acl {

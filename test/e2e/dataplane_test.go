@@ -7,6 +7,7 @@ package e2e
 import (
 	"context"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
@@ -92,6 +93,65 @@ func TestDataPlane(t *testing.T) {
 	if len(browsed.Messages) != 5 || *browsed.Messages[0].Value != "hello" || len(browsed.Messages[0].Headers) != 1 {
 		t.Fatalf("browsed %+v", browsed.Messages)
 	}
+
+	// Tombstones and binary keys, values and headers.
+	messages := base + "/topics/" + topic + "/messages"
+	c.must(http.StatusCreated, "POST", messages, map[string]any{"partition": 1, "key": "k", "value": nil}, nil)
+	c.must(http.StatusCreated, "POST", messages, map[string]any{"partition": 1, "key": "/wA=", "keyEncoding": "base64",
+		"value": "/w==", "valueEncoding": "base64", "headers": []map[string]string{{"key": "bin", "value": "AP8=", "encoding": "base64"}}}, nil)
+	c.must(http.StatusBadRequest, "POST", messages, map[string]any{"partition": 1, "value": "%%%", "valueEncoding": "base64"}, nil)
+	c.must(http.StatusBadRequest, "POST", messages, map[string]any{"partition": 1, "key": "k"}, nil)
+	type page struct {
+		Messages []struct {
+			Offset        int64   `json:"offset"`
+			Key           *string `json:"key"`
+			KeyEncoding   string  `json:"keyEncoding"`
+			Value         *string `json:"value"`
+			ValueEncoding string  `json:"valueEncoding"`
+			Headers       []struct {
+				Value    string `json:"value"`
+				Encoding string `json:"encoding"`
+			} `json:"headers"`
+		} `json:"messages"`
+		Next     *string `json:"next"`
+		Previous *string `json:"previous"`
+	}
+	var binary page
+	c.must(http.StatusOK, "GET", messages+"?partition=1&from=earliest&limit=10", nil, &binary)
+	if len(binary.Messages) != 2 || binary.Messages[0].Value != nil {
+		t.Fatalf("tombstone: %+v", binary.Messages)
+	}
+	if m := binary.Messages[1]; m.KeyEncoding != "base64" || *m.Key != "/wA=" || m.ValueEncoding != "base64" || *m.Value != "/w==" ||
+		len(m.Headers) != 1 || m.Headers[0].Encoding != "base64" || m.Headers[0].Value != "AP8=" {
+		t.Fatalf("binary record: %+v", m)
+	}
+
+	// Paging through the five records of partition 0.
+	offsetsOf := func(p page) []int64 {
+		var out []int64
+		for _, m := range p.Messages {
+			out = append(out, m.Offset)
+		}
+		return out
+	}
+	var first, second, back, last page
+	c.must(http.StatusOK, "GET", messages+"?partition=0&from=earliest&limit=2", nil, &first)
+	if got := offsetsOf(first); !slices.Equal(got, []int64{0, 1}) || first.Next == nil || *first.Next != "0:2" || first.Previous != nil {
+		t.Fatalf("first page %v, next %v, previous %v", got, first.Next, first.Previous)
+	}
+	c.must(http.StatusOK, "GET", messages+"?from=after&limit=2&cursor="+*first.Next, nil, &second)
+	if got := offsetsOf(second); !slices.Equal(got, []int64{2, 3}) || second.Previous == nil || *second.Previous != "0:2" {
+		t.Fatalf("second page %v, previous %v", got, second.Previous)
+	}
+	c.must(http.StatusOK, "GET", messages+"?from=before&limit=2&cursor="+*second.Previous, nil, &back)
+	if got := offsetsOf(back); !slices.Equal(got, []int64{0, 1}) {
+		t.Fatalf("page before %v", got)
+	}
+	c.must(http.StatusOK, "GET", messages+"?from=after&limit=2&cursor="+*second.Next, nil, &last)
+	if got := offsetsOf(last); !slices.Equal(got, []int64{4}) || last.Next != nil {
+		t.Fatalf("last page %v, next %v", got, last.Next)
+	}
+	c.must(http.StatusBadRequest, "GET", messages+"?from=after&cursor=x", nil, nil)
 
 	// ACLs.
 	acl := map[string]any{"resourceType": "TOPIC", "resourceName": topic, "patternType": "LITERAL",

@@ -13,25 +13,46 @@ import {
   Text,
   TextInput,
 } from '@mantine/core';
-import { IconChevronDown, IconChevronRight, IconPlayerPlay, IconRefresh } from '@tabler/icons-react';
+import {
+  IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
+  IconPlayerPlay,
+  IconRefresh,
+} from '@tabler/icons-react';
 import { Fragment, useState } from 'react';
 
-import { type MessageFrom, type MessageQuery, useMessages } from '../../../api/topics';
-import type { Message } from '../../../api/types';
+import { type MessageQuery, type MessageStart, useMessages } from '../../../api/topics';
+import type { ByteEncoding, Message } from '../../../api/types';
 import { Base64Badge } from '../../../components/badges';
 import { JsonBlock } from '../../../components/JsonBlock';
 import { PageLoader, QueryError } from '../../../components/QueryState';
 import { formatDateTime, formatNumber } from '../../../lib/format';
 import { previewValue, renderValue } from '../../../lib/messages';
 
-const FROM_OPTIONS: { value: MessageFrom; label: string }[] = [
+const FROM_OPTIONS: { value: MessageStart; label: string }[] = [
   { value: 'latest', label: 'Latest records' },
   { value: 'earliest', label: 'Earliest records' },
   { value: 'offset', label: 'From offset' },
   { value: 'timestamp', label: 'From timestamp' },
 ];
 
-function ValueView({ label, value, encoding }: { label: string; value: string | null; encoding: 'utf8' | 'base64' }) {
+function TombstoneBadge() {
+  return (
+    <Badge color="gray" variant="light" size="xs">
+      tombstone
+    </Badge>
+  );
+}
+
+interface ValueViewProps {
+  label: string;
+  value: string | null;
+  encoding: ByteEncoding;
+  tombstone?: boolean;
+}
+
+function ValueView({ label, value, encoding, tombstone = false }: ValueViewProps) {
   const rendered = renderValue(value, encoding);
   return (
     <Stack gap={4}>
@@ -45,10 +66,11 @@ function ValueView({ label, value, encoding }: { label: string; value: string | 
           </Badge>
         )}
         {rendered.kind === 'binary' && <Base64Badge />}
+        {tombstone && rendered.kind === 'empty' && <TombstoneBadge />}
       </Group>
       {rendered.kind === 'empty' ? (
         <Text size="sm" c="dimmed">
-          null
+          {tombstone ? 'null: compaction removes the earlier records with this key' : 'null'}
         </Text>
       ) : (
         <JsonBlock value={rendered.text} maxHeight={420} />
@@ -61,7 +83,7 @@ function MessageDetail({ message }: { message: Message }) {
   return (
     <Stack gap="sm" p="sm">
       <ValueView label="Key" value={message.key} encoding={message.keyEncoding} />
-      <ValueView label="Value" value={message.value} encoding={message.valueEncoding} />
+      <ValueView label="Value" value={message.value} encoding={message.valueEncoding} tombstone />
       {message.headers.length > 0 && (
         <Stack gap={4}>
           <Text size="xs" fw={600} c="dimmed" tt="uppercase">
@@ -77,9 +99,12 @@ function MessageDetail({ message }: { message: Message }) {
                     </Text>
                   </Table.Td>
                   <Table.Td>
-                    <Text size="sm" ff="monospace" style={{ wordBreak: 'break-all' }}>
-                      {h.value}
-                    </Text>
+                    <Group gap={4} wrap="nowrap" align="flex-start">
+                      {h.encoding === 'base64' && <Base64Badge />}
+                      <Text size="sm" ff="monospace" style={{ wordBreak: 'break-all' }}>
+                        {h.value}
+                      </Text>
+                    </Group>
                   </Table.Td>
                 </Table.Tr>
               ))}
@@ -99,7 +124,7 @@ interface MessagesPanelProps {
 
 export function MessagesPanel({ clusterId, topic, partitionCount }: MessagesPanelProps) {
   const [partition, setPartition] = useState('-1');
-  const [from, setFrom] = useState<MessageFrom>('latest');
+  const [from, setFrom] = useState<MessageStart>('latest');
   const [offset, setOffset] = useState<number | ''>(0);
   const [timestamp, setTimestamp] = useState('');
   const [limit, setLimit] = useState('50');
@@ -121,6 +146,12 @@ export function MessagesPanel({ clusterId, topic, partitionCount }: MessagesPane
     setExpanded(new Set());
     if (JSON.stringify(next) === JSON.stringify(query)) void messages.refetch();
     else setQuery(next);
+  };
+
+  const turnPage = (direction: 'after' | 'before', cursor: string) => {
+    if (!query) return;
+    setExpanded(new Set());
+    setQuery({ ...query, from: direction, cursor });
   };
 
   const toggle = (key: string) =>
@@ -148,7 +179,7 @@ export function MessagesPanel({ clusterId, topic, partitionCount }: MessagesPane
             w={180}
             data={FROM_OPTIONS}
             value={from}
-            onChange={(v) => v && setFrom(v as MessageFrom)}
+            onChange={(v) => v && setFrom(v as MessageStart)}
             allowDeselect={false}
           />
           {from === 'offset' && (
@@ -206,7 +237,7 @@ export function MessagesPanel({ clusterId, topic, partitionCount }: MessagesPane
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {messages.data.map((m) => {
+                {messages.data.messages.map((m) => {
                   const key = `${m.partition}-${m.offset}`;
                   const open = expanded.has(key);
                   return (
@@ -235,9 +266,13 @@ export function MessagesPanel({ clusterId, topic, partitionCount }: MessagesPane
                         <Table.Td maw={480}>
                           <Group gap={4} wrap="nowrap">
                             {m.valueEncoding === 'base64' && <Base64Badge />}
-                            <Text size="sm" ff="monospace" truncate="end">
-                              {m.value === null ? <Text span c="dimmed">null</Text> : previewValue(m.value)}
-                            </Text>
+                            {m.value === null ? (
+                              <TombstoneBadge />
+                            ) : (
+                              <Text size="sm" ff="monospace" truncate="end">
+                                {previewValue(m.value)}
+                              </Text>
+                            )}
                           </Group>
                         </Table.Td>
                         <Table.Td>{m.headers.length || '—'}</Table.Td>
@@ -254,7 +289,7 @@ export function MessagesPanel({ clusterId, topic, partitionCount }: MessagesPane
                     </Fragment>
                   );
                 })}
-                {messages.data.length === 0 && (
+                {messages.data.messages.length === 0 && (
                   <Table.Tr>
                     <Table.Td colSpan={7}>
                       <Text size="sm" c="dimmed" ta="center" py="md">
@@ -266,6 +301,31 @@ export function MessagesPanel({ clusterId, topic, partitionCount }: MessagesPane
               </Table.Tbody>
             </Table>
           </Table.ScrollContainer>
+          <Group justify="space-between" px="sm" py="xs">
+            <Text size="sm" c="dimmed">
+              {formatNumber(messages.data.messages.length)} records
+            </Text>
+            <Group gap="xs">
+              <Button
+                size="xs"
+                variant="default"
+                leftSection={<IconChevronLeft size={14} />}
+                disabled={!messages.data.previous || messages.isFetching}
+                onClick={() => messages.data?.previous && turnPage('before', messages.data.previous)}
+              >
+                Older
+              </Button>
+              <Button
+                size="xs"
+                variant="default"
+                rightSection={<IconChevronRight size={14} />}
+                disabled={!messages.data.next || messages.isFetching}
+                onClick={() => messages.data?.next && turnPage('after', messages.data.next)}
+              >
+                Newer
+              </Button>
+            </Group>
+          </Group>
         </Paper>
       )}
     </Stack>
