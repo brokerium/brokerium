@@ -116,7 +116,7 @@ func run(log *slog.Logger) error {
 	exts := append([]api.Extension{
 		&api.OperationsAPI{Engine: engine, Sampler: sampler},
 		&api.NodesAPI{Gateway: gateway, Pools: nodeManager, PublicURL: cfg.PublicURL, AgentEndpoint: cfg.AgentEndpoint,
-			CertificateWarning: certWarning},
+			Proxy: cfg.AgentProxy, NoProxy: cfg.AgentNoProxy, CertificateWarning: certWarning},
 	}, editionAPIs...)
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,

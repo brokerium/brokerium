@@ -84,7 +84,15 @@
           "pattern": "^(.+:[0-9]+)?$",
           "description": "host:port agents dial; empty derives it from the Gateway or LoadBalancer settings."
         },
-        "serverNames": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        "serverNames": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "proxy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "https": { "type": "string", "pattern": "^(https?://.+)?$" },
+            "noProxy": { "type": "string" }
+          }
+        }
       }
     },
     "service": {

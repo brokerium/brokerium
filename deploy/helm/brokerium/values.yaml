@@ -59,6 +59,11 @@ agents:
   # Extra names in the agent gateway certificate. The service names, the endpoint host,
   # gateway.agents.hostname and loadBalancer.hostname are added automatically.
   serverNames: []
+  # HTTP CONNECT proxy the agents on hosts use; the install command passes it as HTTPS_PROXY
+  # and NO_PROXY, for example https: http://proxy.example.com:3128.
+  proxy:
+    https: ""
+    noProxy: ""
 
 # ClusterIP service with both ports, always created.
 service:

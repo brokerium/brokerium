@@ -6,6 +6,34 @@ All notable changes to Brokerium are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-20
+
+A security update for the agent; upgrade the agents on your hosts with the install command.
+
+### Security
+
+- The agent and the server validate the configuration that the agent writes: property names
+  of letters, digits, `.`, `_` and `-`, values without control characters, and heap options
+  made only of `-Xms` and `-Xmx`. Before, a server, or an operator who could change the heap
+  settings of a cluster, could make the agent write arbitrary lines into `server.properties`
+  and into the systemd unit of Kafka, which the agent writes as root. The API now also checks
+  the heap settings when cluster settings are saved.
+
+### Added
+
+- The install script uses `HTTPS_PROXY` and `NO_PROXY` for its downloads and passes them to
+  the agent, which reaches the server through HTTP CONNECT proxies with mutual TLS intact.
+  `BROKERIUM_AGENT_PROXY` and `BROKERIUM_AGENT_NO_PROXY` (Helm `agents.proxy`) add them to the
+  install command.
+
+### Fixed
+
+- Partitions and replication factor 0 create a topic with the broker defaults, as the API
+  documents; the dashboard leaves the fields empty for that.
+- Deleting a topic no longer fails with an unknown topic when a retried request finds it
+  deleted by the first attempt.
+- Add broker and Replace broker are enabled again for agent clusters in the dashboard.
+
 ## [0.2.0] - 2026-10-19
 
 Agents renew their certificates, and the Helm chart gets Gateway API routes, a LoadBalancer
@@ -101,6 +129,7 @@ First public alpha. Every lab scenario of the roadmap runs as an automated end-t
 - The Helm chart installs from a checkout; it is not published to a chart repository yet.
 - Agent certificates are valid for one year and are not renewed automatically yet.
 
-[Unreleased]: https://github.com/brokerium/brokerium/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/brokerium/brokerium/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/brokerium/brokerium/releases/tag/v0.2.1
 [0.2.0]: https://github.com/brokerium/brokerium/releases/tag/v0.2.0
 [0.1.0]: https://github.com/brokerium/brokerium/releases/tag/v0.1.0

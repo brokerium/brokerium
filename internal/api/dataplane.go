@@ -4,19 +4,17 @@ package api
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
-	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
 
 	"github.com/brokerium/brokerium/internal/cluster"
@@ -127,9 +125,17 @@ func (s *Server) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
 	if !Decode(w, r, &req) {
 		return
 	}
-	if req.Name == "" || req.Partitions <= 0 || req.ReplicationFactor <= 0 {
-		WriteError(w, http.StatusBadRequest, "bad_request", "name, partitions and replicationFactor are required")
+	if req.Name == "" || req.Partitions < 0 || req.ReplicationFactor < 0 {
+		WriteError(w, http.StatusBadRequest, "bad_request", "name is required; partitions and replicationFactor must not be negative")
 		return
+	}
+	// -1 asks the broker for num.partitions and default.replication.factor (KIP-464).
+	partitions, replication := req.Partitions, req.ReplicationFactor
+	if partitions == 0 {
+		partitions = -1
+	}
+	if replication == 0 {
+		replication = -1
 	}
 	cfg := map[string]*string{}
 	for k, v := range req.Configs {
@@ -137,7 +143,7 @@ func (s *Server) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := timeout(r)
 	defer cancel()
-	resp, err := cl.Adm.CreateTopic(ctx, req.Partitions, req.ReplicationFactor, cfg, req.Name)
+	resp, err := cl.Adm.CreateTopic(ctx, partitions, replication, cfg, req.Name)
 	if err == nil {
 		err = resp.Err
 	}
@@ -166,6 +172,10 @@ func (s *Server) handleDeleteTopic(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		err = resp.Err
 	}
+	if errors.Is(err, kerr.UnknownTopicOrPartition) && s.knownTopic(ctx, r.PathValue("id"), topic) {
+		// The last snapshot has the topic: a retried request found it deleted by the first attempt.
+		err = nil
+	}
 	s.Audit(r, "topic.delete", r.PathValue("id"), topic, nil, err)
 	if err != nil {
 		kafkaErr(w, err)
@@ -173,6 +183,15 @@ func (s *Server) handleDeleteTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	go s.Clusters.Refresh(context.Background(), r.PathValue("id")) //nolint:errcheck
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// knownTopic reports whether the cached snapshot of the cluster has the topic.
+func (s *Server) knownTopic(ctx context.Context, clusterID, topic string) bool {
+	v, err := s.Clusters.View(ctx, clusterID, time.Hour)
+	if err != nil || v.Snapshot == nil {
+		return false
+	}
+	return slices.ContainsFunc(v.Snapshot.Topics, func(t kafka.Topic) bool { return t.Name == topic })
 }
 
 type configChange struct {
@@ -254,229 +273,6 @@ func (s *Server) handleAddPartitions(w http.ResponseWriter, r *http.Request) {
 	}
 	go s.Clusters.Refresh(context.Background(), r.PathValue("id")) //nolint:errcheck
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// MessageHeader is one record header.
-type MessageHeader struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
-// Message is a record shown in the dashboard.
-type Message struct {
-	Partition     int32           `json:"partition"`
-	Offset        int64           `json:"offset"`
-	Timestamp     time.Time       `json:"timestamp"`
-	Key           *string         `json:"key"`
-	Value         *string         `json:"value"`
-	Headers       []MessageHeader `json:"headers"`
-	KeyEncoding   string          `json:"keyEncoding"`
-	ValueEncoding string          `json:"valueEncoding"`
-}
-
-const maxValueBytes = 64 << 10
-
-func encodeBytes(b []byte) (*string, string) {
-	if b == nil {
-		return nil, "utf8"
-	}
-	if len(b) > maxValueBytes {
-		b = b[:maxValueBytes]
-	}
-	if utf8.Valid(b) {
-		s := string(b)
-		return &s, "utf8"
-	}
-	s := base64.StdEncoding.EncodeToString(b)
-	return &s, "base64"
-}
-
-func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
-	_, v, ok := s.capable(w, r, "browseMessages")
-	if !ok {
-		return
-	}
-	q := r.URL.Query()
-	topic := r.PathValue("topic")
-	limit, _ := strconv.Atoi(q.Get("limit"))
-	if limit <= 0 || limit > 500 {
-		limit = 50
-	}
-	partition := int32(-1)
-	if p := q.Get("partition"); p != "" {
-		n, err := strconv.ParseInt(p, 10, 32)
-		if err != nil {
-			WriteError(w, http.StatusBadRequest, "bad_request", "invalid partition")
-			return
-		}
-		partition = int32(n)
-	}
-	from := q.Get("from")
-	if from == "" {
-		from = "latest"
-	}
-	var parts []int32
-	for _, t := range v.Snapshot.Topics {
-		if t.Name == topic {
-			for _, p := range t.Partitions {
-				if partition < 0 || p.ID == partition {
-					parts = append(parts, p.ID)
-				}
-			}
-		}
-	}
-	if len(parts) == 0 {
-		WriteError(w, http.StatusNotFound, "not_found", "topic or partition not found")
-		return
-	}
-	cl, _, err := s.Clusters.Client(r.Context(), r.PathValue("id"))
-	if err != nil {
-		WriteStoreError(w, err)
-		return
-	}
-	ctx, cancel := timeout(r)
-	defer cancel()
-	starts, _ := cl.Adm.ListStartOffsets(ctx, topic)
-	ends, _ := cl.Adm.ListEndOffsets(ctx, topic)
-	perPartition := max(1, limit/len(parts))
-	offsets := map[int32]kgo.Offset{}
-	want := 0
-	for _, p := range parts {
-		start, end := int64(0), int64(0)
-		if o, ok := starts.Lookup(topic, p); ok {
-			start = o.Offset
-		}
-		if o, ok := ends.Lookup(topic, p); ok {
-			end = o.Offset
-		}
-		var at int64
-		switch from {
-		case "earliest":
-			at = start
-		case "offset":
-			n, _ := strconv.ParseInt(q.Get("offset"), 10, 64)
-			at = max(start, n)
-		case "timestamp":
-			ms, _ := strconv.ParseInt(q.Get("timestamp"), 10, 64)
-			if lo, err := cl.Adm.ListOffsetsAfterMilli(ctx, ms, topic); err == nil {
-				if o, ok := lo.Lookup(topic, p); ok {
-					at = o.Offset
-				}
-			}
-		default:
-			at = max(start, end-int64(perPartition))
-		}
-		if at < end {
-			offsets[p] = kgo.NewOffset().At(at)
-			want += int(min(int64(perPartition), end-at))
-		}
-	}
-	msgs := []Message{}
-	if want > 0 {
-		profile, err := s.profileOf(r)
-		if err != nil {
-			WriteStoreError(w, err)
-			return
-		}
-		consumer, err := kafka.NewClient(profile, kgo.ConsumePartitions(map[string]map[int32]kgo.Offset{topic: offsets}),
-			kgo.FetchMaxWait(500*time.Millisecond))
-		if err != nil {
-			kafkaErr(w, err)
-			return
-		}
-		defer consumer.Close()
-		perPart := map[int32]int{}
-		deadline := time.Now().Add(5 * time.Second)
-		for len(msgs) < min(want, limit) && time.Now().Before(deadline) {
-			pctx, pcancel := context.WithTimeout(ctx, time.Until(deadline))
-			fetches := consumer.KGO.PollFetches(pctx)
-			pcancel()
-			fetches.EachRecord(func(rec *kgo.Record) {
-				if perPart[rec.Partition] >= perPartition || len(msgs) >= limit {
-					return
-				}
-				perPart[rec.Partition]++
-				m := Message{Partition: rec.Partition, Offset: rec.Offset, Timestamp: rec.Timestamp, Headers: []MessageHeader{}}
-				m.Key, m.KeyEncoding = encodeBytes(rec.Key)
-				m.Value, m.ValueEncoding = encodeBytes(rec.Value)
-				for _, h := range rec.Headers {
-					val, _ := encodeBytes(h.Value)
-					if val == nil {
-						empty := ""
-						val = &empty
-					}
-					m.Headers = append(m.Headers, MessageHeader{Key: h.Key, Value: *val})
-				}
-				msgs = append(msgs, m)
-			})
-		}
-	}
-	sort.Slice(msgs, func(i, j int) bool {
-		if msgs[i].Partition != msgs[j].Partition {
-			return msgs[i].Partition < msgs[j].Partition
-		}
-		return msgs[i].Offset < msgs[j].Offset
-	})
-	WriteJSON(w, http.StatusOK, map[string]any{"messages": msgs})
-}
-
-func (s *Server) profileOf(r *http.Request) (kafka.Profile, error) {
-	c, err := s.Store.GetCluster(r.Context(), r.PathValue("id"))
-	if err != nil {
-		return kafka.Profile{}, err
-	}
-	return s.Clusters.Profile(c)
-}
-
-type produceRequest struct {
-	Partition *int32          `json:"partition"`
-	Key       *string         `json:"key"`
-	Value     string          `json:"value"`
-	Headers   []MessageHeader `json:"headers"`
-}
-
-func (s *Server) handleProduce(w http.ResponseWriter, r *http.Request) {
-	if _, _, ok := s.capable(w, r, "browseMessages"); !ok {
-		return
-	}
-	var req produceRequest
-	if !Decode(w, r, &req) {
-		return
-	}
-	profile, err := s.profileOf(r)
-	if err != nil {
-		WriteStoreError(w, err)
-		return
-	}
-	opts := []kgo.Opt{kgo.RequiredAcks(kgo.AllISRAcks())}
-	if req.Partition != nil {
-		opts = append(opts, kgo.RecordPartitioner(kgo.ManualPartitioner()))
-	}
-	producer, err := kafka.NewClient(profile, opts...)
-	if err != nil {
-		kafkaErr(w, err)
-		return
-	}
-	defer producer.Close()
-	rec := &kgo.Record{Topic: r.PathValue("topic"), Value: []byte(req.Value)}
-	if req.Key != nil {
-		rec.Key = []byte(*req.Key)
-	}
-	if req.Partition != nil {
-		rec.Partition = *req.Partition
-	}
-	for _, h := range req.Headers {
-		rec.Headers = append(rec.Headers, kgo.RecordHeader{Key: h.Key, Value: []byte(h.Value)})
-	}
-	ctx, cancel := timeout(r)
-	defer cancel()
-	err = producer.KGO.ProduceSync(ctx, rec).FirstErr()
-	s.Audit(r, "topic.produce", r.PathValue("id"), rec.Topic, map[string]any{"partition": rec.Partition, "bytes": len(req.Value)}, err)
-	if err != nil {
-		kafkaErr(w, err)
-		return
-	}
-	WriteJSON(w, http.StatusCreated, map[string]any{"partition": rec.Partition, "offset": rec.Offset})
 }
 
 func (s *Server) handleBrokerConfigsAlter(w http.ResponseWriter, r *http.Request) {

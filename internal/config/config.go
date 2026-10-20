@@ -20,19 +20,21 @@ import (
 
 // Server holds all settings of brokerium-server.
 type Server struct {
-	HTTPAddr         string
-	GRPCAddr         string
-	DatabaseURL      string
-	SecretKey        []byte
-	DataDir          string
-	AdminUsername    string
-	AdminPassword    string
-	PublicURL        string
-	AgentEndpoint    string
-	AgentServerNames []string
-	DockerHost       string
-	LabNetwork       string
-	AgentImage       string
+	HTTPAddr      string
+	GRPCAddr      string
+	DatabaseURL   string
+	SecretKey     []byte
+	DataDir       string
+	AdminUsername string
+	AdminPassword string
+	PublicURL     string
+	AgentEndpoint string
+	// AgentProxy and AgentNoProxy go into the agent install command as HTTPS_PROXY and NO_PROXY.
+	AgentProxy, AgentNoProxy string
+	AgentServerNames         []string
+	DockerHost               string
+	LabNetwork               string
+	AgentImage               string
 	// AgentCertLifetime of agent certificates and the agent gateway certificate.
 	AgentCertLifetime time.Duration
 	SnapshotInterval  time.Duration
@@ -55,6 +57,8 @@ func LoadServer() (Server, error) {
 		AdminPassword:     os.Getenv("BROKERIUM_ADMIN_PASSWORD"),
 		PublicURL:         env("BROKERIUM_PUBLIC_URL", "http://localhost:8080"),
 		AgentEndpoint:     env("BROKERIUM_AGENT_ENDPOINT", "host.docker.internal:8443"),
+		AgentProxy:        os.Getenv("BROKERIUM_AGENT_PROXY"),
+		AgentNoProxy:      os.Getenv("BROKERIUM_AGENT_NO_PROXY"),
 		DockerHost:        env("BROKERIUM_DOCKER_HOST", "unix:///var/run/docker.sock"),
 		LabNetwork:        env("BROKERIUM_LAB_NETWORK", "brokerium-lab"),
 		AgentImage:        env("BROKERIUM_AGENT_IMAGE", defaultAgentImage(version.Version)),

@@ -49,6 +49,14 @@ spec:
               value: {{ include "brokerium.agentEndpoint" . | quote }}
             - name: BROKERIUM_AGENT_SERVER_NAMES
               value: {{ include "brokerium.agentServerNames" . | quote }}
+            {{- with .Values.agents.proxy.https }}
+            - name: BROKERIUM_AGENT_PROXY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.agents.proxy.noProxy }}
+            - name: BROKERIUM_AGENT_NO_PROXY
+              value: {{ . | quote }}
+            {{- end }}
             - name: BROKERIUM_SECURE_COOKIES
               value: {{ or .Values.secureCookies (hasPrefix "https://" (include "brokerium.publicURL" .)) | quote }}
             - name: BROKERIUM_SNAPSHOT_INTERVAL

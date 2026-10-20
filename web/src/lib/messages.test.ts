@@ -2,7 +2,17 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { hasContent, prettyJson, previewValue, renderValue } from './messages';
+import { hasContent, isBase64, prettyJson, previewValue, renderValue } from './messages';
+
+describe('isBase64', () => {
+  it('accepts padded, unpadded and wrapped base64', () => {
+    for (const text of ['', '/wA=', '/wA', 'AP8=', 'aGVsbG8gd29ybGQ=', 'aGVs\nbG8=\n']) expect(isBase64(text), text).toBe(true);
+  });
+
+  it('rejects other alphabets and impossible lengths', () => {
+    for (const text of ['%%%', 'A', 'ab=c', 'abc===', '-_8=']) expect(isBase64(text), text).toBe(false);
+  });
+});
 
 describe('renderValue', () => {
   it('pretty-prints JSON objects', () => {

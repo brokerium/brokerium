@@ -7,6 +7,7 @@ package e2e
 import (
 	"context"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
@@ -93,6 +94,65 @@ func TestDataPlane(t *testing.T) {
 		t.Fatalf("browsed %+v", browsed.Messages)
 	}
 
+	// Tombstones and binary keys, values and headers.
+	messages := base + "/topics/" + topic + "/messages"
+	c.must(http.StatusCreated, "POST", messages, map[string]any{"partition": 1, "key": "k", "value": nil}, nil)
+	c.must(http.StatusCreated, "POST", messages, map[string]any{"partition": 1, "key": "/wA=", "keyEncoding": "base64",
+		"value": "/w==", "valueEncoding": "base64", "headers": []map[string]string{{"key": "bin", "value": "AP8=", "encoding": "base64"}}}, nil)
+	c.must(http.StatusBadRequest, "POST", messages, map[string]any{"partition": 1, "value": "%%%", "valueEncoding": "base64"}, nil)
+	c.must(http.StatusBadRequest, "POST", messages, map[string]any{"partition": 1, "key": "k"}, nil)
+	type page struct {
+		Messages []struct {
+			Offset        int64   `json:"offset"`
+			Key           *string `json:"key"`
+			KeyEncoding   string  `json:"keyEncoding"`
+			Value         *string `json:"value"`
+			ValueEncoding string  `json:"valueEncoding"`
+			Headers       []struct {
+				Value    string `json:"value"`
+				Encoding string `json:"encoding"`
+			} `json:"headers"`
+		} `json:"messages"`
+		Next     *string `json:"next"`
+		Previous *string `json:"previous"`
+	}
+	var binary page
+	c.must(http.StatusOK, "GET", messages+"?partition=1&from=earliest&limit=10", nil, &binary)
+	if len(binary.Messages) != 2 || binary.Messages[0].Value != nil {
+		t.Fatalf("tombstone: %+v", binary.Messages)
+	}
+	if m := binary.Messages[1]; m.KeyEncoding != "base64" || *m.Key != "/wA=" || m.ValueEncoding != "base64" || *m.Value != "/w==" ||
+		len(m.Headers) != 1 || m.Headers[0].Encoding != "base64" || m.Headers[0].Value != "AP8=" {
+		t.Fatalf("binary record: %+v", m)
+	}
+
+	// Paging through the five records of partition 0.
+	offsetsOf := func(p page) []int64 {
+		var out []int64
+		for _, m := range p.Messages {
+			out = append(out, m.Offset)
+		}
+		return out
+	}
+	var first, second, back, last page
+	c.must(http.StatusOK, "GET", messages+"?partition=0&from=earliest&limit=2", nil, &first)
+	if got := offsetsOf(first); !slices.Equal(got, []int64{0, 1}) || first.Next == nil || *first.Next != "0:2" || first.Previous != nil {
+		t.Fatalf("first page %v, next %v, previous %v", got, first.Next, first.Previous)
+	}
+	c.must(http.StatusOK, "GET", messages+"?from=after&limit=2&cursor="+*first.Next, nil, &second)
+	if got := offsetsOf(second); !slices.Equal(got, []int64{2, 3}) || second.Previous == nil || *second.Previous != "0:2" {
+		t.Fatalf("second page %v, previous %v", got, second.Previous)
+	}
+	c.must(http.StatusOK, "GET", messages+"?from=before&limit=2&cursor="+*second.Previous, nil, &back)
+	if got := offsetsOf(back); !slices.Equal(got, []int64{0, 1}) {
+		t.Fatalf("page before %v", got)
+	}
+	c.must(http.StatusOK, "GET", messages+"?from=after&limit=2&cursor="+*second.Next, nil, &last)
+	if got := offsetsOf(last); !slices.Equal(got, []int64{4}) || last.Next != nil {
+		t.Fatalf("last page %v, next %v", got, last.Next)
+	}
+	c.must(http.StatusBadRequest, "GET", messages+"?from=after&cursor=x", nil, nil)
+
 	// ACLs.
 	acl := map[string]any{"resourceType": "TOPIC", "resourceName": topic, "patternType": "LITERAL",
 		"principal": "User:e2e", "host": "*", "operation": "READ", "permission": "ALLOW"}
@@ -119,14 +179,16 @@ func TestDataPlane(t *testing.T) {
 			User string `json:"user"`
 		} `json:"users"`
 	}
-	c.must(http.StatusOK, "GET", base+"/scram-users", nil, &users)
-	found := false
-	for _, u := range users.Users {
-		found = found || u.User == "e2e-dp"
-	}
-	if !found {
-		t.Errorf("SCRAM user missing from %+v", users.Users)
-	}
+	// Brokers learn about SCRAM users and quotas from the metadata log, a moment after the change.
+	waitFor("the SCRAM user", func() bool {
+		c.must(http.StatusOK, "GET", base+"/scram-users", nil, &users)
+		for _, u := range users.Users {
+			if u.User == "e2e-dp" {
+				return true
+			}
+		}
+		return false
+	})
 	c.must(http.StatusNoContent, "DELETE", base+"/scram-users/e2e-dp?mechanism=SCRAM-SHA-256", nil, nil)
 
 	// Quotas.
@@ -137,19 +199,22 @@ func TestDataPlane(t *testing.T) {
 			Values map[string]float64 `json:"values"`
 		} `json:"quotas"`
 	}
-	c.must(http.StatusOK, "GET", base+"/quotas", nil, &quotas)
-	found = false
-	for _, q := range quotas.Quotas {
-		found = found || q.Values["producer_byte_rate"] == 1048576
-	}
-	if !found {
-		t.Errorf("quota missing from %+v", quotas.Quotas)
-	}
+	waitFor("the quota", func() bool {
+		c.must(http.StatusOK, "GET", base+"/quotas", nil, &quotas)
+		for _, q := range quotas.Quotas {
+			if q.Values["producer_byte_rate"] == 1048576 {
+				return true
+			}
+		}
+		return false
+	})
 	c.must(http.StatusNoContent, "PUT", base+"/quotas", map[string]any{"entity": entity, "remove": []string{"producer_byte_rate"}}, nil)
 
 	// Consumer group: consume, then rewind to the start (dry run first) and delete the group.
+	// The topic has seven records: five in partition 0, the tombstone and the binary record in 1.
+	const records = 7
 	group := topic + "-group"
-	consume(t, "localhost:29101", topic, group, 5)
+	consume(t, "localhost:29101", topic, group, records)
 	reset := func(dry bool) []struct{ From, To int64 } {
 		var res struct {
 			Offsets []struct{ From, To int64 } `json:"offsets"`
@@ -166,8 +231,8 @@ func TestDataPlane(t *testing.T) {
 		TotalLag int64 `json:"totalLag"`
 	}
 	c.must(http.StatusOK, "GET", base+"/groups/"+group, nil, &g)
-	if g.TotalLag != 5 {
-		t.Errorf("lag after rewinding = %d, want 5", g.TotalLag)
+	if g.TotalLag != records {
+		t.Errorf("lag after rewinding = %d, want %d", g.TotalLag, records)
 	}
 	c.must(http.StatusNoContent, "DELETE", base+"/groups/"+group, nil, nil)
 
@@ -176,4 +241,13 @@ func TestDataPlane(t *testing.T) {
 		t.Errorf("topic deletion without confirmation: status %d", got)
 	}
 	c.must(http.StatusNoContent, "DELETE", base+"/topics/"+topic+"?confirm="+topic, nil, nil)
+	missing := topic + "-missing"
+	if got := c.do("DELETE", base+"/topics/"+missing+"?confirm="+missing, nil, nil); got != http.StatusNotFound {
+		t.Errorf("deleting a topic that never existed: status %d, want 404", got)
+	}
+
+	// Partitions and replication factor 0 take the broker defaults.
+	defaults := topic + "-defaults"
+	c.must(http.StatusCreated, "POST", base+"/topics", map[string]any{"name": defaults, "partitions": 0, "replicationFactor": 0}, nil)
+	c.must(http.StatusNoContent, "DELETE", base+"/topics/"+defaults+"?confirm="+defaults, nil, nil)
 }
