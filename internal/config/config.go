@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -32,9 +33,19 @@ type Server struct {
 	// AgentProxy and AgentNoProxy go into the agent install command as HTTPS_PROXY and NO_PROXY.
 	AgentProxy, AgentNoProxy string
 	AgentServerNames         []string
-	DockerHost               string
-	LabNetwork               string
-	AgentImage               string
+	// AgentInsecureAddr is the plaintext listener of the insecure agent transport (ADR 0017);
+	// empty disables it.
+	AgentInsecureAddr string
+	// AgentTransport is the transport of the agent install command: mtls or insecure.
+	AgentTransport string
+	// AgentInsecureEndpoint is the address agents of the insecure transport dial, usually a
+	// proxy that terminates TLS.
+	AgentInsecureEndpoint string
+	// AgentInsecureTLS is how they dial it: system, skip-verify or none.
+	AgentInsecureTLS string
+	DockerHost       string
+	LabNetwork       string
+	AgentImage       string
 	// AgentCertLifetime of agent certificates and the agent gateway certificate.
 	AgentCertLifetime time.Duration
 	SnapshotInterval  time.Duration
@@ -45,27 +56,34 @@ type Server struct {
 // LoadServer reads BROKERIUM_* environment variables and applies defaults suitable for the lab.
 func LoadServer() (Server, error) {
 	c := Server{
-		HTTPAddr:          env("BROKERIUM_HTTP_ADDR", ":8080"),
-		GRPCAddr:          env("BROKERIUM_GRPC_ADDR", ":8443"),
-		DatabaseURL:       env("BROKERIUM_DATABASE_URL", "postgres://brokerium:brokerium@localhost:55432/brokerium?sslmode=disable"),
-		DataDir:           env("BROKERIUM_DATA_DIR", ".data/server"),
-		AdminUsername:     env("BROKERIUM_ADMIN_USERNAME", "admin"),
-		AdminPassword:     os.Getenv("BROKERIUM_ADMIN_PASSWORD"),
-		PublicURL:         env("BROKERIUM_PUBLIC_URL", "http://localhost:8080"),
-		AgentEndpoint:     env("BROKERIUM_AGENT_ENDPOINT", "host.docker.internal:8443"),
-		AgentProxy:        os.Getenv("BROKERIUM_AGENT_PROXY"),
-		AgentNoProxy:      os.Getenv("BROKERIUM_AGENT_NO_PROXY"),
-		DockerHost:        env("BROKERIUM_DOCKER_HOST", "unix:///var/run/docker.sock"),
-		LabNetwork:        env("BROKERIUM_LAB_NETWORK", "brokerium-lab"),
-		AgentImage:        env("BROKERIUM_AGENT_IMAGE", defaultAgentImage(version.Version)),
-		AgentCertLifetime: envDuration("BROKERIUM_AGENT_CERT_LIFETIME", 365*24*time.Hour),
-		SecureCookies:     envBool("BROKERIUM_SECURE_COOKIES", false),
-		SnapshotInterval:  envDuration("BROKERIUM_SNAPSHOT_INTERVAL", 15*time.Second),
-		WorkerInterval:    envDuration("BROKERIUM_WORKER_INTERVAL", time.Second),
+		HTTPAddr:              env("BROKERIUM_HTTP_ADDR", ":8080"),
+		GRPCAddr:              env("BROKERIUM_GRPC_ADDR", ":8443"),
+		DatabaseURL:           env("BROKERIUM_DATABASE_URL", "postgres://brokerium:brokerium@localhost:55432/brokerium?sslmode=disable"),
+		DataDir:               env("BROKERIUM_DATA_DIR", ".data/server"),
+		AdminUsername:         env("BROKERIUM_ADMIN_USERNAME", "admin"),
+		AdminPassword:         os.Getenv("BROKERIUM_ADMIN_PASSWORD"),
+		PublicURL:             env("BROKERIUM_PUBLIC_URL", "http://localhost:8080"),
+		AgentEndpoint:         env("BROKERIUM_AGENT_ENDPOINT", "host.docker.internal:8443"),
+		AgentProxy:            os.Getenv("BROKERIUM_AGENT_PROXY"),
+		AgentNoProxy:          os.Getenv("BROKERIUM_AGENT_NO_PROXY"),
+		AgentInsecureAddr:     os.Getenv("BROKERIUM_AGENT_INSECURE_ADDR"),
+		AgentTransport:        env("BROKERIUM_AGENT_TRANSPORT", "mtls"),
+		AgentInsecureEndpoint: os.Getenv("BROKERIUM_AGENT_INSECURE_ENDPOINT"),
+		AgentInsecureTLS:      env("BROKERIUM_AGENT_INSECURE_TLS", "system"),
+		DockerHost:            env("BROKERIUM_DOCKER_HOST", "unix:///var/run/docker.sock"),
+		LabNetwork:            env("BROKERIUM_LAB_NETWORK", "brokerium-lab"),
+		AgentImage:            env("BROKERIUM_AGENT_IMAGE", defaultAgentImage(version.Version)),
+		AgentCertLifetime:     envDuration("BROKERIUM_AGENT_CERT_LIFETIME", 365*24*time.Hour),
+		SecureCookies:         envBool("BROKERIUM_SECURE_COOKIES", false),
+		SnapshotInterval:      envDuration("BROKERIUM_SNAPSHOT_INTERVAL", 15*time.Second),
+		WorkerInterval:        envDuration("BROKERIUM_WORKER_INTERVAL", time.Second),
 	}
 	c.AgentServerNames = splitList(env("BROKERIUM_AGENT_SERVER_NAMES", "localhost,host.docker.internal,brokerium,brokerium-server"))
 	if c.AgentCertLifetime < time.Minute {
 		return c, errors.New("BROKERIUM_AGENT_CERT_LIFETIME must be at least 1m")
+	}
+	if err := c.checkAgentTransport(); err != nil {
+		return c, err
 	}
 
 	if err := os.MkdirAll(c.DataDir, 0o700); err != nil {
@@ -77,6 +95,29 @@ func LoadServer() (Server, error) {
 	}
 	c.SecretKey = key
 	return c, nil
+}
+
+// checkAgentTransport checks the settings of the insecure agent transport and of the install
+// command.
+func (c Server) checkAgentTransport() error {
+	switch {
+	case c.AgentTransport != "mtls" && c.AgentTransport != "insecure":
+		return fmt.Errorf("BROKERIUM_AGENT_TRANSPORT must be mtls or insecure, not %q", c.AgentTransport)
+	case c.AgentInsecureTLS != "system" && c.AgentInsecureTLS != "skip-verify" && c.AgentInsecureTLS != "none":
+		return fmt.Errorf("BROKERIUM_AGENT_INSECURE_TLS must be system, skip-verify or none, not %q", c.AgentInsecureTLS)
+	case c.AgentInsecureEndpoint != "" && !hostPort(c.AgentInsecureEndpoint):
+		return fmt.Errorf("BROKERIUM_AGENT_INSECURE_ENDPOINT must be host:port, not %q", c.AgentInsecureEndpoint)
+	case c.AgentTransport == "insecure" && c.AgentInsecureAddr == "":
+		return errors.New("BROKERIUM_AGENT_TRANSPORT=insecure needs the insecure listener, BROKERIUM_AGENT_INSECURE_ADDR")
+	case c.AgentTransport == "insecure" && c.AgentInsecureEndpoint == "":
+		return errors.New("BROKERIUM_AGENT_TRANSPORT=insecure needs BROKERIUM_AGENT_INSECURE_ENDPOINT, the address agents dial")
+	}
+	return nil
+}
+
+func hostPort(s string) bool {
+	host, port, err := net.SplitHostPort(s)
+	return err == nil && host != "" && port != ""
 }
 
 // loadSecretKey decodes an explicit base64 key or creates a random one in the data dir.
