@@ -66,11 +66,15 @@ activate mise in your shell.
 - `BROKERIUM_E2E_KEEP=1` keeps the clusters a test created.
 - `BROKERIUM_E2E_CERT_LIFETIME=3m` waits for an agent certificate renewal; start the server
   with the same `BROKERIUM_AGENT_CERT_LIFETIME`.
+- `BROKERIUM_E2E_INSECURE_PROXY=localhost:9443` runs `TestInsecureAgentBehindProxy` through a
+  TLS-terminating proxy in front of `BROKERIUM_AGENT_INSECURE_ADDR`; the agents `proxied-c1`
+  and `proxied-b101` must be enrolled through it and resolvable by the server, as the `e2e`
+  workflow sets them up.
 
 The Strimzi lab uses its own kubeconfig in `.data/` and never touches `~/.kube/config`.
 
 In CI, the `e2e` workflow runs the scenarios against the beta lab and Docker clusters on every
-pull request. The `e2e-strimzi` workflow runs `TestStrimzi` on a kind cluster nightly, on demand
+pull request, and then the scenario of agents behind OpenResty. The `e2e-strimzi` workflow runs `TestStrimzi` on a kind cluster nightly, on demand
 and on pull requests that change the Strimzi support.
 
 ## Lab
