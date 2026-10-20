@@ -66,17 +66,18 @@ the lab scenarios with the Kafka CLI, code skeleton, CI and the first container 
   chart repository https://charts.brokerium.kaufen, the published lab node image, the Strimzi
   scenario in CI and fixes for cluster ids and Strimzi scale-ups.
 
-## Phase 9: v0.2.1
+## Phase 9: v0.2.1 (done, 2026-10-20)
 
 - Validation of the configuration commands agents receive, topic creation with the broker
-  defaults, retried topic deletion, node buttons for agent clusters.
+  defaults, retried topic deletion, node buttons for agent clusters, the install script through
+  HTTP CONNECT proxies.
 
 ## Phase 10: v0.3.0 (next)
 
 - Community and Enterprise editions with license keys ([ADR 0016](adr/0016-editions-and-license-keys.md)).
 - Enterprise message tools: delete records and empty topics, search, export and copy messages.
-- Free: tombstones, binary values and paging in the message views; agents through HTTP CONNECT
-  proxies and behind TLS-terminating proxies; the agent without root.
+- Free: tombstones, binary values and paging in the message views; agents behind
+  TLS-terminating proxies; the agent without root.
 
 ## Phase 11: v0.3.1
 

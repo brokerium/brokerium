@@ -37,14 +37,16 @@ interface CreateTopicModalProps {
 export function CreateTopicModal({ opened, onClose, clusterId, brokerCount }: CreateTopicModalProps) {
   const create = useCreateTopic(clusterId);
   const [name, setName] = useState('');
-  const [partitions, setPartitions] = useState<number>(3);
-  const [replicationFactor, setReplicationFactor] = useState<number>(Math.max(1, Math.min(3, brokerCount)));
+  // An empty field leaves the value to the broker defaults (num.partitions, default.replication.factor).
+  const [partitions, setPartitions] = useState<number | ''>(3);
+  const [replicationFactor, setReplicationFactor] = useState<number | ''>(Math.max(1, Math.min(3, brokerCount)));
   const [rows, setRows] = useState<ConfigRow[]>([]);
   const [nextId, setNextId] = useState(1);
   const [submitted, setSubmitted] = useState(false);
 
   const nameError = submitted ? topicNameError(name.trim()) : null;
-  const rfError = replicationFactor > brokerCount ? `Only ${brokerCount} brokers are available` : null;
+  const rfError =
+    replicationFactor !== '' && replicationFactor > brokerCount ? `Only ${brokerCount} brokers are available` : null;
 
   const submit = () => {
     setSubmitted(true);
@@ -56,8 +58,8 @@ export function CreateTopicModal({ opened, onClose, clusterId, brokerCount }: Cr
     create.mutate(
       {
         name: name.trim(),
-        partitions,
-        replicationFactor,
+        partitions: partitions === '' ? 0 : partitions,
+        replicationFactor: replicationFactor === '' ? 0 : replicationFactor,
         configs: Object.keys(configs).length > 0 ? configs : undefined,
       },
       {
@@ -87,13 +89,23 @@ export function CreateTopicModal({ opened, onClose, clusterId, brokerCount }: Cr
             data-autofocus
           />
           <Group grow>
-            <NumberInput label="Partitions" min={1} max={10000} value={partitions} onChange={(v) => setPartitions(Number(v) || 1)} />
+            <NumberInput
+              label="Partitions"
+              placeholder="Broker default"
+              min={1}
+              max={10000}
+              allowDecimal={false}
+              value={partitions}
+              onChange={(v) => setPartitions(v === '' ? '' : Number(v))}
+            />
             <NumberInput
               label="Replication factor"
+              placeholder="Broker default"
               min={1}
               max={Math.max(1, brokerCount)}
+              allowDecimal={false}
               value={replicationFactor}
-              onChange={(v) => setReplicationFactor(Number(v) || 1)}
+              onChange={(v) => setReplicationFactor(v === '' ? '' : Number(v))}
               error={rfError}
             />
           </Group>
