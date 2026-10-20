@@ -48,7 +48,7 @@ For Kubernetes, use the Helm chart with `edition: enterprise`; see the
 
 | Tag | Meaning |
 | --- | --- |
-| `latest`, `X.Y`, `X.Y.Z` | The latest release, the latest patch of a minor version, an exact release |
+| `latest`, `0.3`, `0.3.0` | The latest release, the latest patch of a minor version, an exact release |
 | `edge` | The current `main` branch, for testing |
 | `sha-<commit>` | The build of one commit |
 

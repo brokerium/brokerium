@@ -6,6 +6,54 @@ All notable changes to Brokerium are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-20
+
+Brokerium Enterprise with the message tools, agents behind TLS-terminating proxies and without
+root, and tombstones, binary values and paging in the message views.
+
+### Added
+
+- Editions ([ADR 0016](docs/adr/0016-editions-and-license-keys.md)): Brokerium Community stays
+  free, and Brokerium Enterprise unlocks paid features with a license key that the server checks
+  offline. Enterprise ships as the image `bvaliev/brokerium-server-enterprise` and the binaries
+  `brokerium-server-enterprise-<os>-<arch>`; the Helm chart selects it with `edition: enterprise`
+  and reads the key from `license.existingSecret`. `GET /api/v1/license` and the **License** page
+  show the edition, its features and the license in both editions, and admins of an Enterprise
+  server set the key there or with `BROKERIUM_LICENSE` or `BROKERIUM_LICENSE_FILE`.
+- Enterprise message tools: delete the records before offsets or a time, or empty a topic, with a
+  preview and confirmation by the topic name; search records by key, value, header and time;
+  export them as NDJSON, JSON or CSV; copy or replay them to a topic of the same or another
+  cluster with the `copy-messages` operation. Deletions and exports are recorded in the audit log.
+- Agents behind TLS-terminating proxies such as OpenResty or nginx
+  ([ADR 0017](docs/adr/0017-agent-transport-behind-proxies.md)): an optional plaintext listener on
+  the server (`BROKERIUM_AGENT_INSECURE_ADDR`, Helm `agents.insecure`) and the agent transport
+  `insecure`, in which every command is signed with the key of the internal CA and every message
+  of an agent carries an HMAC of its node secret; enrollment proves the join token without
+  sending it.
+- **Produce** writes tombstones and binary keys, values and headers (base64), and **Messages**
+  pages through a topic with **Older** and **Newer**.
+
+### Changed
+
+- The agent runs as the `brokerium-agent` account. The install script, which now needs `sudo`,
+  creates the account, a fixed `brokerium-kafka.service` unit and a sudo rule that allows only
+  starting, stopping and restarting that unit. Running the install command again converts hosts
+  installed by earlier versions without restarting Kafka.
+- `POST /api/v1/clusters/{id}/topics/{topic}/messages` requires `value`; `null` produces a
+  tombstone.
+- The **Nodes** page shows the transport of agent nodes.
+
+### Fixed
+
+- The agent moves to the next mirror when a download of Kafka receives no data for a minute,
+  instead of waiting until the step times out.
+
+### Upgrading
+
+- Upgrade the server first, then run the install command with a new join token on each host. Do
+  not pin `BROKERIUM_AGENT_VERSION` to an agent older than 0.3.0: the install script of 0.3.0
+  sets up hosts for an agent without root, which older agents cannot run on.
+
 ## [0.2.1] - 2026-10-20
 
 A security update for the agent; upgrade the agents on your hosts with the install command.
@@ -129,7 +177,8 @@ First public alpha. Every lab scenario of the roadmap runs as an automated end-t
 - The Helm chart installs from a checkout; it is not published to a chart repository yet.
 - Agent certificates are valid for one year and are not renewed automatically yet.
 
-[Unreleased]: https://github.com/brokerium/brokerium/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/brokerium/brokerium/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/brokerium/brokerium/releases/tag/v0.3.0
 [0.2.1]: https://github.com/brokerium/brokerium/releases/tag/v0.2.1
 [0.2.0]: https://github.com/brokerium/brokerium/releases/tag/v0.2.0
 [0.1.0]: https://github.com/brokerium/brokerium/releases/tag/v0.1.0
