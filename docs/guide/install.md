@@ -28,11 +28,13 @@ Values worth setting (see the [chart README](../../deploy/helm/brokerium/README.
 | `gateway.*` | Gateway API routes: an `HTTPRoute` for the dashboard with HTTPS at the gateway and a `TLSRoute` in passthrough mode for agents. Needs Gateway API 1.5 and Kubernetes 1.31 or later. |
 | `loadBalancer.*` | A `LoadBalancer` service with the dashboard port, the agent port or both, and a host name for external-dns. |
 | `publicURL`, `agents.endpoint` | The dashboard URL and the address agents dial. Derived from `gateway.*` or `loadBalancer.hostname` when empty. |
+| `agents.insecure.*` | Plaintext listener (port 8444) and install command for [agents behind a TLS-terminating proxy](#agents-behind-a-tls-terminating-proxy). |
 | `rbac.strimzi` | ClusterRole for managing Strimzi clusters in the same Kubernetes cluster with the pod's service account. |
 
 The agent port (8443) uses mutual TLS with the server's own CA, so a proxy in front of it must
-pass TLS through instead of terminating it. A dashboard with an HTTPS Gateway and agents on
-virtual machines:
+pass TLS through instead of terminating it; a proxy that terminates TLS needs the
+[insecure agent transport](#agents-behind-a-tls-terminating-proxy). A dashboard with an HTTPS
+Gateway and agents on virtual machines:
 
 ```yaml
 gateway:
@@ -88,6 +90,10 @@ Release assets contain `brokerium-server-<os>-<arch>` with the dashboard built i
 | `BROKERIUM_AGENT_ENDPOINT` | `host.docker.internal:8443` | Address agents dial. |
 | `BROKERIUM_AGENT_SERVER_NAMES` | `localhost,host.docker.internal,brokerium,brokerium-server` | Names in the gateway certificate. |
 | `BROKERIUM_AGENT_PROXY`, `BROKERIUM_AGENT_NO_PROXY` | none | `HTTPS_PROXY` and `NO_PROXY` in the agent install command. |
+| `BROKERIUM_AGENT_INSECURE_ADDR` | none | Plaintext listener of the insecure agent transport for a proxy that terminates TLS, for example `:8444` ([details](#agents-behind-a-tls-terminating-proxy)). |
+| `BROKERIUM_AGENT_TRANSPORT` | `mtls` | Transport of the agent install command: `mtls`, or `insecure` with the listener and the endpoint below. |
+| `BROKERIUM_AGENT_INSECURE_ENDPOINT` | none | `host:port` agents of the insecure transport dial, usually the proxy. |
+| `BROKERIUM_AGENT_INSECURE_TLS` | `system` | How those agents connect to the proxy: `system` (TLS verified against the system CAs), `skip-verify` or `none` (plaintext). |
 | `BROKERIUM_AGENT_CERT_LIFETIME` | `8760h` (one year) | Lifetime of agent certificates and the gateway certificate; they are renewed after two thirds of it. At least `1m`. |
 | `BROKERIUM_SECURE_COOKIES` | `false` | Set `true` behind HTTPS. |
 | `BROKERIUM_SNAPSHOT_INTERVAL` | `15s` | How often clusters are polled. |
@@ -99,8 +105,9 @@ Release assets contain `brokerium-server-<os>-<arch>` with the dashboard built i
 Agents let Brokerium create clusters, add, replace and remove brokers and controllers,
 restart and upgrade nodes. They connect out to the server (no inbound port on the host),
 authenticate with a one-time join token and then with a client certificate from the server's
-own CA, and execute only typed commands (install a Kafka release with its SHA-512 checked,
-write the configuration, format storage, start, stop, report status).
+own CA (or, [behind a TLS-terminating proxy](#agents-behind-a-tls-terminating-proxy), with
+signed messages), and execute only typed commands (install a Kafka release with its SHA-512
+checked, write the configuration, format storage, start, stop, report status).
 
 1. In the dashboard open **Nodes**, create a join token for the host and copy the command:
 
@@ -119,7 +126,9 @@ write the configuration, format storage, start, stop, report status).
 
 Installer variables: `BROKERIUM_AGENT_VERSION` (release tag), `BROKERIUM_AGENT_URL` (download
 from your own mirror) with `BROKERIUM_AGENT_SHA256` (its expected checksum),
-`BROKERIUM_AGENT_KAFKA_DATA_DIR` (log.dirs, default `/var/lib/kafka/data`). Binaries from
+`BROKERIUM_AGENT_KAFKA_DATA_DIR` (log.dirs, default `/var/lib/kafka/data`), and
+`BROKERIUM_AGENT_TRANSPORT`, `BROKERIUM_AGENT_TLS` and `BROKERIUM_AGENT_CA_FILE` for
+[agents behind a TLS-terminating proxy](#agents-behind-a-tls-terminating-proxy). Binaries from
 GitHub releases are always checked against the `SHA256SUMS` of the release.
 
 ### Agents behind an HTTP proxy
@@ -146,7 +155,91 @@ The agent opens an HTTP CONNECT tunnel, so mutual TLS stays end to end. The prox
 - resolve the name of the server; the agent does not resolve it itself.
 
 Proxy URLs use `http://`, optionally with Basic credentials (`http://user:password@proxy:3128`).
-A proxy that terminates TLS for the agent gateway needs the insecure agent transport instead.
+A proxy that terminates TLS for the agent gateway needs the
+[insecure agent transport](#agents-behind-a-tls-terminating-proxy) instead.
+
+### Agents behind a TLS-terminating proxy
+
+Some networks let agents reach the server only through a reverse proxy that terminates TLS, such
+as OpenResty or nginx. The proxy shows its own certificate and keeps the client certificate of
+the agent, so mutual TLS cannot work. The insecure agent transport
+([ADR 0017](../adr/0017-agent-transport-behind-proxies.md)) authenticates every message instead
+of the connection: the server signs its commands with the key of its CA, which the join token
+pins, and the agent authenticates everything it sends with a secret that it received encrypted
+at enrollment. The join token itself never crosses the proxy.
+
+1. Start the server with the plaintext listener and let the install command offer the transport:
+
+   ```bash
+   BROKERIUM_AGENT_INSECURE_ADDR=:8444
+   BROKERIUM_AGENT_TRANSPORT=insecure
+   BROKERIUM_AGENT_INSECURE_ENDPOINT=agents.example.com:443
+   ```
+
+   With Helm, set `agents.insecure.enabled=true` and `agents.insecure.endpoint`; the chart adds
+   the service port `grpc-insecure` (8444).
+
+2. Point the proxy at port 8444 of the server, for example with OpenResty or nginx 1.25.1 or
+   later:
+
+   ```nginx
+   server {
+       listen 443 ssl;
+       http2 on;
+       server_name agents.example.com;
+       ssl_certificate     /etc/nginx/tls/agents.example.com.crt;
+       ssl_certificate_key /etc/nginx/tls/agents.example.com.key;
+
+       location / {
+           grpc_pass grpc://brokerium.internal:8444;
+           grpc_read_timeout 1h;
+           grpc_send_timeout 1h;
+           client_body_timeout 1h;
+       }
+   }
+   ```
+
+   The command stream stays open as long as the agent runs; with these timeouts the proxy ends
+   an idle stream after an hour at the earliest, and the agent reconnects at once.
+
+3. Create a join token on the **Nodes** page and run its command on the host:
+
+   ```bash
+   curl -fsSL https://brokerium.example.com/api/v1/agent/install.sh | \
+     sudo BROKERIUM_AGENT_TRANSPORT=insecure BROKERIUM_AGENT_TLS=system \
+     BROKERIUM_AGENT_SERVER=agents.example.com:443 BROKERIUM_AGENT_TOKEN=brk1.… sh
+   ```
+
+`BROKERIUM_AGENT_TLS` (server: `BROKERIUM_AGENT_INSECURE_TLS`) sets how the agent connects to
+the proxy: `system` verifies the certificate of the proxy against the system CAs and
+`BROKERIUM_AGENT_CA_FILE` (a PEM file, for example with a corporate CA), `skip-verify` accepts
+any certificate, and `none` connects without TLS. None of them affects who can send commands,
+which the signatures decide, only who can read them: the proxy and every segment without TLS see
+commands, results and status in clear. Keep TLS up to the proxy and the plaintext port 8444 on a
+network you trust.
+
+Running the install command again with a new join token switches an agent between the transports
+without stopping Kafka; the credentials of the old transport stop working. Agents of the insecure
+transport have no certificate to renew, and their secret does not expire: to replace it, enroll
+the node again with a new join token. `HTTPS_PROXY` works with this transport too.
+
+Where the proxy can stay out of the TLS connection, keep mutual TLS end to end instead:
+
+- publish the agent port 8443 with a `LoadBalancer` service (`loadBalancer.ports: [grpc]` in the
+  chart), announced for example with Cilium BGP or MetalLB;
+- pass the TCP connection through the proxy with an nginx `stream` block instead of terminating
+  TLS:
+
+  ```nginx
+  stream {
+      server {
+          listen 8443;
+          proxy_pass brokerium.internal:8443;
+      }
+  }
+  ```
+
+- or route by SNI with TLS passthrough through a Gateway (`gateway.agents` in the chart).
 
 ### Adopting running nodes
 
