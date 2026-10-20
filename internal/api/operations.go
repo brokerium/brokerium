@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/brokerium/brokerium/internal/edition"
 	"github.com/brokerium/brokerium/internal/metrics"
 	"github.com/brokerium/brokerium/internal/ops"
 	"github.com/brokerium/brokerium/internal/store"
@@ -53,11 +54,14 @@ func (a *OperationsAPI) handlePlan(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	op, err := a.Engine.Plan(r.Context(), id, req.Type, req.Params, UserFrom(r.Context()).Username)
 	a.srv.Audit(r, "operation.plan", id, req.Type, map[string]any{"params": req.Params}, err)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			WriteStoreError(w, err)
-			return
-		}
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		WriteStoreError(w, err)
+		return
+	case errors.Is(err, edition.ErrLicenseRequired):
+		WriteError(w, http.StatusForbidden, "license_required", err.Error())
+		return
+	case err != nil:
 		WriteError(w, http.StatusBadRequest, "plan_failed", err.Error())
 		return
 	}
@@ -135,6 +139,8 @@ func (a *OperationsAPI) reply(w http.ResponseWriter, op *store.Operation, err er
 		WriteError(w, http.StatusConflict, "operation_running", "another operation is active on this cluster")
 	case errors.Is(err, ops.ErrConfirmName):
 		WriteError(w, http.StatusBadRequest, "confirmation_required", err.Error())
+	case errors.Is(err, edition.ErrLicenseRequired):
+		WriteError(w, http.StatusForbidden, "license_required", err.Error())
 	case errors.Is(err, ops.ErrInvalidState), errors.Is(err, ops.ErrPlanExpired):
 		WriteError(w, http.StatusConflict, "invalid_state", err.Error())
 	default:
