@@ -32,6 +32,7 @@ Values worth setting (see the [chart README](../../deploy/helm/brokerium/README.
 | `loadBalancer.*` | A `LoadBalancer` service with the dashboard port, the agent port or both, and a host name for external-dns. |
 | `publicURL`, `agents.endpoint` | The dashboard URL and the address agents dial. Derived from `gateway.*` or `loadBalancer.hostname` when empty. |
 | `agents.insecure.*` | Plaintext listener (port 8444) and install command for [agents behind a TLS-terminating proxy](#agents-behind-a-tls-terminating-proxy). |
+| `agents.kafkaMirror` | A mirror of the Kafka releases that agents try before the Apache mirrors ([details](#kafka-releases-from-an-internal-mirror)). |
 | `rbac.strimzi` | ClusterRole for managing Strimzi clusters in the same Kubernetes cluster with the pod's service account. |
 | `edition`, `license.*` | `enterprise` runs Brokerium Enterprise; `license.existingSecret` or `license.key` passes its license key. See [Editions and license keys](enterprise.md). |
 
@@ -101,6 +102,7 @@ Release assets contain `brokerium-server-<os>-<arch>` with the dashboard built i
 | `BROKERIUM_AGENT_INSECURE_ENDPOINT` | none | `host:port` agents of the insecure transport dial, usually the proxy. |
 | `BROKERIUM_AGENT_INSECURE_TLS` | `system` | How those agents connect to the proxy: `system` (TLS verified against the system CAs), `skip-verify` or `none` (plaintext). |
 | `BROKERIUM_AGENT_CERT_LIFETIME` | `8760h` (one year) | Lifetime of agent certificates and the gateway certificate; they are renewed after two thirds of it. At least `1m`. |
+| `BROKERIUM_KAFKA_MIRROR` | none | Base URL of a mirror of the Kafka releases that agents try before the Apache mirrors, for example `https://artifacts.example.com/kafka` ([details](#kafka-releases-from-an-internal-mirror)). |
 | `BROKERIUM_SECURE_COOKIES` | `false` | Set `true` behind HTTPS. |
 | `BROKERIUM_SNAPSHOT_INTERVAL` | `15s` | How often clusters are polled. |
 | `BROKERIUM_DOCKER_HOST`, `BROKERIUM_LAB_NETWORK`, `BROKERIUM_AGENT_IMAGE` | lab values | Docker provider (labs only, see [Docker lab clusters](clusters.md#docker-lab-clusters)). |
@@ -293,6 +295,30 @@ Where the proxy can stay out of the TLS connection, keep mutual TLS end to end i
   ```
 
 - or route by SNI with TLS passthrough through a Gateway (`gateway.agents` in the chart).
+
+### Kafka releases from an internal mirror
+
+Agents download a Kafka release when Brokerium creates a node on the host or upgrades it to a
+release the host does not have yet, from `dlcdn.apache.org`, `downloads.apache.org` and
+`archive.apache.org` in this order. Set `BROKERIUM_KAFKA_MIRROR` (Helm: `agents.kafkaMirror`) to
+the base URL of a mirror, and the server sends it with every install command: agents try the
+mirror first and the Apache mirrors after it.
+
+The mirror has the layout of the Apache mirrors: the archive of release `<version>` is
+`<mirror>/<version>/kafka_2.13-<version>.tgz`. With
+`BROKERIUM_KAFKA_MIRROR=https://artifacts.example.com/kafka`, Kafka 4.4.0 comes from
+`https://artifacts.example.com/kafka/4.4.0/kafka_2.13-4.4.0.tgz`. A copy of
+`https://downloads.apache.org/kafka/` works, and so does a repository in Artifactory or Nexus
+that proxies it. The server refuses to start unless the URL uses `http` or `https` and has no
+query or fragment.
+
+Checksums keep coming from Apache: the agent checks every archive against
+`https://downloads.apache.org/kafka/<version>/kafka_2.13-<version>.tgz.sha512`, or the same file
+on `archive.apache.org` for older releases, never against a checksum from the mirror or the
+server. Hosts therefore still need HTTPS access to one of these two hosts, directly or through
+`HTTPS_PROXY`; the checksum files are small. An archive with another checksum fails the step.
+When the mirror answers with an error or sends no data for a minute, the agent moves on to the
+Apache mirrors.
 
 ### Adopting running nodes
 

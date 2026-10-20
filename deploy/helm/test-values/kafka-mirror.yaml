@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# Chart CI: render with a mirror of the Kafka releases for the agents.
+agents:
+  kafkaMirror: https://artifacts.example.com/kafka

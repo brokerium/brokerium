@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -48,9 +49,12 @@ type Server struct {
 	AgentImage       string
 	// AgentCertLifetime of agent certificates and the agent gateway certificate.
 	AgentCertLifetime time.Duration
-	SnapshotInterval  time.Duration
-	SecureCookies     bool
-	WorkerInterval    time.Duration
+	// KafkaMirror is the base URL of a mirror of the Apache Kafka releases, which agents try
+	// before the Apache mirrors; empty means the Apache mirrors only.
+	KafkaMirror      string
+	SnapshotInterval time.Duration
+	SecureCookies    bool
+	WorkerInterval   time.Duration
 	// License is a Brokerium Enterprise license key and LicenseFile a file that holds one; both
 	// take precedence over the key stored through the dashboard.
 	License     string
@@ -78,6 +82,7 @@ func LoadServer() (Server, error) {
 		LabNetwork:            env("BROKERIUM_LAB_NETWORK", "brokerium-lab"),
 		AgentImage:            env("BROKERIUM_AGENT_IMAGE", defaultAgentImage(version.Version)),
 		AgentCertLifetime:     envDuration("BROKERIUM_AGENT_CERT_LIFETIME", 365*24*time.Hour),
+		KafkaMirror:           strings.TrimSpace(os.Getenv("BROKERIUM_KAFKA_MIRROR")),
 		SecureCookies:         envBool("BROKERIUM_SECURE_COOKIES", false),
 		SnapshotInterval:      envDuration("BROKERIUM_SNAPSHOT_INTERVAL", 15*time.Second),
 		WorkerInterval:        envDuration("BROKERIUM_WORKER_INTERVAL", time.Second),
@@ -89,6 +94,9 @@ func LoadServer() (Server, error) {
 		return c, errors.New("BROKERIUM_AGENT_CERT_LIFETIME must be at least 1m")
 	}
 	if err := c.checkAgentTransport(); err != nil {
+		return c, err
+	}
+	if err := checkKafkaMirror(c.KafkaMirror); err != nil {
 		return c, err
 	}
 
@@ -124,6 +132,19 @@ func (c Server) checkAgentTransport() error {
 func hostPort(s string) bool {
 	host, port, err := net.SplitHostPort(s)
 	return err == nil && host != "" && port != ""
+}
+
+// checkKafkaMirror accepts an empty mirror or an http or https base URL without a query or
+// fragment, to which agents append /<version>/<archive>.
+func checkKafkaMirror(mirror string) error {
+	if mirror == "" {
+		return nil
+	}
+	u, err := url.Parse(mirror)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || strings.ContainsAny(mirror, "?#") {
+		return fmt.Errorf("BROKERIUM_KAFKA_MIRROR must be an http or https URL without a query or fragment, not %q", mirror)
+	}
+	return nil
 }
 
 // loadSecretKey decodes an explicit base64 key or creates a random one in the data dir.

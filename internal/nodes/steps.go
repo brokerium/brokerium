@@ -255,11 +255,16 @@ func (m *Manager) stepInstall(ctx context.Context, x *ops.Exec, raw json.RawMess
 	if version == "" {
 		version = settingsOf(x.Cluster).KafkaVersion
 	}
-	res, err := m.send(ctx, a.Name, &agentv1.Command{Action: &agentv1.Command_Install{Install: &agentv1.InstallKafka{Version: version}}}, 30*time.Minute)
+	res, err := m.send(ctx, a.Name, m.installCommand(version), 30*time.Minute)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{"version": version, "output": res.GetOutput()}, nil
+}
+
+// installCommand asks an agent to install a Kafka release, from the configured mirror first.
+func (m *Manager) installCommand(version string) *agentv1.Command {
+	return &agentv1.Command{Action: &agentv1.Command_Install{Install: &agentv1.InstallKafka{Version: version, MirrorUrl: m.Cfg.KafkaMirror}}}
 }
 
 // quorumFor returns the quorum configuration a node should use now.
