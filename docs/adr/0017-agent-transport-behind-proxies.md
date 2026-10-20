@@ -90,6 +90,7 @@ hex SHA-256 of the secret as text, which is what the server stores for the token
    failure closes the session and is logged without secrets.
 5. The first agent message must be its hello. Only that authenticated message registers the
    session, replacing an earlier session of the node, so a replayed session hello opens nothing.
+   Streams that do not get this far within 30 seconds are closed.
 
 ## Threat analysis
 
