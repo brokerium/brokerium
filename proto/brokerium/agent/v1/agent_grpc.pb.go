@@ -30,11 +30,15 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// AgentService is served by brokerium-server; agents connect out to it (ADR 0009).
+// AgentService is served by brokerium-server; agents connect out to it (ADR 0009). Agents behind
+// TLS-terminating proxies use the insecure transport (ADR 0017): the same calls on a listener of
+// its own, with an enrollment proof instead of the join token and signed session messages.
 type AgentServiceClient interface {
-	// Enroll exchanges a single-use join token and a CSR for a client certificate.
+	// Enroll exchanges a single-use join token for the credentials of a node: a client
+	// certificate for a CSR (mutual TLS) or a node secret for an enrollment proof (insecure
+	// transport).
 	Enroll(ctx context.Context, in *EnrollRequest, opts ...grpc.CallOption) (*EnrollResponse, error)
-	// Connect is the long-lived mTLS stream: the server sends commands, the agent answers
+	// Connect is the long-lived command stream: the server sends commands, the agent answers
 	// with results and periodic status reports.
 	Connect(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[AgentMessage, ServerMessage], error)
 	// RenewCertificate signs a new client certificate for the node of the calling mTLS client
@@ -87,11 +91,15 @@ func (c *agentServiceClient) RenewCertificate(ctx context.Context, in *RenewCert
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
 //
-// AgentService is served by brokerium-server; agents connect out to it (ADR 0009).
+// AgentService is served by brokerium-server; agents connect out to it (ADR 0009). Agents behind
+// TLS-terminating proxies use the insecure transport (ADR 0017): the same calls on a listener of
+// its own, with an enrollment proof instead of the join token and signed session messages.
 type AgentServiceServer interface {
-	// Enroll exchanges a single-use join token and a CSR for a client certificate.
+	// Enroll exchanges a single-use join token for the credentials of a node: a client
+	// certificate for a CSR (mutual TLS) or a node secret for an enrollment proof (insecure
+	// transport).
 	Enroll(context.Context, *EnrollRequest) (*EnrollResponse, error)
-	// Connect is the long-lived mTLS stream: the server sends commands, the agent answers
+	// Connect is the long-lived command stream: the server sends commands, the agent answers
 	// with results and periodic status reports.
 	Connect(grpc.BidiStreamingServer[AgentMessage, ServerMessage]) error
 	// RenewCertificate signs a new client certificate for the node of the calling mTLS client
