@@ -1,8 +1,8 @@
 name: release
 
-# Builds the release binaries of both editions and the Helm chart for a version tag and publishes them with checksums
-# and an SBOM, pushes the chart to GHCR and updates the Helm repository on GitHub Pages.
-# Container images for the tag are built by the CI workflow.
+# Builds the release binaries of both editions and the Helm chart for a version tag and publishes
+# them with checksums and an SBOM, pushes the chart to GHCR and updates the Helm repository on
+# GitHub Pages. Container images for the tag are built by the CI workflow.
 on:
   push:
     tags: ["v*"]
