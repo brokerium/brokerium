@@ -113,11 +113,39 @@ func (g *Gateway) enrollInsecure(ctx context.Context, req *agentv1.EnrollRequest
 	return resp, nil
 }
 
+// handshakeTimeout bounds the session handshake, so streams that never authenticate do not
+// stay open.
+const handshakeTimeout = 30 * time.Second
+
+// recvBefore receives the next message with recv, or fails once deadline passes. Recv of a
+// gRPC stream returns when the handler does, which ends the goroutine.
+func recvBefore[T any](recv func() (T, error), deadline time.Time) (T, error) {
+	type result struct {
+		m   T
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		m, err := recv()
+		ch <- result{m, err}
+	}()
+	timer := time.NewTimer(time.Until(deadline))
+	defer timer.Stop()
+	select {
+	case r := <-ch:
+		return r.m, r.err
+	case <-timer.C:
+		var zero T
+		return zero, status.Error(codes.DeadlineExceeded, "the session handshake took too long")
+	}
+}
+
 // connectInsecure runs a Connect stream of the insecure transport: the session handshake, then
 // signed commands and agent messages authenticated with the node secret. The session replaces
 // an earlier one of the node only after the first authenticated agent message.
 func (g *Gateway) connectInsecure(stream agentv1.AgentService_ConnectServer) error {
-	in, err := stream.Recv()
+	deadline := time.Now().Add(handshakeTimeout)
+	in, err := recvBefore(stream.Recv, deadline)
 	if err != nil {
 		return err
 	}
@@ -139,7 +167,7 @@ func (g *Gateway) connectInsecure(stream agentv1.AgentService_ConnectServer) err
 		return err
 	}
 	signed := &signedStream{AgentService_ConnectServer: stream, session: sess, log: g.Log, node: node.Name}
-	first, err := signed.Recv()
+	first, err := recvBefore(signed.Recv, deadline)
 	if err != nil {
 		return err
 	}

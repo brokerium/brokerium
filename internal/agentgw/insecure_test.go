@@ -117,6 +117,30 @@ func TestRedeemProof(t *testing.T) {
 	}
 }
 
+func TestRecvBefore(t *testing.T) {
+	t.Parallel()
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	tests := []struct {
+		name string
+		recv func() (string, error)
+		want codes.Code
+	}{
+		{"message in time", func() (string, error) { return "hello", nil }, codes.OK},
+		{"stream error", func() (string, error) { return "", status.Error(codes.Canceled, "gone") }, codes.Canceled},
+		{"no message", func() (string, error) { <-block; return "", nil }, codes.DeadlineExceeded},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := recvBefore(tt.recv, time.Now().Add(50*time.Millisecond))
+			if status.Code(err) != tt.want || (err == nil && got != "hello") {
+				t.Errorf("recvBefore = %q, %v; want %s", got, err, tt.want)
+			}
+		})
+	}
+}
+
 func TestRedeemProofExpired(t *testing.T) {
 	t.Parallel()
 	secret, hash := auth.NewToken()
