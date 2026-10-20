@@ -22,6 +22,8 @@ jobs:
         include:
           - image: brokerium-server
             summary: Control plane and dashboard for Apache Kafka® KRaft clusters
+          - image: brokerium-server-enterprise
+            summary: Brokerium Enterprise, the control plane for Apache Kafka® KRaft clusters
           - image: brokerium-agent
             summary: Agent of Brokerium for Apache Kafka® hosts
     steps:
