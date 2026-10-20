@@ -454,6 +454,84 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+  /api/v1/clusters/{id}/topics/{topic}/search:
+    parameters:
+      - { $ref: "#/components/parameters/ClusterId" }
+      - { $ref: "#/components/parameters/Topic" }
+    post:
+      tags: [topics]
+      summary: Search records
+      description: >-
+        Brokerium Enterprise, feature `message-tools`. Role: viewer. Reads the selected partitions
+        from the start of the time range (or the earliest record) and returns the records that
+        match, sorted by partition and offset. The search stops after `limit` matches (100 by
+        default, at most 1000), `maxRecords` records read (a million by default) or
+        `timeoutSeconds` (30 by default, at most 300); pass `next` as `resume` to continue.
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: "#/components/schemas/MessageSelection" }
+                - type: object
+                  properties:
+                    limit: { type: integer }
+                    maxRecords: { type: integer, format: int64 }
+                    timeoutSeconds: { type: integer }
+      responses:
+        "200":
+          description: Matches and how far the search got.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/ScanResult" }
+                  - type: object
+                    properties:
+                      messages:
+                        type: array
+                        items: { $ref: "#/components/schemas/Message" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/clusters/{id}/topics/{topic}/export:
+    parameters:
+      - { $ref: "#/components/parameters/ClusterId" }
+      - { $ref: "#/components/parameters/Topic" }
+    post:
+      tags: [topics]
+      summary: Export records
+      description: >-
+        Brokerium Enterprise, feature `message-tools`. Role: viewer. Streams the matching records
+        as a file with complete values: NDJSON (the default), a JSON array or CSV. Keys, values and
+        header values that are not UTF-8 are base64-encoded. At most `limit` records (a million)
+        within `timeoutSeconds` (600 by default, at most 3600). Exports are audited as
+        `topic.export`.
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: "#/components/schemas/MessageSelection" }
+                - type: object
+                  properties:
+                    format: { type: string, enum: [ndjson, json, csv], default: ndjson }
+                    limit: { type: integer, format: int64 }
+                    timeoutSeconds: { type: integer }
+      responses:
+        "200":
+          description: The file.
+          content:
+            application/x-ndjson: { schema: { type: string } }
+            application/json: { schema: { type: string } }
+            text/csv: { schema: { type: string } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /api/v1/clusters/{id}/topics/{topic}/messages:
     parameters:
       - { $ref: "#/components/parameters/ClusterId" }
@@ -1586,6 +1664,50 @@ components:
         bytesInPerSec: { type: number }
         messagesInPerSec: { type: number }
 
+    MessageMatch:
+      type: object
+      description: Either a text the bytes contain or a regular expression (RE2 syntax), at most 1024 bytes.
+      properties:
+        contains: { type: string }
+        regex: { type: string }
+    MessageSelection:
+      type: object
+      description: Partitions, a time range and a filter; empty fields match every record.
+      properties:
+        partitions: { type: array, items: { type: integer, format: int32 }, description: All partitions when empty. }
+        fromTime: { type: integer, format: int64, description: "Unix milliseconds, inclusive." }
+        toTime: { type: integer, format: int64, description: "Unix milliseconds, exclusive." }
+        resume:
+          type: array
+          description: Continues an earlier search from the offsets in its `next`.
+          items:
+            type: object
+            properties:
+              partition: { type: integer, format: int32 }
+              offset: { type: integer, format: int64 }
+        key: { $ref: "#/components/schemas/MessageMatch" }
+        value: { $ref: "#/components/schemas/MessageMatch" }
+        header:
+          type: object
+          required: [key]
+          properties:
+            key: { type: string }
+            value: { $ref: "#/components/schemas/MessageMatch" }
+        ignoreCase: { type: boolean }
+    ScanResult:
+      type: object
+      properties:
+        scanned: { type: integer, format: int64, description: Records read. }
+        next:
+          type: array
+          description: The first offset not read in each partition.
+          items:
+            type: object
+            properties:
+              partition: { type: integer, format: int32 }
+              offset: { type: integer, format: int64 }
+        complete: { type: boolean, description: Every partition was read to the end of the range. }
+        stopped: { type: string, enum: [limit, records, time], description: What ended an incomplete search. }
     DeleteRecordsResult:
       type: object
       properties:
@@ -1743,6 +1865,26 @@ components:
         finalize-upgrade:
           type: object
           description: Raises every feature to the highest level all nodes support.
+        copy-messages:
+          description: >-
+            Brokerium Enterprise, feature `message-tools`. Copies the selected records that exist at
+            planning time to a topic of this or another cluster, one step per partition, with a
+            throttle. A restart of the server during a step copies the records since its last
+            progress again.
+          allOf:
+            - { $ref: "#/components/schemas/MessageSelection" }
+            - type: object
+              required: [topic, targetTopic]
+              properties:
+                topic: { type: string, description: The source topic. }
+                targetCluster: { type: string, description: The cluster of the operation by default. }
+                targetTopic: { type: string, description: Must exist. }
+                partitioning:
+                  type: string
+                  enum: [same, key]
+                  description: "`same` keeps partition numbers, `key` uses the partitioner of the target; `same` by default when the target has enough partitions."
+                keepTimestamps: { type: boolean, default: true }
+                throttleBytesPerSec: { type: integer, format: int64, default: 10485760 }
         bootstrap-cluster:
           type: object
           properties:

@@ -116,6 +116,98 @@ function MessageDetail({ message }: { message: Message }) {
   );
 }
 
+/** Records with a row each; a click on a row shows its key, value and headers in full. */
+export function MessageTable({ messages }: { messages: Message[] }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  return (
+    <Table.ScrollContainer minWidth={900}>
+      <Table verticalSpacing="xs" highlightOnHover>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th w={32} />
+            <Table.Th>Partition</Table.Th>
+            <Table.Th>Offset</Table.Th>
+            <Table.Th>Timestamp</Table.Th>
+            <Table.Th>Key</Table.Th>
+            <Table.Th>Value</Table.Th>
+            <Table.Th>Headers</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {messages.map((m) => {
+            const key = `${m.partition}-${m.offset}`;
+            const open = expanded.has(key);
+            return (
+              <Fragment key={key}>
+                <Table.Tr style={{ cursor: 'pointer' }} onClick={() => toggle(key)}>
+                  <Table.Td>{open ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}</Table.Td>
+                  <Table.Td>{m.partition}</Table.Td>
+                  <Table.Td>
+                    <Text size="sm" ff="monospace">
+                      {formatNumber(m.offset)}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm" style={{ whiteSpace: 'nowrap' }}>
+                      {formatDateTime(m.timestamp)}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td maw={200}>
+                    <Group gap={4} wrap="nowrap">
+                      {m.keyEncoding === 'base64' && <Base64Badge />}
+                      <Text size="sm" ff="monospace" truncate="end">
+                        {m.key === null ? <Text span c="dimmed">null</Text> : previewValue(m.key, 60)}
+                      </Text>
+                    </Group>
+                  </Table.Td>
+                  <Table.Td maw={480}>
+                    <Group gap={4} wrap="nowrap">
+                      {m.valueEncoding === 'base64' && <Base64Badge />}
+                      {m.value === null ? (
+                        <TombstoneBadge />
+                      ) : (
+                        <Text size="sm" ff="monospace" truncate="end">
+                          {previewValue(m.value)}
+                        </Text>
+                      )}
+                    </Group>
+                  </Table.Td>
+                  <Table.Td>{m.headers.length || '—'}</Table.Td>
+                </Table.Tr>
+                {open && (
+                  <Table.Tr>
+                    <Table.Td colSpan={7} p={0}>
+                      <Box bg="var(--mantine-color-default-hover)">
+                        <MessageDetail message={m} />
+                      </Box>
+                    </Table.Td>
+                  </Table.Tr>
+                )}
+              </Fragment>
+            );
+          })}
+          {messages.length === 0 && (
+            <Table.Tr>
+              <Table.Td colSpan={7}>
+                <Text size="sm" c="dimmed" ta="center" py="md">
+                  No records found.
+                </Text>
+              </Table.Td>
+            </Table.Tr>
+          )}
+        </Table.Tbody>
+      </Table>
+    </Table.ScrollContainer>
+  );
+}
+
 interface MessagesPanelProps {
   clusterId: string;
   topic: string;
@@ -129,7 +221,6 @@ export function MessagesPanel({ clusterId, topic, partitionCount }: MessagesPane
   const [timestamp, setTimestamp] = useState('');
   const [limit, setLimit] = useState('50');
   const [query, setQuery] = useState<MessageQuery | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const messages = useMessages(clusterId, topic, query);
 
   const timestampMs = timestamp ? new Date(timestamp).getTime() : Number.NaN;
@@ -143,24 +234,13 @@ export function MessagesPanel({ clusterId, topic, partitionCount }: MessagesPane
       timestamp: from === 'timestamp' ? timestampMs : undefined,
       limit: Number(limit),
     };
-    setExpanded(new Set());
     if (JSON.stringify(next) === JSON.stringify(query)) void messages.refetch();
     else setQuery(next);
   };
 
   const turnPage = (direction: 'after' | 'before', cursor: string) => {
-    if (!query) return;
-    setExpanded(new Set());
-    setQuery({ ...query, from: direction, cursor });
+    if (query) setQuery({ ...query, from: direction, cursor });
   };
-
-  const toggle = (key: string) =>
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
 
   return (
     <Stack gap="md">
@@ -223,84 +303,7 @@ export function MessagesPanel({ clusterId, topic, partitionCount }: MessagesPane
       {messages.error && <QueryError error={messages.error} title="Could not read records" />}
       {messages.data && (
         <Paper withBorder radius="md">
-          <Table.ScrollContainer minWidth={900}>
-            <Table verticalSpacing="xs" highlightOnHover>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th w={32} />
-                  <Table.Th>Partition</Table.Th>
-                  <Table.Th>Offset</Table.Th>
-                  <Table.Th>Timestamp</Table.Th>
-                  <Table.Th>Key</Table.Th>
-                  <Table.Th>Value</Table.Th>
-                  <Table.Th>Headers</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {messages.data.messages.map((m) => {
-                  const key = `${m.partition}-${m.offset}`;
-                  const open = expanded.has(key);
-                  return (
-                    <Fragment key={key}>
-                      <Table.Tr style={{ cursor: 'pointer' }} onClick={() => toggle(key)}>
-                        <Table.Td>{open ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}</Table.Td>
-                        <Table.Td>{m.partition}</Table.Td>
-                        <Table.Td>
-                          <Text size="sm" ff="monospace">
-                            {formatNumber(m.offset)}
-                          </Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm" style={{ whiteSpace: 'nowrap' }}>
-                            {formatDateTime(m.timestamp)}
-                          </Text>
-                        </Table.Td>
-                        <Table.Td maw={200}>
-                          <Group gap={4} wrap="nowrap">
-                            {m.keyEncoding === 'base64' && <Base64Badge />}
-                            <Text size="sm" ff="monospace" truncate="end">
-                              {m.key === null ? <Text span c="dimmed">null</Text> : previewValue(m.key, 60)}
-                            </Text>
-                          </Group>
-                        </Table.Td>
-                        <Table.Td maw={480}>
-                          <Group gap={4} wrap="nowrap">
-                            {m.valueEncoding === 'base64' && <Base64Badge />}
-                            {m.value === null ? (
-                              <TombstoneBadge />
-                            ) : (
-                              <Text size="sm" ff="monospace" truncate="end">
-                                {previewValue(m.value)}
-                              </Text>
-                            )}
-                          </Group>
-                        </Table.Td>
-                        <Table.Td>{m.headers.length || '—'}</Table.Td>
-                      </Table.Tr>
-                      {open && (
-                        <Table.Tr>
-                          <Table.Td colSpan={7} p={0}>
-                            <Box bg="var(--mantine-color-default-hover)">
-                              <MessageDetail message={m} />
-                            </Box>
-                          </Table.Td>
-                        </Table.Tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-                {messages.data.messages.length === 0 && (
-                  <Table.Tr>
-                    <Table.Td colSpan={7}>
-                      <Text size="sm" c="dimmed" ta="center" py="md">
-                        No records found.
-                      </Text>
-                    </Table.Td>
-                  </Table.Tr>
-                )}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
+          <MessageTable key={JSON.stringify(query)} messages={messages.data.messages} />
           <Group justify="space-between" px="sm" py="xs">
             <Text size="sm" c="dimmed">
               {formatNumber(messages.data.messages.length)} records

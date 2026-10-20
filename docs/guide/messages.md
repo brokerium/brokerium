@@ -26,6 +26,37 @@ text or base64 for binary data. The **Tombstone** mode produces a record without
 compacted topic it removes the earlier records with the same key once compaction runs. Compacted
 topics reject records without a key.
 
+## Searching and exporting records (Enterprise)
+
+The **Search** tab of the topic page finds records by key, value or header (a text they contain or
+a regular expression in RE2 syntax, optionally ignoring case), a time range and a partition. A
+search reads from the start of the time range, or from the earliest record, and stops after the
+chosen number of matches, a million records read or 30 seconds; **Continue** reads on from where
+it stopped. Only committed records of transactions are read.
+
+**Export** writes every record that matches, up to a million, to a file: NDJSON with one record
+per line, a JSON array or CSV. Values are complete; keys, values and header values that are not
+UTF-8 are base64 and marked so, and CSV marks null keys and values with the encoding `null`.
+Exports are recorded in the audit log as `topic.export`.
+
+The API is `POST /api/v1/clusters/{id}/topics/{topic}/search` and `.../export`.
+
+## Copying and replaying records (Enterprise)
+
+**Copy messages** on the topic page copies the records that exist now and match a filter to a
+topic of the same or another cluster; copying into the same topic replays them. The target topic
+must exist. Brokerium plans a `copy-messages` operation with one step per partition, and the copy
+starts once you confirm it on the operation page, where it can be paused or cancelled like any
+operation.
+
+- **Partitioning:** the same partition number (the default when the target has enough
+  partitions) or the partitioner of the target, which places records by key.
+- **Throttle:** 10 MiB/s by default.
+- **Timestamps** are kept unless you turn that off; a target topic with
+  `message.timestamp.type=LogAppendTime` sets its own.
+- Copies are at least once: a restart of the server during a step copies the records since its
+  last recorded progress again, so the target can receive up to a second of records twice.
+
 ## Removing records
 
 Kafka keeps records until retention or compaction removes them. Without Brokerium Enterprise:
