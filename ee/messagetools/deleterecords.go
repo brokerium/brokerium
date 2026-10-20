@@ -61,7 +61,7 @@ var (
 	ErrBadDeleteRequest = errors.New("invalid delete request")
 	// ErrCompactedTopic is returned for topics whose cleanup policy does not include delete,
 	// where Kafka refuses to delete records.
-	ErrCompactedTopic = errors.New("Kafka deletes records only in topics whose cleanup.policy includes delete; " +
+	ErrCompactedTopic = errors.New("records can be deleted only in topics whose cleanup.policy includes delete; " +
 		"produce tombstones to remove keys from a compacted topic")
 )
 

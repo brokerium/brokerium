@@ -410,6 +410,50 @@ paths:
       responses:
         "204": { description: Applied. }
         "400": { $ref: "#/components/responses/Error" }
+  /api/v1/clusters/{id}/topics/{topic}/delete-records:
+    parameters:
+      - { $ref: "#/components/parameters/ClusterId" }
+      - { $ref: "#/components/parameters/Topic" }
+    post:
+      tags: [topics]
+      summary: Delete records or empty a topic
+      description: >-
+        Brokerium Enterprise, feature `message-tools`. Role: operator. Deletes the records before
+        an offset in each listed partition, the records older than a time, or all records (Kafka
+        DeleteRecords). Offsets past the end are clamped to the end. A dry run shows what would be
+        deleted; otherwise `confirm` must repeat the topic name. Topics whose `cleanup.policy`
+        does not include `delete` answer 409 `compacted_topic`.
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Exactly one of `partitions`, `beforeTimestamp` and `all`.
+              properties:
+                partitions:
+                  type: array
+                  items:
+                    type: object
+                    required: [partition, offset]
+                    properties:
+                      partition: { type: integer, format: int32 }
+                      offset: { type: integer, format: int64, description: The records before this offset are deleted. }
+                beforeTimestamp: { type: integer, format: int64, description: Unix milliseconds. }
+                all: { type: boolean }
+                dryRun: { type: boolean }
+                confirm: { type: string, description: The topic name; required unless `dryRun` is set. }
+      responses:
+        "200":
+          description: Planned or performed deletion.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeleteRecordsResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /api/v1/clusters/{id}/topics/{topic}/messages:
     parameters:
       - { $ref: "#/components/parameters/ClusterId" }
@@ -1542,6 +1586,24 @@ components:
         bytesInPerSec: { type: number }
         messagesInPerSec: { type: number }
 
+    DeleteRecordsResult:
+      type: object
+      properties:
+        partitions:
+          type: array
+          description: Partitions with records to delete.
+          items:
+            type: object
+            properties:
+              partition: { type: integer, format: int32 }
+              startOffset: { type: integer, format: int64 }
+              endOffset: { type: integer, format: int64 }
+              deleteBefore: { type: integer, format: int64, description: The new start offset. }
+              records: { type: integer, format: int64 }
+              error: { type: string, description: Why the deletion failed in this partition. }
+        records: { type: integer, format: int64 }
+        failed: { type: integer, description: Partitions where the deletion failed. }
+        dryRun: { type: boolean }
     MessageHeader:
       type: object
       required: [key, value]

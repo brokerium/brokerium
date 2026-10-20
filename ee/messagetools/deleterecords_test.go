@@ -64,6 +64,29 @@ func TestPlanDelete(t *testing.T) {
 	}
 }
 
+func TestDeleteAudit(t *testing.T) {
+	t.Parallel()
+	ts := int64(1_700_000_000_000)
+	res := &DeleteResult{Records: 30, Failed: 1, Partitions: []DeletePartition{
+		{Partition: 0, DeleteBefore: 40, Records: 30},
+		{Partition: 1, DeleteBefore: 9, Error: "NOT_LEADER_OR_FOLLOWER"},
+	}}
+	detail := deleteAudit(DeleteRequest{BeforeTimestamp: &ts}, res)
+	before, _ := detail["deleteBefore"].(map[int32]int64)
+	if detail["mode"] != "time" || detail["beforeTimestamp"] != ts || detail["records"] != int64(30) || len(before) != 1 || before[0] != 40 {
+		t.Fatalf("deleteAudit = %v", detail)
+	}
+	if err := auditResult(res, nil); err == nil || err.Error() != "1 of 2 partitions failed" {
+		t.Fatalf("auditResult = %v", err)
+	}
+	if err := auditResult(&DeleteResult{}, nil); err != nil {
+		t.Fatalf("auditResult without failures = %v", err)
+	}
+	if detail := deleteAudit(DeleteRequest{All: true}, nil); detail["mode"] != "all" || detail["records"] != nil {
+		t.Fatalf("deleteAudit after an error = %v", detail)
+	}
+}
+
 func TestDeletable(t *testing.T) {
 	t.Parallel()
 	for policy, want := range map[string]bool{"delete": true, "compact,delete": true, "delete, compact": true, "compact": false, "": false} {
