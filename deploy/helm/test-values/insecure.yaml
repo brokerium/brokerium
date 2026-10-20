@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# Chart CI: render with the plaintext agent listener for agents behind a TLS-terminating proxy,
+# also published on a LoadBalancer service.
+agents:
+  insecure:
+    enabled: true
+    endpoint: agents.example.com:443
+    tls: system
+loadBalancer:
+  enabled: true
+  ports: [http, grpc-insecure]
+  hostname: brokerium.example.com

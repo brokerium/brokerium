@@ -13,3 +13,6 @@ spec:
   ports:
     - { name: http, port: {{ .Values.service.http }}, targetPort: http }
     - { name: grpc, port: {{ .Values.service.grpc }}, targetPort: grpc }
+    {{- if .Values.agents.insecure.enabled }}
+    - { name: grpc-insecure, port: {{ .Values.agents.insecure.port }}, targetPort: grpc-insecure, appProtocol: kubernetes.io/h2c }
+    {{- end }}
