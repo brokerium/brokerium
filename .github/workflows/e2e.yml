@@ -87,7 +87,7 @@ jobs:
       BROKERIUM_E2E_CERT_LIFETIME: 3m
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: jdx/mise-action@v5.2.0
+      - uses: jdx/mise-action@v5.2.4
         with:
           install: true
           install_args: go
@@ -205,7 +205,7 @@ jobs:
       BROKERIUM_KAFKA_MIRROR: http://kafka-mirror:8090/kafka
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: jdx/mise-action@v5.2.0
+      - uses: jdx/mise-action@v5.2.4
         with:
           install: true
           install_args: go
@@ -287,7 +287,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: jdx/mise-action@v5.2.0
+      - uses: jdx/mise-action@v5.2.4
         with:
           install: true
           install_args: go
