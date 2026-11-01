@@ -34,7 +34,7 @@ jobs:
       BROKERIUM_E2E_STRIMZI_KUBECONFIG: ${{ github.workspace }}/.data/kind.kubeconfig
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: jdx/mise-action@v5.2.0
+      - uses: jdx/mise-action@v5.2.4
         with:
           install: true
           install_args: go node pnpm
