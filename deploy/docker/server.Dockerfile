@@ -4,7 +4,7 @@
 # community, or enterprise for the image of Brokerium Enterprise (ADR 0016).
 ARG EDITION=community
 
-FROM --platform=$BUILDPLATFORM node:24.22.0-alpine AS web
+FROM --platform=$BUILDPLATFORM node:24.22.2-alpine AS web
 ARG EDITION
 WORKDIR /src/web
 RUN npm install -g pnpm@12.11.2
@@ -13,7 +13,7 @@ RUN pnpm install --frozen-lockfile
 COPY web/ ./
 RUN VITE_EDITION=$EDITION pnpm build && node scripts/check-edition.mjs "$EDITION" dist
 
-FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS build
 ARG TARGETOS TARGETARCH VERSION=dev COMMIT=none DATE=unknown EDITION
 WORKDIR /src
 COPY go.mod go.sum ./
