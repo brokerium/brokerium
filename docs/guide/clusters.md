@@ -66,12 +66,21 @@ Later operations name their hosts the same way:
 | --- | --- |
 | `add-broker` | `{"nodes": [{"node": "<node id>", "rack": "rack-c"}], "rebalance": true}`; `nodeId` per host is optional, by default ids continue after the highest broker. |
 | `add-controller` | `{"node": "<node id>"}`, optionally `"nodeId": 4`; a quorum has at most five voters. |
-| `replace-broker` | `{"brokerId": 103, "mode": "same-id"}` starts broker 103 again on its host with an empty disk; add `"node"` to move the id to another free host. `{"brokerId": 103, "mode": "new-id", "node": "<node id>"}` starts a broker with a new id on that host and moves the replicas over. |
+| `replace-broker` | `{"brokerId": 103, "mode": "same-id"}` starts broker 103 again on its host, for example after its disk was replaced, and followers re-replicate what the disk lacks; add `"node"` to move the id to another free host. `{"brokerId": 103, "mode": "new-id", "node": "<node id>"}` starts a broker with a new id on that host and moves the replicas over. |
 
-Decommissioning a broker and removing a controller stop Kafka on the host and release it: the
-host has no role and no cluster afterwards, but keeps its Kafka data. Clear its data directory
-before it runs a node of another cluster or with another node id. Deleting the registration of an
-agent cluster releases its hosts too and leaves Kafka running on them.
+Decommissioning a broker, removing a controller and replacing a broker stop Kafka on the old host
+and release it: the host has no role and no cluster afterwards, but keeps its Kafka data. A host
+that is down at that moment is released at once and stops Kafka as soon as its agent connects
+again, so it does not run the old node next to its replacement. Clear the data directory of a
+released host before it runs a node of another cluster or with another node id. Deleting the
+registration of an agent cluster releases its hosts too and leaves Kafka running on them.
+
+An operation that fails halfway leaves the hosts it already reached with their role; a failed
+operation cannot be resumed. After a failed `add-broker` or `add-controller`, fix the cause and
+plan it again with the same hosts: a host whose broker is not registered, or whose controller is
+not a voter, continues that node. After a failed creation, delete the cluster registration, stop
+Kafka on its hosts (`sudo systemctl stop brokerium-kafka.service`) and clear their data
+directories before you choose them again.
 
 ## Amazon MSK
 

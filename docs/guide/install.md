@@ -138,10 +138,12 @@ checked, write the configuration, format storage, start, stop, report status).
 
 Every node has an **advertised host**: the address the listeners of its Kafka node advertise,
 which clients, the other nodes and the server connect to. It starts as the host name the agent
-reports, so that name must resolve in DNS, or you set another name or an IP address. Each node
-also has a **rack**, the `broker.rack` of a broker on it unless the operation sets another one.
-Change the name, the advertised host and the rack on the **Nodes** page or with the API (role
-operator; an empty `advertisedHost` goes back to the reported host name):
+reports, so that name must resolve in DNS, or you set another name or an IP address. A host whose
+reported name is neither a DNS name nor an IP address, for example one with an underscore, can
+run Kafka once you set its advertised host. Each node also has a **rack**, the `broker.rack` of a
+broker on it unless the operation sets another one. Change the name, the advertised host and the
+rack on the **Nodes** page or with the API (role operator; an empty `advertisedHost` goes back to
+the reported host name):
 
 ```bash
 curl -X PATCH https://brokerium.example.com/api/v1/nodes/<node id> \
@@ -296,10 +298,11 @@ which the signatures decide, only who can read them: the proxy and every segment
 commands, results and status in clear. Keep TLS up to the proxy and the plaintext port 8444 on a
 network you trust.
 
-Running the install command again with a new join token switches an agent between the transports
-without stopping Kafka; the credentials of the old transport stop working. Agents of the insecure
-transport have no certificate to renew, and their secret does not expire: to replace it, enroll
-the node again with a new join token. `HTTPS_PROXY` works with this transport too.
+Running the install command again with a new join token for the node (`nodeId`) switches an agent
+between the transports without stopping Kafka; the credentials of the old transport stop working.
+A join token without a node would enroll the host as a new node. Agents of the insecure transport
+have no certificate to renew, and their secret does not expire: to replace it, enroll the node
+again with a new join token for it. `HTTPS_PROXY` works with this transport too.
 
 Where the proxy can stay out of the TLS connection, keep mutual TLS end to end instead:
 

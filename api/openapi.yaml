@@ -1005,7 +1005,8 @@ paths:
                   type: string
                   description: >-
                     A DNS name (RFC 1123 labels separated by dots) or an IPv4 or IPv6 address; an
-                    empty string goes back to the host name the agent reported.
+                    empty string goes back to the host name the agent reported, which a node that
+                    runs Kafka accepts only when that name is a DNS name or an IP address.
                 rack: { type: string, pattern: "^[A-Za-z0-9._-]{0,64}$", description: Empty for none. }
       responses:
         "200":
@@ -1966,7 +1967,8 @@ components:
           type: object
           description: >-
             Agent clusters take `nodes`, Docker clusters `count` and `rack`. Node ids default to the
-            next ids after the highest broker.
+            next ids after the highest broker. A host that holds a broker of the cluster from a
+            failed attempt, which is not registered, continues that broker.
           properties:
             nodes:
               type: array
@@ -1995,7 +1997,9 @@ components:
           type: object
           description: >-
             Agent clusters require `node`; the id defaults to the next one after the highest
-            voter. A quorum has at most five voters. Docker clusters take no parameters.
+            voter, and a host that holds a controller of the cluster from a failed attempt, which
+            is not a voter, continues that controller. A quorum has at most five voters. Docker
+            clusters take no parameters.
           properties:
             node: { type: string, description: Id of the agent node. }
             nodeId: { type: integer, minimum: 0 }
@@ -2096,7 +2100,9 @@ components:
           type: string
           description: >-
             The host the listeners of the node advertise and the quorum and the server use; the
-            reported host name by default. Never empty for nodes of agent clusters.
+            reported host name by default, so it is empty only for an agent that reports none. A
+            node whose advertised host is neither a DNS name nor an IP address cannot be chosen
+            for a cluster.
         rack: { type: string, description: "Default broker.rack when the node joins a cluster; empty for none." }
         agentVersion: { type: string }
         transport:

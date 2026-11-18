@@ -25,7 +25,11 @@ All notable changes to Brokerium are documented here. The format follows
   another node, and the steps check the hosts again. Docker clusters keep their parameters.
 - Removing a node from an agent cluster (decommission, removing a controller, replacing a
   broker) releases its host for other clusters, and so does deleting the registration of a
-  cluster.
+  cluster. A host that is down at that moment stops Kafka when its agent connects again, so that
+  it does not run the node next to its replacement.
+- Planning `add-broker` or `add-controller` again on a host that kept its role from a failed
+  attempt continues its node, as long as the broker is not registered or the controller is not a
+  voter.
 - Rolling restarts, upgrades and quorum migrations of agent clusters record the bootstrap
   servers again at the end, so that changed advertised hosts are used; clusters with adopted
   nodes keep theirs.
@@ -43,6 +47,9 @@ All notable changes to Brokerium are documented here. The format follows
   **Nodes** page before you add nodes.
 - Scripts that plan `bootstrap-cluster`, `add-broker`, `add-controller` or `replace-broker` on
   agent clusters pass the hosts with `nodes` or `node`.
+- To enroll a host again, for example to switch the agent transport or after its certificate
+  expired, create the join token for its node (`nodeId`) or with its node name; a token without
+  either enrolls the host as a new node.
 
 ## [0.3.0] - 2026-10-20
 
