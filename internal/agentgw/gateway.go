@@ -24,7 +24,6 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
-	"github.com/brokerium/brokerium/internal/agentcfg"
 	"github.com/brokerium/brokerium/internal/auth"
 	"github.com/brokerium/brokerium/internal/secrets"
 	"github.com/brokerium/brokerium/internal/store"
@@ -134,21 +133,11 @@ func (g *Gateway) Enroll(ctx context.Context, req *agentv1.EnrollRequest) (*agen
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if err := g.Store.UpdateNodeEnrollment(ctx, node.ID, cert.Fingerprint, cert.NotAfter, enrollment(req)); err != nil {
+	if err := g.Store.UpdateNodeEnrollment(ctx, node.ID, cert.Fingerprint, cert.NotAfter, req.GetHostname(), req.GetAgentVersion()); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	g.Log.Info("agent enrolled", "node", node.Name, "id", node.ID, "hostname", req.GetHostname(), "transport", store.TransportMTLS)
 	return &agentv1.EnrollResponse{NodeId: node.ID, NodeName: node.Name, CertDer: cert.DER, CaCertDer: g.CA.DER}, nil
-}
-
-// enrollment is what an enrollment request reports. A host name that listeners cannot advertise
-// leaves the advertised host of a new node empty until an operator sets one.
-func enrollment(req *agentv1.EnrollRequest) store.Enrollment {
-	e := store.Enrollment{Hostname: req.GetHostname(), AgentVersion: req.GetAgentVersion()}
-	if agentcfg.ValidateHost(e.Hostname) == nil {
-		e.AdvertisedHost = e.Hostname
-	}
-	return e
 }
 
 // nodeRegistry is the part of the store that enrollment finds and creates nodes in.

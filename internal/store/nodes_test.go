@@ -61,10 +61,10 @@ func TestNodeAssignment(t *testing.T) {
 	c1, c2 := cluster("-1"), cluster("-2")
 	a, b := node("a"), node("b")
 
-	if err := s.UpdateNodeEnrollment(ctx, a.ID, "fp1", time.Now().Add(time.Hour), Enrollment{Hostname: "host-a", AdvertisedHost: "host-a"}); err != nil {
+	if err := s.UpdateNodeEnrollment(ctx, a.ID, "fp1", time.Now().Add(time.Hour), "host-a", "0.3.1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.UpdateNodeInsecureEnrollment(ctx, a.ID, []byte("sealed"), Enrollment{Hostname: "host-a2", AdvertisedHost: "host-a2"}); err != nil {
+	if err := s.UpdateNodeInsecureEnrollment(ctx, a.ID, []byte("sealed"), "host-a2", "0.3.1"); err != nil {
 		t.Fatal(err)
 	}
 	if n := get(a.ID); n.Hostname != "host-a2" || n.AdvertisedHost != "host-a" {

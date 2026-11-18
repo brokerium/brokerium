@@ -99,32 +99,25 @@ func (s *Store) ListNodes(ctx context.Context, clusterID string) ([]*Node, error
 	return out, rows.Err()
 }
 
-// Enrollment is what an agent reports when it enrolls.
-type Enrollment struct {
-	Hostname     string
-	AgentVersion string
-	// AdvertisedHost becomes the advertised host of a node that has none.
-	AdvertisedHost string
-}
-
 // UpdateNodeEnrollment stores the certificate fingerprint and agent details after an
-// enrollment with mutual TLS. The node secret of an earlier insecure enrollment is dropped.
-func (s *Store) UpdateNodeEnrollment(ctx context.Context, id, fingerprint string, notAfter time.Time, e Enrollment) error {
+// enrollment with mutual TLS. The node secret of an earlier insecure enrollment is dropped. The
+// reported host name becomes the advertised host of a node that has none.
+func (s *Store) UpdateNodeEnrollment(ctx context.Context, id, fingerprint string, notAfter time.Time, hostname, agentVersion string) error {
 	_, err := s.Pool.Exec(ctx, `UPDATE nodes SET transport='mtls', secret_ciphertext=NULL, cert_fingerprint=$2,
 		cert_not_after=$3, prev_cert_fingerprint='', hostname=$4, agent_version=$5,
-		advertised_host=COALESCE(NULLIF(advertised_host, ''), $6), last_seen_at=now() WHERE id=$1`,
-		id, fingerprint, notAfter, e.Hostname, e.AgentVersion, e.AdvertisedHost)
+		advertised_host=COALESCE(NULLIF(advertised_host, ''), $4), last_seen_at=now() WHERE id=$1`,
+		id, fingerprint, notAfter, hostname, agentVersion)
 	return err
 }
 
 // UpdateNodeInsecureEnrollment stores the sealed node secret and agent details after an
 // enrollment with the insecure transport. The certificates of earlier enrollments no longer
-// authenticate.
-func (s *Store) UpdateNodeInsecureEnrollment(ctx context.Context, id string, sealedSecret []byte, e Enrollment) error {
+// authenticate. The reported host name becomes the advertised host of a node that has none.
+func (s *Store) UpdateNodeInsecureEnrollment(ctx context.Context, id string, sealedSecret []byte, hostname, agentVersion string) error {
 	_, err := s.Pool.Exec(ctx, `UPDATE nodes SET transport='insecure', secret_ciphertext=$2, cert_fingerprint='',
 		prev_cert_fingerprint='', cert_not_after=NULL, hostname=$3, agent_version=$4,
-		advertised_host=COALESCE(NULLIF(advertised_host, ''), $5), last_seen_at=now() WHERE id=$1`,
-		id, sealedSecret, e.Hostname, e.AgentVersion, e.AdvertisedHost)
+		advertised_host=COALESCE(NULLIF(advertised_host, ''), $3), last_seen_at=now() WHERE id=$1`,
+		id, sealedSecret, hostname, agentVersion)
 	return err
 }
 

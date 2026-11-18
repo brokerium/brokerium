@@ -3,6 +3,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -205,20 +206,24 @@ func (u nodeUpdate) validate() error {
 	return nil
 }
 
-// apply changes n; an empty advertised host goes back to the host name the agent reported.
-func (u nodeUpdate) apply(n *store.Node) {
+// apply changes n; an empty advertised host goes back to the host name the agent reported. A
+// node that runs Kafka keeps an advertised host that its listeners can advertise.
+func (u nodeUpdate) apply(n *store.Node) error {
 	if u.Name != nil {
 		n.Name = *u.Name
 	}
 	if u.AdvertisedHost != nil {
-		n.AdvertisedHost = *u.AdvertisedHost
-		if n.AdvertisedHost == "" && agentcfg.ValidateHost(n.Hostname) == nil {
-			n.AdvertisedHost = n.Hostname
+		n.AdvertisedHost = cmp.Or(*u.AdvertisedHost, n.Hostname)
+		if n.Role != "" {
+			if err := agentcfg.ValidateHost(n.AdvertisedHost); err != nil {
+				return fmt.Errorf("advertisedHost: the node runs Kafka and the host name its agent reported cannot be advertised: %w", err)
+			}
 		}
 	}
 	if u.Rack != nil {
 		n.Rack = *u.Rack
 	}
+	return nil
 }
 
 func (a *NodesAPI) handleUpdate(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +249,10 @@ func (a *NodesAPI) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	before := n.Name
-	req.apply(n)
+	if err := req.apply(n); err != nil {
+		WriteError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
 	err = a.srv.Store.UpdateNodeDetails(r.Context(), n)
 	a.srv.Audit(r, "node.update", deref(n.ClusterID), before, req, err)
 	switch {

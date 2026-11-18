@@ -106,7 +106,7 @@ func (g *Gateway) enrollInsecure(ctx context.Context, req *agentv1.EnrollRequest
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	if err := g.Store.UpdateNodeInsecureEnrollment(ctx, node.ID, sealed, enrollment(req)); err != nil {
+	if err := g.Store.UpdateNodeInsecureEnrollment(ctx, node.ID, sealed, req.GetHostname(), req.GetAgentVersion()); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	g.Log.Info("agent enrolled", "node", node.Name, "id", node.ID, "hostname", req.GetHostname(), "transport", store.TransportInsecure)

@@ -183,22 +183,33 @@ func TestNodeUpdateApply(t *testing.T) {
 	tests := []struct {
 		name     string
 		hostname string
+		role     string
 		update   nodeUpdate
 		want     store.Node
+		err      string
 	}{
-		{"name and rack", "kafka-1", nodeUpdate{Name: str("broker-a"), Rack: str("r2")},
-			store.Node{Name: "broker-a", AdvertisedHost: "old.example.com", Rack: "r2"}},
-		{"advertised host", "kafka-1", nodeUpdate{AdvertisedHost: str("kafka-1.example.com")},
-			store.Node{Name: "kafka-1", AdvertisedHost: "kafka-1.example.com", Rack: "r1"}},
-		{"back to the reported host name", "kafka-1", nodeUpdate{AdvertisedHost: str("")},
-			store.Node{Name: "kafka-1", AdvertisedHost: "kafka-1", Rack: "r1"}},
-		{"a reported host name that cannot be advertised", "kafka_1", nodeUpdate{AdvertisedHost: str("")},
-			store.Node{Name: "kafka-1", AdvertisedHost: "", Rack: "r1"}},
-		{"no rack", "kafka-1", nodeUpdate{Rack: str("")}, store.Node{Name: "kafka-1", AdvertisedHost: "old.example.com"}},
+		{"name and rack", "kafka-1", "", nodeUpdate{Name: str("broker-a"), Rack: str("r2")},
+			store.Node{Name: "broker-a", AdvertisedHost: "old.example.com", Rack: "r2"}, ""},
+		{"advertised host", "kafka-1", "broker", nodeUpdate{AdvertisedHost: str("kafka-1.example.com")},
+			store.Node{Name: "kafka-1", AdvertisedHost: "kafka-1.example.com", Rack: "r1"}, ""},
+		{"back to the reported host name", "kafka-1", "broker", nodeUpdate{AdvertisedHost: str("")},
+			store.Node{Name: "kafka-1", AdvertisedHost: "kafka-1", Rack: "r1"}, ""},
+		{"a reported host name that cannot be advertised", "kafka_1", "", nodeUpdate{AdvertisedHost: str("")},
+			store.Node{Name: "kafka-1", AdvertisedHost: "kafka_1", Rack: "r1"}, ""},
+		{"a node that runs Kafka and reported a host name that cannot be advertised", "kafka_1", "controller",
+			nodeUpdate{AdvertisedHost: str("")}, store.Node{}, "the node runs Kafka"},
+		{"no rack", "kafka-1", "", nodeUpdate{Rack: str("")}, store.Node{Name: "kafka-1", AdvertisedHost: "old.example.com"}, ""},
 	}
 	for _, tt := range tests {
-		n := &store.Node{Name: "kafka-1", Hostname: tt.hostname, AdvertisedHost: "old.example.com", Rack: "r1"}
-		tt.update.apply(n)
+		n := &store.Node{Name: "kafka-1", Hostname: tt.hostname, Role: tt.role, AdvertisedHost: "old.example.com", Rack: "r1"}
+		err := tt.update.apply(n)
+		if (tt.err == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tt.err)) {
+			t.Errorf("%s: %v, want %q", tt.name, err, tt.err)
+			continue
+		}
+		if err != nil {
+			continue
+		}
 		if n.Name != tt.want.Name || n.AdvertisedHost != tt.want.AdvertisedHost || n.Rack != tt.want.Rack {
 			t.Errorf("%s: %q %q %q, want %q %q %q", tt.name, n.Name, n.AdvertisedHost, n.Rack, tt.want.Name, tt.want.AdvertisedHost, tt.want.Rack)
 		}
