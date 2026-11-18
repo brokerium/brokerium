@@ -94,19 +94,28 @@ func TestCombinedNodes(t *testing.T) {
 		if !slices.Equal(servers, local(3, 101, 102)) || !slices.Equal(controllers, local(1, 2, 903)) {
 			t.Errorf("bootstrap servers %v and controller servers %v, want %v and %v", servers, controllers, local(3, 101, 102), local(1, 2, 903))
 		}
-		cc, err := kafka.NewControllerClient(kafka.Profile{BootstrapServers: controllers[2:]})
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		own, err := kafka.NewControllerClient(kafka.Profile{BootstrapServers: controllers[2:]})
 		if err != nil {
 			t.Fatal(err)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		q, err := cc.DescribeQuorum(ctx)
-		cancel()
-		cc.Close()
+		_, _, found, err := own.DescribeControllers(ctx)
+		own.Close()
+		if err != nil || len(found) != 3 {
+			t.Errorf("the controller listener of the combined node lists controllers %+v: %v", found, err)
+		}
+		all, err := kafka.NewControllerClient(kafka.Profile{BootstrapServers: controllers})
+		if err != nil {
+			t.Fatal(err)
+		}
+		q, err := all.DescribeQuorum(ctx)
+		all.Close()
 		switch {
 		case err != nil:
-			t.Errorf("reading the quorum from the controller listener of the combined node: %v", err)
+			t.Errorf("reading the quorum from the controller servers: %v", err)
 		case len(q.Voters) != 3 || q.LeaderID < 0:
-			t.Errorf("the quorum read from the controller listener of the combined node: %+v", q)
+			t.Errorf("the quorum read from the controller servers: %+v", q)
 		}
 	}
 
@@ -130,8 +139,8 @@ func TestCombinedNodes(t *testing.T) {
 			t.Errorf("%s %v: %d %s, want 400 with %q", tt.typ, tt.params, status, body, tt.want)
 		}
 	}
-	drain := c.plan(id, "drain-broker", map[string]any{"brokerId": 101})
-	c.must(http.StatusNoContent, "DELETE", "/api/v1/operations/"+drain.ID, nil, nil)
+	cordon := c.plan(id, "cordon-broker", map[string]any{"brokerId": 3, "cordon": true})
+	c.must(http.StatusNoContent, "DELETE", "/api/v1/operations/"+cordon.ID, nil, nil)
 
 	// The combined node restarts with the controllers, the quorum leader last, then the brokers.
 	leader := c.view(id).Health.QuorumLeader
