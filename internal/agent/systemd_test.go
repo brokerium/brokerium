@@ -234,7 +234,7 @@ func TestStartAndFormatAsRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range []string{"User=kafka", "Environment=KAFKA_HEAP_OPTS=-Xmx512m -Xms512m", "Environment=LOG_DIR=" + logDir,
+	for _, line := range []string{"User=kafka", "Environment=KAFKA_HEAP_OPTS=-Xmx512m -Xms512m", "Environment=LOG_DIR=" + logDir, "SuccessExitStatus=143",
 		"ExecStart=" + filepath.Join(home, "bin", "kafka-server-start.sh") + " " + k.configPath()} {
 		if !strings.Contains(string(unit), "\n"+line+"\n") {
 			t.Errorf("unit lacks %q:\n%s", line, unit)

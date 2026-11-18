@@ -492,6 +492,7 @@ EnvironmentFile=-$STATE/kafka.env
 Environment=LOG_DIR=$LOG_DIR
 ExecStart=$KAFKA_DIR/current/bin/kafka-server-start.sh $KAFKA_CONFIG
 KillSignal=SIGTERM
+SuccessExitStatus=143
 TimeoutStopSec=120
 Restart=on-failure
 LimitNOFILE=1000000
