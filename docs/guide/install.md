@@ -397,6 +397,7 @@ Set `BROKERIUM_AGENT_KAFKA_CONFIG` to the node's `server.properties` and
 `BROKERIUM_AGENT_PREINSTALLED` to its Kafka directory. The agent then never rewrites that
 configuration and never formats storage; the server binds the node to the cluster from its
 `meta.properties` (node id, role). Restarts and upgrades work; reconfiguration stays with
-you. Combined broker+controller nodes are not adopted. The agent reads that `server.properties`
+you. A node with `process.roles=broker,controller` becomes a
+[combined node](clusters.md#combined-nodes). The agent reads that `server.properties`
 and the `meta.properties` of the first log directory as `brokerium-agent`, so both must be
 readable for the `kafka` group or for everyone.

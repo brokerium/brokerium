@@ -65,6 +65,9 @@ zero within seconds for this data size. No reassignment is needed.
 - Throttle only live brokers. A dead broker is not a source of data anyway.
 - Prefer variant B when the node id can be reused; it needs no plan.
 - Verify completion against the target replica sets before unregistering.
+- Combined nodes are not replaced: their controller would come back with a new `directory.id`
+  that the quorum does not know
+  ([combined nodes](../guide/clusters.md#combined-nodes)).
 - On agent clusters the operator chooses the host: variant B runs the id again on the host of the
   broker or on another free host, variant A needs a free host. The old host is released; when it
   is down, it stops Kafka as soon as its agent connects again, so that two hosts never run the

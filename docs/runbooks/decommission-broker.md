@@ -51,3 +51,5 @@ broker was registered fixed it.
 - Check min ISR and free disk on targets before draining; refuse when RF cannot be preserved.
 - On agent clusters the stop goes through the agent of the broker's host, which is released
   afterwards; its data stays until the operator clears it.
+- Combined nodes are neither drained nor decommissioned: stopping one stops a voter too
+  ([combined nodes](../guide/clusters.md#combined-nodes)).

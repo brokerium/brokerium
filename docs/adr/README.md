@@ -21,6 +21,7 @@
 | [0018](0018-explicit-node-assignment.md) | Operators choose the agent hosts of cluster nodes; nodes advertise their advertised host |
 | [0019](0019-docker-clusters-for-docker-installations.md) | Docker clusters only for the Docker installation, with nodes reached by container name |
 | [0020](0020-ci-by-need.md) | CI runs the jobs a change needs; nightly `edge` images |
+| [0021](0021-combined-nodes.md) | Combined broker and controller nodes: voters and brokers, restarted with the controllers, not replaced or drained |
 
 New ADRs use the next free number and the same structure: status, date, context, decision,
 consequences. Superseded ADRs stay in place with their status changed.

@@ -230,9 +230,9 @@ func TestBootstrapAgentRefusals(t *testing.T) {
 	}{
 		{"no hosts", nil, nil, bootstrapParams{}, "choose the hosts with nodes"},
 		{"counts of a Docker cluster", nil, nil, bootstrapParams{Controllers: 3, Nodes: []hostChoice{ctl("n1"), brk("n2")}}, "apply to Docker clusters"},
+		{"combined count of a Docker cluster", nil, nil, bootstrapParams{Combined: 1, Nodes: []hostChoice{ctl("n1"), brk("n2")}}, "apply to Docker clusters"},
 		{"racks of a Docker cluster", nil, nil, bootstrapParams{Racks: []string{"a"}, Nodes: []hostChoice{ctl("n1"), brk("n2")}}, "apply to Docker clusters"},
-		{"combined role", nil, nil, two(hostChoice{Node: "n1", Role: RoleCombined}, brk("n2")), "combined nodes are not supported yet"},
-		{"unknown role", nil, nil, two(hostChoice{Node: "n1", Role: "voter"}, brk("n2")), `role must be controller or broker, not "voter"`},
+		{"unknown role", nil, nil, two(hostChoice{Node: "n1", Role: "voter"}, brk("n2")), `role must be controller, broker or combined, not "voter"`},
 		{"no node id", nil, nil, two(ctl(""), brk("n2")), "nodes[0]: node is required"},
 		{"the same host twice", nil, nil, two(ctl("n1"), brk("n1")), "host kafka-1 is chosen twice"},
 		{"unknown host", nil, nil, two(ctl("nope"), brk("n2")), `unknown host "nope"`},
@@ -244,10 +244,14 @@ func TestBootstrapAgentRefusals(t *testing.T) {
 		{"advertised host that is no DNS name", nil, nil, two(ctl("bad"), brk("n2")), `host "bad_name" is neither a DNS name nor an IP address`},
 		{"data of another cluster", nil, nil, two(ctl("dirty"), brk("n2")), "host dirty-1 holds the data of node 2 of Kafka cluster old"},
 		{"two hosts with one address", nil, nil, two(ctl("n1"), brk("twin")), "hosts kafka-1 and twin-1 both advertise kafka-1.example.com"},
-		{"no controller", nil, nil, two(brk("n1"), brk("n2")), "choose at least one controller"},
-		{"no broker", nil, nil, two(ctl("n1"), ctl("n2")), "choose at least one broker"},
+		{"no controller", nil, nil, two(brk("n1"), brk("n2")), "choose at least one controller or combined node"},
+		{"no broker", nil, nil, two(ctl("n1"), ctl("n2")), "choose at least one broker or combined node"},
 		{"six controllers", nil, nil, bootstrapParams{Nodes: []hostChoice{ctl("n1"), ctl("n2"), ctl("n3"), ctl("n4"), ctl("n5"), ctl("n6"), brk("dirty")}},
-			"choose at most 5 controllers, not 6"},
+			"choose at most 5 controllers and combined nodes together, not 6"},
+		{"five controllers and a combined node", nil, nil, bootstrapParams{Nodes: []hostChoice{ctl("n1"), ctl("n2"), ctl("n3"), ctl("n4"), ctl("n5"),
+			{Node: "n6", Role: RoleCombined}}}, "choose at most 5 controllers and combined nodes together, not 6"},
+		{"a combined node on a host of another cluster", nil, nil, two(hostChoice{Node: "busy", Role: RoleCombined}, brk("n2")),
+			"host busy-1 already runs Kafka as broker 101 of another cluster"},
 		{"an id given twice", nil, nil, two(hostChoice{Node: "n1", Role: RoleController, NodeID: id32(1)}, hostChoice{Node: "n2", Role: RoleBroker, NodeID: id32(1)}),
 			"nodes[1]: node id 1 is already used"},
 		{"a negative id", nil, nil, two(hostChoice{Node: "n1", Role: RoleController, NodeID: id32(-1)}, brk("n2")), "node ids are at least 0"},
@@ -299,7 +303,7 @@ func TestBootstrapDocker(t *testing.T) {
 		t.Errorf("quorum %q", quorum)
 	}
 	if _, err := (&Manager{}).bootstrapPlan(p, fleet{}, bootstrapParams{Nodes: []hostChoice{{Node: "n1", Role: RoleBroker}}}, nil); err == nil ||
-		!strings.Contains(err.Error(), "give controllers and brokers instead of nodes") {
+		!strings.Contains(err.Error(), "give controllers, combined and brokers instead of nodes") {
 		t.Errorf("nodes on a Docker cluster: %v", err)
 	}
 }

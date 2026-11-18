@@ -28,7 +28,7 @@ env:
   # TestStrimzi runs in e2e-strimzi.yml and TestAgentVMs against the VM lab (deploy/lab/vm).
   API_SCENARIOS: TestMultiClusterOverview|TestDataPlane|TestSecureConnections|TestUsersRolesAudit|TestLicenseCommunity|TestControllersDirect|TestAgentCertificateRenewal
   PROXY_SCENARIOS: TestInsecureAgentBehindProxy
-  DOCKER_SCENARIOS: TestScaleOutAndBalance|TestNodeLifecycle|TestMigrateStaticQuorum|TestRollingUpgrade
+  DOCKER_SCENARIOS: TestScaleOutAndBalance|TestNodeLifecycle|TestMigrateStaticQuorum|TestRollingUpgrade|TestCombinedNodes
   OTHER_SCENARIOS: TestStrimzi|TestAgentVMs
 
 jobs:

@@ -22,9 +22,10 @@ Automated as `TestRollingUpgrade` in [test/e2e/upgrade_test.go](../../test/e2e/u
    Apache), so a failed download stops the plan before any restart. Agents try
    `BROKERIUM_KAFKA_MIRROR` first when it is set
    ([internal mirror](../guide/install.md#kafka-releases-from-an-internal-mirror)).
-3. For each node, controllers first and the quorum leader last, then brokers: write the
-   configuration for the new version, stop gracefully, start on the new version, wait until
-   the node is back (broker registered and unfenced, controller caught up), health gate.
+3. For each node, controllers and combined nodes first and the quorum leader last, then
+   brokers: write the configuration for the new version, stop gracefully, start on the new
+   version, wait until the node is back (broker registered and unfenced with every replica in
+   sync, controller caught up, a combined node both), health gate.
 4. Save the new version in the cluster settings and run a preferred leader election.
 
 `metadata.version` stays on the old level, so the binaries can still be rolled back to the
