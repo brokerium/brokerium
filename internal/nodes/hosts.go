@@ -80,6 +80,9 @@ func (f fleet) pick(id, clusterID, role string, kafkaID int32, kafkaClusterID st
 	if !f.connected[n.ID] {
 		return nil, fmt.Errorf("host %s is not connected", n.Name)
 	}
+	if n.AdvertisedHost == "" {
+		return nil, fmt.Errorf("host %s has no advertised host; set one on the Nodes page", n.Name)
+	}
 	if err := agentcfg.ValidateHost(n.AdvertisedHost); err != nil {
 		return nil, fmt.Errorf("host %s: %w; set its advertised host on the Nodes page", n.Name, err)
 	}
@@ -113,6 +116,16 @@ func claimable(n *store.Node, clusterID, role string, id int32) error {
 // holds reports whether node n runs Kafka node id of a cluster.
 func holds(n *store.Node, clusterID string, id int32) bool {
 	return n.ClusterID != nil && *n.ClusterID == clusterID && n.KafkaNodeID != nil && *n.KafkaNodeID == id
+}
+
+// resumable returns the Kafka node id that host n holds with the role in a cluster while the node
+// is not among the joined ones: an earlier operation gave the host its role and failed before the
+// node joined. Choosing the host again resumes that node.
+func resumable(n *store.Node, clusterID, role string, joined ids) (int32, bool) {
+	if n == nil || n.Role != role || n.KafkaNodeID == nil || !holds(n, clusterID, *n.KafkaNodeID) || joined[*n.KafkaNodeID] {
+		return 0, false
+	}
+	return *n.KafkaNodeID, true
 }
 
 func assignment(n *store.Node) string {
@@ -158,6 +171,8 @@ type member struct {
 	name string
 	// node is the agent node; nil for Docker containers.
 	node *store.Node
+	// resumed is set when the host already holds the node from an operation that failed.
+	resumed bool
 }
 
 func (mb member) host() string {
@@ -202,12 +217,20 @@ func hostDetails(members []member) []map[string]any {
 	return out
 }
 
-// checkAddresses refuses hosts that advertise the same address as each other or as a node of
-// the cluster.
+// checkAddresses refuses hosts that advertise the same address as each other or as a node that
+// runs Kafka in the cluster. Hosts that only joined the cluster run nothing yet.
 func checkAddresses(members []member, existing []*store.Node) error {
+	chosen := map[string]bool{}
+	for _, mb := range members {
+		if mb.node != nil {
+			chosen[mb.node.ID] = true
+		}
+	}
 	seen := map[string]string{}
 	for _, n := range existing {
-		seen[strings.ToLower(hostOf(false, n))] = n.Name
+		if n.Role != "" && !chosen[n.ID] {
+			seen[strings.ToLower(hostOf(false, n))] = n.Name
+		}
 	}
 	for _, mb := range members {
 		key := strings.ToLower(mb.host())
@@ -217,6 +240,17 @@ func checkAddresses(members []member, existing []*store.Node) error {
 		seen[key] = mb.name
 	}
 	return nil
+}
+
+// resumeWarnings name the hosts that continue a node an earlier operation did not finish.
+func resumeWarnings(members []member) []string {
+	var out []string
+	for _, mb := range members {
+		if mb.resumed {
+			out = append(out, fmt.Sprintf("host %s holds %s %d from an operation that did not finish; this plan continues it", mb.name, mb.role, mb.id))
+		}
+	}
+	return out
 }
 
 // rackWarnings warns when only some brokers have a rack: rebalancing then ignores racks.
@@ -248,6 +282,17 @@ func rackWarnings(existing []kafka.Broker, added []member) []string {
 
 // ids is a set of Kafka node ids that are in use or given out.
 type ids map[int32]bool
+
+// registeredBrokers are the ids of the brokers registered in the cluster.
+func registeredBrokers(p *ops.Planner) ids {
+	out := ids{}
+	if p.View != nil && p.View.Snapshot != nil {
+		for _, b := range p.View.Snapshot.Brokers {
+			out[b.ID] = true
+		}
+	}
+	return out
+}
 
 // usedIDs are the node ids a cluster knows: registered brokers, voters and observers of the
 // quorum and its managed nodes.

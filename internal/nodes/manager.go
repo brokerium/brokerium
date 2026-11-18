@@ -502,7 +502,7 @@ func addBrokerPlan(p *ops.Planner, f fleet, params addBrokerParams) (*ops.Planne
 		}
 	} else {
 		var err error
-		if members, err = chooseBrokers(p.Cluster.ID, f, params, used, first, s.KafkaClusterID); err != nil {
+		if members, err = chooseBrokers(p.Cluster.ID, f, params, used, registeredBrokers(p), first, s.KafkaClusterID); err != nil {
 			return nil, err
 		}
 		if err := checkAddresses(members, mn.nodes); err != nil {
@@ -533,21 +533,22 @@ func addBrokerPlan(p *ops.Planner, f fleet, params addBrokerParams) (*ops.Planne
 	doc := ops.PlanDoc{Summary: fmt.Sprintf("Add %d broker(s): %s; rebalance afterwards: %v", len(members), strings.Join(names, ", "), rebalance)}
 	if !docker {
 		doc.Details = map[string]any{"hosts": hostDetails(members)}
-		doc.Warnings = rackWarnings(p.View.Snapshot.Brokers, members)
+		doc.Warnings = append(resumeWarnings(members), rackWarnings(p.View.Snapshot.Brokers, members)...)
 	}
 	return &ops.Planned{Doc: doc, Steps: steps}, nil
 }
 
 // chooseBrokers checks the hosts chosen for new brokers of an agent cluster and gives each its
-// node id: the explicit one, else the next free id from first on.
-func chooseBrokers(clusterID string, f fleet, params addBrokerParams, used ids, first int32, kafkaClusterID string) ([]member, error) {
+// node id: the one it holds from a failed operation while that broker is not registered, else
+// the explicit one, else the next free id from first on.
+func chooseBrokers(clusterID string, f fleet, params addBrokerParams, used, registered ids, first int32, kafkaClusterID string) ([]member, error) {
 	if params.Count != 0 || params.Rack != "" {
 		return nil, errors.New("count and rack apply to Docker clusters; choose the hosts of an agent cluster with nodes")
 	}
 	if len(params.Nodes) == 0 {
 		return nil, errors.New(`choose the hosts with nodes: [{"node": "<agent node id>"}, ...]`)
 	}
-	chosen := map[string]bool{}
+	chosen, resumed := map[string]bool{}, map[string]int32{}
 	for i, c := range params.Nodes {
 		switch {
 		case c.Node == "":
@@ -559,6 +560,10 @@ func chooseBrokers(clusterID string, f fleet, params addBrokerParams, used ids, 
 		if err := agentcfg.ValidateRack(c.Rack); err != nil {
 			return nil, fmt.Errorf("nodes[%d]: %w", i, err)
 		}
+		if id, ok := resumable(f.node(c.Node), clusterID, RoleBroker, registered); ok && (c.NodeID == nil || *c.NodeID == id) {
+			resumed[c.Node] = id
+			continue
+		}
 		if c.NodeID != nil {
 			if err := used.claim(*c.NodeID); err != nil {
 				return nil, fmt.Errorf("nodes[%d]: %w", i, err)
@@ -567,17 +572,19 @@ func chooseBrokers(clusterID string, f fleet, params addBrokerParams, used ids, 
 	}
 	members := make([]member, 0, len(params.Nodes))
 	for _, c := range params.Nodes {
-		var id int32
-		if c.NodeID != nil {
+		id, resume := resumed[c.Node]
+		switch {
+		case resume:
+		case c.NodeID != nil:
 			id = *c.NodeID
-		} else {
+		default:
 			id = used.next(first)
 		}
 		n, err := f.pick(c.Node, clusterID, RoleBroker, id, kafkaClusterID)
 		if err != nil {
 			return nil, err
 		}
-		members = append(members, member{role: RoleBroker, id: id, rack: cmp.Or(c.Rack, n.Rack), name: n.Name, node: n})
+		members = append(members, member{role: RoleBroker, id: id, rack: cmp.Or(c.Rack, n.Rack), name: n.Name, node: n, resumed: resume})
 	}
 	return members, nil
 }
@@ -696,10 +703,12 @@ func replacePlan(p *ops.Planner, f fleet, params replaceParams) (*ops.Planned, e
 	if !docker {
 		on = " on host " + mb.name
 	}
-	gate := ops.StepSpec{Name: "Check health (under-replicated partitions allowed)", Kind: ops.KindHealthGate,
-		Args: ops.HealthGateArgs{AllowUnderReplicated: true}}
+	steps := []ops.StepSpec{{Name: "Check health (under-replicated partitions allowed)", Kind: ops.KindHealthGate,
+		Args: ops.HealthGateArgs{AllowUnderReplicated: true}}}
+	if !docker {
+		steps = append(steps, checkHostsStep(s.KafkaClusterID, []member{mb}))
+	}
 	if params.Mode == "same-id" {
-		steps := []ops.StepSpec{gate}
 		if remove != nil {
 			steps = append(steps, *remove)
 		}
@@ -709,9 +718,11 @@ func replacePlan(p *ops.Planner, f fleet, params replaceParams) (*ops.Planned, e
 			ops.StepSpec{Name: "Wait until all replicas are in sync", Kind: KindWaitInSync, Args: NodeArgs{}},
 			ops.StepSpec{Name: "Update bootstrap servers", Kind: KindSyncBootstrap, Args: NodeArgs{}},
 		)
-		return &ops.Planned{Doc: ops.PlanDoc{Summary: fmt.Sprintf(
-			"Replace broker %d in place%s: new node with the same id and an empty disk; followers re-replicate from the leaders", old, on),
-			Warnings: warnings}, Steps: steps}, nil
+		summary := fmt.Sprintf("Replace broker %d in place: new node with the same id and an empty disk; followers re-replicate from the leaders", old)
+		if !docker {
+			summary = fmt.Sprintf("Start broker %d again with the same id%s; followers re-replicate from the leaders what its disk lacks", old, on)
+		}
+		return &ops.Planned{Doc: ops.PlanDoc{Summary: summary, Warnings: warnings}, Steps: steps}, nil
 	}
 	var moves []balancer.Move
 	for _, t := range p.View.Snapshot.Topics {
@@ -731,7 +742,7 @@ func replacePlan(p *ops.Planner, f fleet, params replaceParams) (*ops.Planned, e
 			}
 		}
 	}
-	steps := append([]ops.StepSpec{gate}, startSteps(a)...)
+	steps = append(steps, startSteps(a)...)
 	steps = append(steps, ops.StepSpec{Name: fmt.Sprintf("Wait for broker %d", id), Kind: KindWaitBroker, Args: NodeArgs{NodeID: id}})
 	if len(moves) > 0 {
 		steps = append(steps, ops.ReassignSteps(moves, 0, 0, true)...)
@@ -794,20 +805,29 @@ func addControllerPlan(p *ops.Planner, f fleet, params addControllerParams) (*op
 		if params.Node == "" {
 			return nil, errors.New("node is required: the agent node that runs the new controller")
 		}
-		var id int32
-		if params.NodeID != nil {
+		voters := ids{}
+		for _, v := range q.Voters {
+			voters[v.NodeID] = true
+		}
+		id, resume := resumable(f.node(params.Node), p.Cluster.ID, RoleController, voters)
+		if resume && params.NodeID != nil && *params.NodeID != id {
+			resume = false
+		}
+		switch {
+		case resume:
+		case params.NodeID != nil:
 			if err := used.claim(*params.NodeID); err != nil {
 				return nil, err
 			}
 			id = *params.NodeID
-		} else {
+		default:
 			id = used.next(first)
 		}
 		n, err := f.pick(params.Node, p.Cluster.ID, RoleController, id, s.KafkaClusterID)
 		if err != nil {
 			return nil, err
 		}
-		mb = member{role: RoleController, id: id, name: n.Name, node: n}
+		mb = member{role: RoleController, id: id, name: n.Name, node: n, resumed: resume}
 		if err := checkAddresses([]member{mb}, mn.nodes); err != nil {
 			return nil, err
 		}
@@ -816,6 +836,9 @@ func addControllerPlan(p *ops.Planner, f fleet, params addControllerParams) (*op
 	start := a
 	start.Mode, start.Version = "join", s.KafkaVersion
 	steps := []ops.StepSpec{{Name: "Check cluster health", Kind: ops.KindHealthGate, Args: ops.HealthGateArgs{}}}
+	if mb.node != nil {
+		steps = append(steps, checkHostsStep(s.KafkaClusterID, []member{mb}))
+	}
 	steps = append(steps, startSteps(start)...)
 	steps = append(steps,
 		ops.StepSpec{Name: fmt.Sprintf("Wait for controller %d to catch up as an observer", mb.id), Kind: KindWaitObserver, Args: a},
@@ -826,6 +849,7 @@ func addControllerPlan(p *ops.Planner, f fleet, params addControllerParams) (*op
 	doc := ops.PlanDoc{Summary: fmt.Sprintf("Add controller %d (%s): %d -> %d voters", mb.id, mb.name, len(q.Voters), len(q.Voters)+1)}
 	if mb.node != nil {
 		doc.Details = map[string]any{"hosts": hostDetails([]member{mb})}
+		doc.Warnings = resumeWarnings([]member{mb})
 	}
 	if (len(q.Voters)+1)%2 == 0 {
 		doc.Warnings = append(doc.Warnings, fmt.Sprintf("%d voters tolerate as many failures as %d; add one more for an odd quorum",

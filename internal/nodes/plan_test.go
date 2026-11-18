@@ -240,7 +240,7 @@ func TestBootstrapAgentRefusals(t *testing.T) {
 		{"host with a Kafka role", nil, nil, two(ctl("n1"), brk("busy")), "host busy-1 already runs Kafka as broker 101 of another cluster"},
 		{"host of another cluster", nil, nil, two(ctl("n1"), brk("taken")), "host taken-1 belongs to another cluster"},
 		{"adopted host", nil, nil, two(ctl("adopted"), brk("n2")), "host adopted-1 runs Kafka with its own configuration"},
-		{"no advertised host", nil, nil, two(ctl("blank"), brk("n2")), "host blank-1: the host is empty"},
+		{"no advertised host", nil, nil, two(ctl("blank"), brk("n2")), "host blank-1 has no advertised host"},
 		{"advertised host that is no DNS name", nil, nil, two(ctl("bad"), brk("n2")), `host "bad_name" is neither a DNS name nor an IP address`},
 		{"data of another cluster", nil, nil, two(ctl("dirty"), brk("n2")), "host dirty-1 holds the data of node 2 of Kafka cluster old"},
 		{"two hosts with one address", nil, nil, two(ctl("n1"), brk("twin")), "hosts kafka-1 and twin-1 both advertise kafka-1.example.com"},
@@ -503,6 +503,9 @@ func TestReplaceAgentBroker(t *testing.T) {
 				slices.IndexFunc(planned.Steps, func(s ops.StepSpec) bool { return s.Kind == KindProvision }) {
 				t.Error("same-id must release the old host before the new one takes the id")
 			}
+			if i := slices.IndexFunc(planned.Steps, func(s ops.StepSpec) bool { return s.Kind == KindCheckHosts }); i != 1 {
+				t.Errorf("the chosen host is checked in step %d, want step 1, before anything changes", i)
+			}
 		})
 	}
 }
@@ -563,6 +566,102 @@ func TestReplaceDocker(t *testing.T) {
 	}
 	if remove := stepsOf(KindRemoveNode, planned.Steps)[0].Args.(NodeArgs); remove.Name != "lab-b103" || remove.Node != "" {
 		t.Errorf("remove %+v", remove)
+	}
+}
+
+// TestHostsThatJoinedTheCluster chooses hosts that joined the cluster with its join token and run
+// no Kafka node yet: they are free for the cluster, and only nodes that run Kafka hold addresses.
+func TestHostsThatJoinedTheCluster(t *testing.T) {
+	t.Parallel()
+	p := plannerFor(agentCluster(), runningSnapshot())
+	f := runningFleet(host("j-1", "joined-1", joined("c1")), host("j-2", "joined-2", joined("c1"), advertises("joined-1.example.com")))
+	tests := []struct {
+		name    string
+		plan    func() (*ops.Planned, error)
+		started string
+	}{
+		{"add-broker", func() (*ops.Planned, error) {
+			return addBrokerPlan(p, f, addBrokerParams{Nodes: []brokerChoice{{Node: "j-1"}}})
+		}, "j-1/broker/104/"},
+		{"add-controller", func() (*ops.Planned, error) {
+			return addControllerPlan(p, f, addControllerParams{Node: "j-1"})
+		}, "j-1/controller/4/"},
+		{"replace-broker", func() (*ops.Planned, error) {
+			return replacePlan(p, f, replaceParams{BrokerID: id32(103), Node: "j-1"})
+		}, "j-1/broker/103/r3"},
+	}
+	for _, tt := range tests {
+		planned, err := tt.plan()
+		if err != nil {
+			t.Errorf("%s: %v", tt.name, err)
+			continue
+		}
+		if got := started(planned.Steps); !slices.Equal(got, []string{tt.started}) {
+			t.Errorf("%s: started %v, want %s", tt.name, got, tt.started)
+		}
+		check := planned.Steps[1]
+		if check.Kind != KindCheckHosts || check.Args.(HostsArgs).Hosts[0].Node != "j-1" {
+			t.Errorf("%s: second step %s %+v, want the check of host j-1", tt.name, check.Kind, check.Args)
+		}
+	}
+	if _, err := addBrokerPlan(p, f, addBrokerParams{Nodes: []brokerChoice{{Node: "j-1"}, {Node: "j-2"}}}); err == nil ||
+		!strings.Contains(err.Error(), "hosts joined-1 and joined-2 both advertise joined-1.example.com") {
+		t.Errorf("two chosen hosts with one address: %v", err)
+	}
+}
+
+// TestResumeUnfinishedNodes plans again on hosts that kept their role from an add-broker or
+// add-controller that failed before the node joined: the plan continues that node.
+func TestResumeUnfinishedNodes(t *testing.T) {
+	t.Parallel()
+	p := plannerFor(agentCluster(), runningSnapshot())
+	f := runningFleet(host("s-1", "stuck-1", runs("c1", RoleBroker, 104)), host("s-2", "stuck-2", runs("c1", RoleController, 4)))
+	tests := []struct {
+		name    string
+		plan    func() (*ops.Planned, error)
+		started string
+		want    string
+	}{
+		{"the broker again", func() (*ops.Planned, error) {
+			return addBrokerPlan(p, f, addBrokerParams{Nodes: []brokerChoice{{Node: "s-1"}}})
+		}, "s-1/broker/104/", ""},
+		{"the broker with its id", func() (*ops.Planned, error) {
+			return addBrokerPlan(p, f, addBrokerParams{Nodes: []brokerChoice{{Node: "s-1", NodeID: id32(104)}}})
+		}, "s-1/broker/104/", ""},
+		{"the broker with another id", func() (*ops.Planned, error) {
+			return addBrokerPlan(p, f, addBrokerParams{Nodes: []brokerChoice{{Node: "s-1", NodeID: id32(110)}}})
+		}, "", "host stuck-1 already runs Kafka as broker 104 in this cluster"},
+		{"the broker as a controller", func() (*ops.Planned, error) {
+			return addControllerPlan(p, f, addControllerParams{Node: "s-1"})
+		}, "", "host stuck-1 already runs Kafka as broker 104 in this cluster"},
+		{"the controller again", func() (*ops.Planned, error) {
+			return addControllerPlan(p, f, addControllerParams{Node: "s-2"})
+		}, "s-2/controller/4/", ""},
+		{"a registered broker", func() (*ops.Planned, error) {
+			return addBrokerPlan(p, f, addBrokerParams{Nodes: []brokerChoice{{Node: "b-102"}}})
+		}, "", "host kafka-2 already runs Kafka as broker 102 in this cluster"},
+		{"a voter", func() (*ops.Planned, error) {
+			return addControllerPlan(p, f, addControllerParams{Node: "c-1"})
+		}, "", "host ctl-1 already runs Kafka as controller 1 in this cluster"},
+	}
+	for _, tt := range tests {
+		planned, err := tt.plan()
+		if tt.want != "" {
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("%s: %v, want %q", tt.name, err, tt.want)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: %v", tt.name, err)
+			continue
+		}
+		if got := started(planned.Steps); !slices.Equal(got, []string{tt.started}) {
+			t.Errorf("%s: started %v, want %s", tt.name, got, tt.started)
+		}
+		if len(planned.Doc.Warnings) == 0 || !strings.Contains(planned.Doc.Warnings[0], "from an operation that did not finish") {
+			t.Errorf("%s: warnings %v", tt.name, planned.Doc.Warnings)
+		}
 	}
 }
 
