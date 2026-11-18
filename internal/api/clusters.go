@@ -166,6 +166,9 @@ func (s *Server) handleCreateCluster(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
+	if c.Provider == store.ProviderDocker && s.dockerUnavailable(w, r) {
+		return
+	}
 	if err := s.sealSecrets(c, req.Secrets); err != nil {
 		WriteStoreError(w, err)
 		return
@@ -256,8 +259,12 @@ func (s *Server) handleUpdateCluster(w http.ResponseWriter, r *http.Request) {
 	if !Decode(w, r, &req) {
 		return
 	}
+	provider := c.Provider
 	if err := req.apply(c); err != nil {
 		WriteError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if c.Provider == store.ProviderDocker && provider != store.ProviderDocker && s.dockerUnavailable(w, r) {
 		return
 	}
 	if err := s.sealSecrets(c, req.Secrets); err != nil {

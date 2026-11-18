@@ -11,6 +11,7 @@ import (
 	"github.com/brokerium/brokerium/internal/edition"
 	"github.com/brokerium/brokerium/internal/metrics"
 	"github.com/brokerium/brokerium/internal/ops"
+	"github.com/brokerium/brokerium/internal/provider/docker"
 	"github.com/brokerium/brokerium/internal/store"
 )
 
@@ -54,18 +55,24 @@ func (a *OperationsAPI) handlePlan(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	op, err := a.Engine.Plan(r.Context(), id, req.Type, req.Params, UserFrom(r.Context()).Username)
 	a.srv.Audit(r, "operation.plan", id, req.Type, map[string]any{"params": req.Params}, err)
-	switch {
-	case errors.Is(err, store.ErrNotFound):
-		WriteStoreError(w, err)
-		return
-	case errors.Is(err, edition.ErrLicenseRequired):
-		WriteError(w, http.StatusForbidden, "license_required", err.Error())
-		return
-	case err != nil:
-		WriteError(w, http.StatusBadRequest, "plan_failed", err.Error())
+	if err != nil {
+		writePlanError(w, err)
 		return
 	}
 	WriteJSON(w, http.StatusCreated, op)
+}
+
+func writePlanError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		WriteStoreError(w, err)
+	case errors.Is(err, edition.ErrLicenseRequired):
+		WriteError(w, http.StatusForbidden, "license_required", err.Error())
+	case errors.Is(err, docker.ErrUnavailable):
+		WriteError(w, http.StatusConflict, "docker_unavailable", err.Error())
+	default:
+		WriteError(w, http.StatusBadRequest, "plan_failed", err.Error())
+	}
 }
 
 func (a *OperationsAPI) handleList(w http.ResponseWriter, r *http.Request) {
@@ -141,6 +148,8 @@ func (a *OperationsAPI) reply(w http.ResponseWriter, op *store.Operation, err er
 		WriteError(w, http.StatusBadRequest, "confirmation_required", err.Error())
 	case errors.Is(err, edition.ErrLicenseRequired):
 		WriteError(w, http.StatusForbidden, "license_required", err.Error())
+	case errors.Is(err, docker.ErrUnavailable):
+		WriteError(w, http.StatusConflict, "docker_unavailable", err.Error())
 	case errors.Is(err, ops.ErrInvalidState), errors.Is(err, ops.ErrPlanExpired):
 		WriteError(w, http.StatusConflict, "invalid_state", err.Error())
 	default:
