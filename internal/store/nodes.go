@@ -26,8 +26,11 @@ type Node struct {
 	// server use; it starts as the host name the agent reported (ADR 0018).
 	AdvertisedHost string `json:"advertisedHost"`
 	// Rack is the broker.rack the node gets when it joins a cluster; empty for none.
-	Rack         string `json:"rack"`
-	AgentVersion string `json:"agentVersion"`
+	Rack string `json:"rack"`
+	// KafkaStopPending is set when the node left its cluster while its agent was not connected:
+	// Kafka is stopped when the agent connects again.
+	KafkaStopPending bool   `json:"-"`
+	AgentVersion     string `json:"agentVersion"`
 	// Transport of the last enrollment: mtls (client certificate) or insecure (node secret).
 	Transport       string `json:"transport"`
 	CertFingerprint string `json:"-"`
@@ -42,15 +45,16 @@ type Node struct {
 	CreatedAt           time.Time         `json:"createdAt"`
 }
 
-const nodeColumns = `id, name, cluster_id, role, kafka_node_id, hostname, advertised_host, rack, agent_version,
-	transport, cert_fingerprint, prev_cert_fingerprint, cert_not_after, status, labels, provider_ref, last_seen_at, created_at`
+const nodeColumns = `id, name, cluster_id, role, kafka_node_id, hostname, advertised_host, rack, kafka_stop_pending,
+	agent_version, transport, cert_fingerprint, prev_cert_fingerprint, cert_not_after, status, labels, provider_ref,
+	last_seen_at, created_at`
 
 func scanNode(row scanner) (*Node, error) {
 	var n Node
 	var labels []byte
 	if err := row.Scan(&n.ID, &n.Name, &n.ClusterID, &n.Role, &n.KafkaNodeID, &n.Hostname, &n.AdvertisedHost, &n.Rack,
-		&n.AgentVersion, &n.Transport, &n.CertFingerprint, &n.PrevCertFingerprint, &n.CertNotAfter, &n.Status, &labels,
-		&n.ProviderRef, &n.LastSeenAt, &n.CreatedAt); err != nil {
+		&n.KafkaStopPending, &n.AgentVersion, &n.Transport, &n.CertFingerprint, &n.PrevCertFingerprint, &n.CertNotAfter,
+		&n.Status, &labels, &n.ProviderRef, &n.LastSeenAt, &n.CreatedAt); err != nil {
 		return nil, notFound(err)
 	}
 	_ = json.Unmarshal(labels, &n.Labels)
@@ -166,9 +170,10 @@ func (s *Store) UpdateNodeStatus(ctx context.Context, id string, status json.Raw
 
 // ClaimNode gives a node a Kafka role and node id in a cluster. It fails with ErrConflict when
 // the node has another role or belongs to another cluster, or when another node of the cluster
-// has that Kafka node id; claiming the assignment a node already has succeeds.
+// has that Kafka node id; claiming the assignment a node already has succeeds. A pending stop of
+// Kafka is dropped: the node runs Kafka for the cluster now.
 func (s *Store) ClaimNode(ctx context.Context, id, clusterID, role string, kafkaNodeID int32) error {
-	tag, err := s.Pool.Exec(ctx, `UPDATE nodes SET cluster_id=$2, role=$3, kafka_node_id=$4 WHERE id=$1
+	tag, err := s.Pool.Exec(ctx, `UPDATE nodes SET cluster_id=$2, role=$3, kafka_node_id=$4, kafka_stop_pending=false WHERE id=$1
 		AND (cluster_id IS NULL OR cluster_id=$2) AND (role='' OR (role=$3 AND kafka_node_id=$4))
 		AND NOT EXISTS (SELECT 1 FROM nodes o WHERE o.cluster_id=$2 AND o.kafka_node_id=$4 AND o.id<>$1)`,
 		id, clusterID, role, kafkaNodeID)
@@ -185,10 +190,17 @@ func (s *Store) ClaimNode(ctx context.Context, id, clusterID, role string, kafka
 }
 
 // ReleaseNode removes the Kafka role and the cluster of a node that runs Kafka node kafkaNodeID
-// of the cluster; a node with another assignment stays as it is.
-func (s *Store) ReleaseNode(ctx context.Context, id, clusterID string, kafkaNodeID int32) error {
-	_, err := s.Pool.Exec(ctx, `UPDATE nodes SET cluster_id=NULL, role='', kafka_node_id=NULL
-		WHERE id=$1 AND cluster_id=$2 AND kafka_node_id=$3`, id, clusterID, kafkaNodeID)
+// of the cluster; a node with another assignment stays as it is. With stopPending, Kafka still
+// has to be stopped on the node when its agent connects.
+func (s *Store) ReleaseNode(ctx context.Context, id, clusterID string, kafkaNodeID int32, stopPending bool) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE nodes SET cluster_id=NULL, role='', kafka_node_id=NULL, kafka_stop_pending=$4
+		WHERE id=$1 AND cluster_id=$2 AND kafka_node_id=$3`, id, clusterID, kafkaNodeID, stopPending)
+	return err
+}
+
+// KafkaStopped clears the pending stop of Kafka on a node.
+func (s *Store) KafkaStopped(ctx context.Context, id string) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE nodes SET kafka_stop_pending=false WHERE id=$1`, id)
 	return err
 }
 

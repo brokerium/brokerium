@@ -85,7 +85,7 @@ func TestNodeAssignment(t *testing.T) {
 		{"claim an unknown node", func() error { return s.ClaimNode(ctx, "missing", c1.ID, "broker", 103) }, ErrNotFound},
 		{"claim an invalid role", func() error { return s.ClaimNode(ctx, b.ID, c1.ID, "voter", 1) }, errAny},
 		{"claim a combined node", func() error { return s.ClaimNode(ctx, b.ID, c1.ID, "combined", 1) }, nil},
-		{"release with another node id", func() error { return s.ReleaseNode(ctx, a.ID, c1.ID, 102) }, nil},
+		{"release with another node id", func() error { return s.ReleaseNode(ctx, a.ID, c1.ID, 102, true) }, nil},
 	}
 	for _, st := range steps {
 		err := st.do()
@@ -93,14 +93,31 @@ func TestNodeAssignment(t *testing.T) {
 			t.Errorf("%s: %v, want %v", st.name, err, st.want)
 		}
 	}
-	if n := get(a.ID); n.Role != "broker" || n.ClusterID == nil || *n.ClusterID != c1.ID {
+	if n := get(a.ID); n.Role != "broker" || n.ClusterID == nil || *n.ClusterID != c1.ID || n.KafkaStopPending {
 		t.Errorf("a release with another node id changed the node: %+v", n)
 	}
-	if err := s.ReleaseNode(ctx, a.ID, c1.ID, 101); err != nil {
+	// A host released while its agent is away stops Kafka when it connects, unless it runs a
+	// Kafka node again before.
+	if err := s.ReleaseNode(ctx, a.ID, c1.ID, 101, true); err != nil {
 		t.Fatal(err)
 	}
-	if n := get(a.ID); n.Role != "" || n.ClusterID != nil || n.KafkaNodeID != nil {
-		t.Errorf("released node %+v", n)
+	if n := get(a.ID); n.Role != "" || n.ClusterID != nil || n.KafkaNodeID != nil || !n.KafkaStopPending {
+		t.Errorf("released node %+v, want no assignment and a pending stop of Kafka", n)
+	}
+	if err := s.ClaimNode(ctx, a.ID, c1.ID, "broker", 101); err != nil {
+		t.Fatal(err)
+	}
+	if get(a.ID).KafkaStopPending {
+		t.Error("a claimed node still has to stop Kafka")
+	}
+	if err := s.ReleaseNode(ctx, a.ID, c1.ID, 101, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.KafkaStopped(ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n := get(a.ID); n.Role != "" || n.ClusterID != nil || n.KafkaStopPending {
+		t.Errorf("node %+v after Kafka was stopped", n)
 	}
 
 	a.Name, a.AdvertisedHost, a.Rack = b.Name, "kafka-a.example.com", "rack-a"

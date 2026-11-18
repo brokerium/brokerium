@@ -3,10 +3,12 @@
 -- Operators choose the hosts of agent clusters instead of naming them by convention (ADR 0018).
 -- advertised_host is the address the listeners of a node advertise and the quorum and the server
 -- use; rack is the broker.rack a node gets when it joins a cluster. combined runs broker and
--- controller in one process.
+-- controller in one process. kafka_stop_pending marks a host that was released from its cluster
+-- while its agent was not connected: Kafka is stopped on it when the agent connects again.
 ALTER TABLE nodes
-    ADD COLUMN advertised_host TEXT NOT NULL DEFAULT '',
-    ADD COLUMN rack            TEXT NOT NULL DEFAULT '',
+    ADD COLUMN advertised_host    TEXT NOT NULL DEFAULT '',
+    ADD COLUMN rack               TEXT NOT NULL DEFAULT '',
+    ADD COLUMN kafka_stop_pending BOOLEAN NOT NULL DEFAULT false,
     ADD CONSTRAINT nodes_role_check CHECK (role IN ('', 'controller', 'broker', 'combined'));
 
 -- Nodes of deleted clusters kept their role; deleting a cluster now releases its nodes.

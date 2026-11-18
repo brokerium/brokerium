@@ -490,27 +490,30 @@ func (m *Manager) stepRemoveNode(ctx context.Context, x *ops.Exec, raw json.RawM
 			return nil, err
 		}
 	}
+	detail := map[string]any{"removed": a.Name}
 	if n, err := m.node(ctx, a); err == nil {
 		switch {
 		case docker:
 			_ = m.Store.DeleteNode(ctx, n.ID)
 		case holds(n, x.Cluster.ID, a.NodeID):
-			// An agent host keeps running Kafka unless it is stopped here; a host that is down
-			// is released as it is.
-			if m.Gateway.Connected(n.ID) {
+			// An agent host keeps running Kafka unless it is stopped; a host that is down is
+			// released now and stops Kafka when its agent connects again.
+			connected := m.Gateway.Connected(n.ID)
+			if connected {
 				if _, err := m.send(ctx, a, stopKafka(), 3*time.Minute); err != nil {
 					return nil, fmt.Errorf("stopping Kafka on %s: %w", n.Name, err)
 				}
 			}
-			if err := m.Store.ReleaseNode(ctx, n.ID, x.Cluster.ID, a.NodeID); err != nil {
+			if err := m.Store.ReleaseNode(ctx, n.ID, x.Cluster.ID, a.NodeID, !connected); err != nil {
 				return nil, err
 			}
+			detail["kafkaStopped"] = connected
 		}
 	}
 	if _, err := m.stepSyncBootstrap(ctx, x, nil); err != nil {
 		return nil, fmt.Errorf("updating bootstrap servers: %w", err)
 	}
-	return map[string]any{"removed": a.Name}, nil
+	return detail, nil
 }
 
 func brokerReady(v *cluster.View, id int32) (bool, any) {

@@ -270,6 +270,9 @@ func (g *Gateway) serve(node *store.Node, stream agentStream, first *agentv1.Age
 	g.sessions[node.ID] = s
 	g.mu.Unlock()
 	g.Log.Info("agent connected", "node", node.Name, "transport", node.Transport)
+	if node.KafkaStopPending {
+		go g.stopReleased(node)
+	}
 	defer func() {
 		s.close()
 		g.mu.Lock()
@@ -311,6 +314,23 @@ func (g *Gateway) serve(node *store.Node, stream agentStream, first *agentv1.Age
 		}
 	}()
 	return <-errCh
+}
+
+// stopReleased stops Kafka on a node that left its cluster while its agent was not connected, so
+// that the host does not run a Kafka node again that another host may have taken over.
+func (g *Gateway) stopReleased(n *store.Node) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	stop := &agentv1.Command{Action: &agentv1.Command_Stop{Stop: &agentv1.StopKafka{TimeoutSeconds: 120}}}
+	if _, err := g.Send(ctx, n.ID, stop); err != nil {
+		g.Log.Warn("stopping Kafka on a released node", "node", n.Name, "error", err)
+		return
+	}
+	if err := g.Store.KafkaStopped(ctx, n.ID); err != nil {
+		g.Log.Warn("recording the stop of Kafka", "node", n.Name, "error", err)
+		return
+	}
+	g.Log.Info("stopped Kafka on a released node", "node", n.Name)
 }
 
 func (g *Gateway) handle(ctx context.Context, s *session, in *agentv1.AgentMessage) {
