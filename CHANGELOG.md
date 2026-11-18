@@ -6,6 +6,11 @@ All notable changes to Brokerium are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Kafka starts again after a host reboot: the agent starts `brokerium-kafka.service` when Kafka
+  was running before, while a node stopped from Brokerium stays stopped.
+
 ## [0.3.0] - 2026-10-20
 
 Brokerium Enterprise with the message tools, agents behind TLS-terminating proxies and without

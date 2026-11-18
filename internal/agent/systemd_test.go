@@ -297,6 +297,58 @@ func TestPrepareUnit(t *testing.T) {
 	}
 }
 
+func TestResumeUnderSystemd(t *testing.T) {
+	t.Parallel()
+	isActive := "/usr/bin/systemctl is-active --quiet " + kafkaUnit
+	tests := []struct {
+		name               string
+		root               bool
+		running, active    bool
+		configured, linked bool
+		want               func(k *Kafka) []string
+	}{
+		{"host reboot without root", false, true, false, true, true,
+			func(*Kafka) []string { return []string{isActive, sudo("restart")} }},
+		{"host reboot as root", true, true, false, true, false, func(k *Kafka) []string {
+			return []string{isActive, "chown -R kafka " + filepath.Join(k.cfg.DataDir, "logs"),
+				"/usr/bin/systemctl daemon-reload", "/usr/bin/systemctl restart " + kafkaUnit}
+		}},
+		{"agent restart keeps the running unit", false, true, true, true, true,
+			func(*Kafka) []string { return []string{isActive} }},
+		{"stopped by the server", false, false, false, true, true, func(*Kafka) []string { return nil }},
+		{"never configured", false, true, false, false, true, func(*Kafka) []string { return nil }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			k, cmds := newUnitKafka(t, tt.root)
+			k.state.Running = tt.running
+			if tt.configured {
+				if err := os.WriteFile(k.configPath(), []byte("process.roles=broker\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tt.linked {
+				if err := os.Symlink(k.state.Installed["4.3.1"], k.currentLink()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmds.reply = func(_ string, args []string) ([]byte, error) {
+				if slices.Contains(args, "is-active") && !tt.active {
+					return nil, errors.New("exit status 3")
+				}
+				return nil, nil
+			}
+			if err := k.Resume(); err != nil {
+				t.Fatal(err)
+			}
+			if got, want := cmds.take(), tt.want(k); !slices.Equal(got, want) {
+				t.Errorf("Resume ran %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestWriteKafkaEnvRejectsUnsafeHeap(t *testing.T) {
 	t.Parallel()
 	k, _ := newUnitKafka(t, false)

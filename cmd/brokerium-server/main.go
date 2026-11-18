@@ -100,7 +100,8 @@ func run(log *slog.Logger) error {
 		dockerClient = nil
 	}
 	nodeManager := &nodes.Manager{Store: st, Gateway: gateway, Docker: dockerClient, Clusters: clusters, Log: log,
-		Cfg: nodes.Config{AgentEndpoint: cfg.AgentEndpoint, AgentImage: cfg.AgentImage, LabNetwork: cfg.LabNetwork}}
+		Cfg: nodes.Config{AgentEndpoint: cfg.AgentEndpoint, AgentImage: cfg.AgentImage, LabNetwork: cfg.LabNetwork,
+			KafkaMirror: cfg.KafkaMirror}}
 	engine.Extend(nodeManager)
 	editionAPIs, err := setupEdition(ctx, cfg, st, clusters, engine, log)
 	if err != nil {

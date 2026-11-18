@@ -84,11 +84,15 @@ Release builds never use `licensetest`, and the release workflow refuses binarie
 `make e2e` runs the scenarios in `test/e2e` against a running lab and server. Variables:
 
 - `BROKERIUM_E2E_HEAVY=1` enables scenarios that create Docker clusters.
+- `BROKERIUM_E2E_UPGRADE_FROM` and `BROKERIUM_E2E_UPGRADE_TO` (default `4.3.1` and `4.4.0`) are
+  the releases of `TestRollingUpgrade`.
+- `BROKERIUM_E2E_CONTROLLERS` lists controller addresses, from which `TestControllersDirect`
+  reads the quorum without brokers.
 - `BROKERIUM_E2E_STRIMZI_KUBECONFIG` points to the kubeconfig of the Strimzi lab.
-- `BROKERIUM_E2E_VM=1` with `BROKERIUM_E2E_URL` and `BROKERIUM_E2E_CONTROLLERS` runs the
-  agent installer scenarios against the VM lab. With `BROKERIUM_E2E_VM_PREVIOUS` set to a
-  directory with the `install.sh` and the Linux `brokerium-agent` of an earlier release, the
-  hosts are installed with those first and then converted by the current installer.
+- `BROKERIUM_E2E_VM=1` with `BROKERIUM_E2E_URL` runs the agent installer scenarios against the
+  VM lab. With `BROKERIUM_E2E_VM_PREVIOUS` set to a directory with the `install.sh` and the
+  Linux `brokerium-agent` of an earlier release, the hosts are installed with those first and
+  then converted by the current installer.
 - `BROKERIUM_E2E_KEEP=1` keeps the clusters a test created.
 - `BROKERIUM_E2E_CERT_LIFETIME=3m` waits for an agent certificate renewal; start the server
   with the same `BROKERIUM_AGENT_CERT_LIFETIME`.
@@ -99,9 +103,30 @@ Release builds never use `licensetest`, and the release workflow refuses binarie
 
 The Strimzi lab uses its own kubeconfig in `.data/` and never touches `~/.kube/config`.
 
-In CI, the `e2e` workflow runs the scenarios against the beta lab and Docker clusters on every
-pull request, and then the scenario of agents behind OpenResty. The `e2e-strimzi` workflow runs `TestStrimzi` on a kind cluster nightly, on demand
-and on pull requests that change the Strimzi support.
+The Enterprise scenarios have the build tags `e2e` and `enterprise`. They sign license keys with
+the test key, so they need a server built with `-tags enterprise,licensetest` and the lab cluster
+beta registered as `beta`:
+
+```bash
+go build -tags enterprise,licensetest -o bin/brokerium-server-enterprise ./cmd/brokerium-server
+go test -tags e2e,enterprise -count=1 -run TestEnterprise ./test/e2e
+```
+
+In CI, the `e2e` workflow runs on pull requests, nightly and on demand, in three parallel jobs:
+
+- `api`: the scenarios against beta and the small Docker cluster `ci-small`, then the scenario of
+  agents behind OpenResty;
+- `docker-clusters`: the scenarios that create Docker clusters. Their agents download the Kafka
+  releases they install from a mirror on the runner (`BROKERIUM_KAFKA_MIRROR`), which serves
+  archives cached from the Apache mirrors;
+- `enterprise`: the Enterprise scenarios against beta.
+
+Pull requests skip the jobs their changes do not need, for example changes of the documentation,
+the dashboard or the Helm chart, and the job `e2e`, the required check, passes when every other
+job passed or was skipped. Each Community scenario belongs to one job (`API_SCENARIOS`,
+`PROXY_SCENARIOS` and `DOCKER_SCENARIOS` in the workflow), and the `api` job fails for a scenario
+that is in none of them. The `e2e-strimzi` workflow runs `TestStrimzi` on a kind cluster nightly,
+on demand and on pull requests that change the Strimzi support.
 
 ## Lab
 
@@ -134,3 +159,8 @@ A tag `vX.Y.Z` publishes a release:
 
 The tag sets the chart version and `appVersion`. The `helm` workflow checks every change to the
 chart: lint, schema validation of each networking mode and an install on kind.
+
+Between releases the `CI` workflow publishes the images of `main` as `edge` and the lab node image
+as `bvaliev/brokerium-agent:lab` every night and when it is run by hand on `main`. The install of
+the `helm` workflow uses `edge`, so a chart change that needs a newer server than the last nightly
+build waits for the next one, or for a manual run of `CI` on `main`.

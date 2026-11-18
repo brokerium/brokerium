@@ -55,6 +55,45 @@ func TestAgentTransportSettings(t *testing.T) {
 	}
 }
 
+func TestKafkaMirror(t *testing.T) {
+	tests := []struct {
+		name, mirror, want string
+		wantErr            bool
+	}{
+		{name: "none"},
+		{name: "https", mirror: "https://artifacts.example.com/kafka", want: "https://artifacts.example.com/kafka"},
+		{name: "http with a port and a trailing slash", mirror: " http://10.0.0.5:8090/kafka/ ", want: "http://10.0.0.5:8090/kafka/"},
+		{name: "host only", mirror: "https://mirror.example.com", want: "https://mirror.example.com"},
+		{name: "no scheme", mirror: "mirror.example.com/kafka", wantErr: true},
+		{name: "other scheme", mirror: "ftp://mirror.example.com/kafka", wantErr: true},
+		{name: "no host", mirror: "https:///kafka", wantErr: true},
+		{name: "port without a host", mirror: "http://:8090/kafka", wantErr: true},
+		{name: "query", mirror: "https://mirror.example.com/kafka?token=x", wantErr: true},
+		{name: "empty query", mirror: "https://mirror.example.com/kafka?", wantErr: true},
+		{name: "fragment", mirror: "https://mirror.example.com/kafka#releases", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("BROKERIUM_DATA_DIR", t.TempDir())
+			t.Setenv("BROKERIUM_SECRET_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+			t.Setenv("BROKERIUM_KAFKA_MIRROR", tt.mirror)
+			c, err := LoadServer()
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "BROKERIUM_KAFKA_MIRROR must be") {
+					t.Fatalf("LoadServer error = %v, want one about BROKERIUM_KAFKA_MIRROR", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.KafkaMirror != tt.want {
+				t.Errorf("KafkaMirror = %q, want %q", c.KafkaMirror, tt.want)
+			}
+		})
+	}
+}
+
 func TestDefaultAgentImage(t *testing.T) {
 	t.Parallel()
 	tests := map[string]string{
