@@ -108,6 +108,13 @@ type NodeManager interface {
 	StopControllerStep(p *Planner, node int32) (StepSpec, bool)
 }
 
+// PlanChecker is implemented by node managers that refuse operations while they cannot run,
+// for example while the provider of the cluster's nodes is unavailable.
+type PlanChecker interface {
+	// CheckPlan returns an error when steps of these kinds cannot run on the cluster now.
+	CheckPlan(ctx context.Context, c *store.Cluster, kinds []string) error
+}
+
 // Engine runs operations.
 type Engine struct {
 	Store    *store.Store
@@ -121,6 +128,7 @@ type Engine struct {
 
 	stopStep           func(p *Planner, broker int32) (StepSpec, bool)
 	stopControllerStep func(p *Planner, node int32) (StepSpec, bool)
+	checks             []PlanChecker
 
 	mu      sync.Mutex
 	running map[string]context.CancelFunc
@@ -156,6 +164,32 @@ func (e *Engine) Extend(m NodeManager) {
 	e.Register(m.Types(), m.StepKinds())
 	e.stopStep = chainStop(m.StopBrokerStep, e.stopStep)
 	e.stopControllerStep = chainStop(m.StopControllerStep, e.stopControllerStep)
+	if c, ok := m.(PlanChecker); ok {
+		e.checks = append(e.checks, c)
+	}
+}
+
+// checkPlan asks the node managers whether steps of these kinds can run on the cluster now.
+func (e *Engine) checkPlan(ctx context.Context, c *store.Cluster, kinds []string) error {
+	for _, check := range e.checks {
+		if err := check.CheckPlan(ctx, c, kinds); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkOperation loads the cluster of a stored operation and checks its steps with checkPlan.
+func (e *Engine) checkOperation(ctx context.Context, op *store.Operation) (*store.Cluster, error) {
+	c, err := e.Store.GetCluster(ctx, op.ClusterID)
+	if err != nil {
+		return nil, err
+	}
+	kinds := make([]string, 0, len(op.Steps))
+	for _, s := range op.Steps {
+		kinds = append(kinds, s.Kind)
+	}
+	return c, e.checkPlan(ctx, c, kinds)
 }
 
 // chainStop asks the newer node manager first and falls back to the earlier one.
@@ -222,6 +256,13 @@ func (e *Engine) Plan(ctx context.Context, clusterID, typ string, params json.Ra
 	if err != nil {
 		return nil, err
 	}
+	kinds := make([]string, 0, len(planned.Steps))
+	for _, s := range planned.Steps {
+		kinds = append(kinds, s.Kind)
+	}
+	if err := e.checkPlan(ctx, c, kinds); err != nil {
+		return nil, err
+	}
 	if planned.Doc.Warnings == nil {
 		planned.Doc.Warnings = []string{}
 	}
@@ -254,14 +295,12 @@ func (e *Engine) Confirm(ctx context.Context, id, confirmName string) (*store.Op
 	if err := e.types[op.Type].licensed(); err != nil {
 		return nil, err
 	}
-	if op.Irreversible {
-		c, err := e.Store.GetCluster(ctx, op.ClusterID)
-		if err != nil {
-			return nil, err
-		}
-		if confirmName != c.Name {
-			return nil, ErrConfirmName
-		}
+	c, err := e.checkOperation(ctx, op)
+	if err != nil {
+		return nil, err
+	}
+	if op.Irreversible && confirmName != c.Name {
+		return nil, ErrConfirmName
 	}
 	if err := e.Store.SetOperationStatus(ctx, id, store.OpPending, ""); err != nil {
 		return nil, err
@@ -298,6 +337,9 @@ func (e *Engine) Resume(ctx context.Context, id string) (*store.Operation, error
 	}
 	if op.Status != store.OpPaused {
 		return nil, ErrInvalidState
+	}
+	if _, err := e.checkOperation(ctx, op); err != nil {
+		return nil, err
 	}
 	if err := e.Store.SetRequestedAction(ctx, id, ""); err != nil {
 		return nil, err

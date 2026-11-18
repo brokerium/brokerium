@@ -30,6 +30,9 @@ Upgrade with `helm repo update` and `helm upgrade brokerium brokerium/brokerium 
   Back up the Secret: without the key, stored credentials cannot be read.
 - The chart runs one replica with the `Recreate` strategy, because the operations engine must not
   run twice.
+- The chart sets `BROKERIUM_DOCKER_PROVIDER=off`, so the dashboard does not offer clusters in
+  Docker: they are meant for the Docker installation. In Kubernetes, run Kafka with Strimzi or on
+  hosts with the Brokerium agent.
 
 ## Enterprise
 

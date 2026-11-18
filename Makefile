@@ -40,8 +40,9 @@ web-build: ## Build the dashboard of EDITION into internal/webui/dist
 web-dev: ## Vite dev server with API proxy to localhost:8080
 	cd web && VITE_EDITION=$(EDITION) $(MISE) pnpm dev
 
-dev: ## Run the server on the host against the lab
-	BROKERIUM_ADMIN_PASSWORD=$${BROKERIUM_ADMIN_PASSWORD:-brokerium-admin} $(MISE) go run $(GO_TAGS) ./cmd/brokerium-server
+dev: ## Run the server on the host against the lab, with Docker clusters
+	BROKERIUM_ADMIN_PASSWORD=$${BROKERIUM_ADMIN_PASSWORD:-brokerium-admin} \
+		BROKERIUM_DOCKER_PROVIDER=$${BROKERIUM_DOCKER_PROVIDER:-on} $(MISE) go run $(GO_TAGS) ./cmd/brokerium-server
 
 test: test-go test-web ## Unit tests
 

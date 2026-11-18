@@ -133,17 +133,18 @@ func quorumBootstrap(controllers []string) string {
 }
 
 // brokerAddress is how clients reach a managed broker: Docker lab nodes publish their listener
-// on localhost; agent nodes are reached by their node name, which must be a DNS name.
-func brokerAddress(s Settings, docker bool, name string, id int32) string {
-	if docker {
+// on localhost, and a server in a container on the lab network reaches their internal listener
+// by container name; agent nodes are reached by their node name, which must be a DNS name.
+func (m *Manager) brokerAddress(s Settings, docker bool, name string, id int32) string {
+	if docker && !m.Cfg.ServerInContainer {
 		return fmt.Sprintf("localhost:%d", s.PortBase+int(id))
 	}
 	return name + ":9092"
 }
 
 // controllerAddress is how the server reaches a managed controller directly.
-func controllerAddress(s Settings, docker bool, name string, id int32) string {
-	if docker {
+func (m *Manager) controllerAddress(s Settings, docker bool, name string, id int32) string {
+	if docker && !m.Cfg.ServerInContainer {
 		return fmt.Sprintf("localhost:%d", s.PortBase+int(id))
 	}
 	return name + ":9093"

@@ -100,7 +100,8 @@ docker run -d --name brokerium --network brokerium -p 8080:8080 -p 8443:8443 \
 ```
 
 Open http://localhost:8080, sign in as `admin`, then **Add cluster** to connect an existing
-cluster by its bootstrap servers, or create one in the Docker lab.
+cluster by its bootstrap servers. To create clusters in Docker as well, give the server the
+Docker socket as shown in the [installation guide](docs/guide/install.md#docker-clusters).
 
 **Local lab from source** (Docker Desktop with 6 CPUs and 16 GB,
 [mise](https://mise.jdx.dev) for the pinned toolchain):

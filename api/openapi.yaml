@@ -94,6 +94,21 @@ paths:
                   version: { type: string }
                   commit: { type: string }
                   date: { type: string }
+  /api/v1/server:
+    get:
+      tags: [system]
+      summary: Build, edition and cluster providers of the server
+      description: >-
+        Role: viewer. `providers.docker` tells whether the server offers Docker clusters
+        (`BROKERIUM_DOCKER_PROVIDER`). Without them, creating a Docker cluster and operations that
+        change the nodes of one answer 409 `docker_unavailable` with the same reason.
+      responses:
+        "200":
+          description: The server.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServerInfo" }
+        "401": { $ref: "#/components/responses/Error" }
 
   /api/v1/auth/login:
     post:
@@ -175,7 +190,10 @@ paths:
     post:
       tags: [clusters]
       summary: Register an existing cluster
-      description: "Role: operator. The connection is tested first unless `skipTest` is true."
+      description: >-
+        Role: operator. The connection is tested first unless `skipTest` is true. A Docker cluster
+        (`provider: docker`) needs a server that offers Docker clusters (`GET /api/v1/server`),
+        otherwise 409 `docker_unavailable`.
       parameters: [{ $ref: "#/components/parameters/CSRF" }]
       requestBody:
         required: true
@@ -227,7 +245,10 @@ paths:
     patch:
       tags: [clusters]
       summary: Update a cluster profile
-      description: "Role: operator. Omitted fields keep their values; secrets are write-only."
+      description: >-
+        Role: operator. Omitted fields keep their values; secrets are write-only. Changing the
+        provider to `docker` needs a server that offers Docker clusters, otherwise 409
+        `docker_unavailable`.
       parameters: [{ $ref: "#/components/parameters/CSRF" }]
       requestBody:
         required: true
@@ -241,6 +262,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ClusterView" }
         "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
     delete:
       tags: [clusters]
       summary: Remove a cluster from Brokerium
@@ -854,6 +876,8 @@ paths:
       description: |
         Role: operator. Returns a `planned` operation with its plan and steps. Nothing changes
         in the cluster until the operation is confirmed. Plans expire after 15 minutes.
+        Operations that change the nodes of a Docker cluster answer 409 `docker_unavailable`
+        while the server does not offer Docker clusters (`GET /api/v1/server`).
       parameters: [{ $ref: "#/components/parameters/CSRF" }]
       requestBody:
         required: true
@@ -908,7 +932,10 @@ paths:
     post:
       tags: [operations]
       summary: Confirm and start a planned operation
-      description: "Role: operator. Irreversible operations need `confirmName` equal to the cluster name."
+      description: >-
+        Role: operator. Irreversible operations need `confirmName` equal to the cluster name.
+        Operations that change the nodes of a Docker cluster answer 409 `docker_unavailable` while
+        the server does not offer Docker clusters.
       parameters:
         - { $ref: "#/components/parameters/OperationId" }
         - { $ref: "#/components/parameters/CSRF" }
@@ -938,7 +965,9 @@ paths:
     post:
       tags: [operations]
       summary: Resume a paused or failed operation
-      description: "Role: operator."
+      description: >-
+        Role: operator. Operations that change the nodes of a Docker cluster answer 409
+        `docker_unavailable` while the server does not offer Docker clusters.
       parameters:
         - { $ref: "#/components/parameters/OperationId" }
         - { $ref: "#/components/parameters/CSRF" }
@@ -2102,3 +2131,29 @@ components:
         key:
           type: string
           description: The license key `brk-lic-1.<payload>.<signature>`; whitespace is ignored.
+
+    ServerInfo:
+      type: object
+      required: [version, commit, date, edition, providers]
+      properties:
+        version: { type: string }
+        commit: { type: string }
+        date: { type: string }
+        edition: { $ref: "#/components/schemas/Edition" }
+        providers:
+          type: object
+          required: [docker]
+          properties:
+            docker: { $ref: "#/components/schemas/ProviderAvailability" }
+    ProviderAvailability:
+      type: object
+      required: [available, reason]
+      properties:
+        available:
+          type: boolean
+          description: The server can create clusters of the provider and change their nodes.
+        reason:
+          type: string
+          description: >-
+            Why the provider is unavailable, for example which condition of the Docker installation
+            failed; empty when it is available.
