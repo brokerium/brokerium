@@ -6,8 +6,26 @@ All notable changes to Brokerium are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-18
+
+Clusters created from the dashboard on hosts with agents, hosts that keep their own names,
+broker and controller on one node, and Docker clusters for the Docker installation.
+
 ### Added
 
+- Clusters on hosts with brokerium-agent from the dashboard: **Add cluster → Create on hosts
+  with agents** lists the free hosts; give each one a role (controller, broker, or controller and
+  broker), a node id, a rack and its advertised host, add a host with its install command in
+  place, check the choice and start the plan. **Add broker**, **Add controller** and **Replace
+  broker** of agent clusters choose free hosts, and the **Nodes** page shows and edits the
+  advertised host, rack and name of every node.
+- Combined nodes, broker and controller in one Kafka process
+  ([ADR 0021](docs/adr/0021-combined-nodes.md)): `bootstrap-cluster` takes the role `combined`
+  on agent hosts and `combined: <count>` for Docker clusters, and the plan warns about them.
+  They are voters and brokers; rolling restarts and upgrades restart them with the controllers,
+  the quorum leader last, and wait for their replicas. `replace-broker`, `drain-broker` and
+  `remove-controller` refuse combined nodes, and adopted nodes with both roles become combined
+  nodes.
 - `GET /api/v1/server` reports the version, the edition and whether the server offers Docker
   clusters, with the reason when it does not.
 - The Docker installation creates and manages Docker clusters: the server in its container
@@ -23,13 +41,9 @@ All notable changes to Brokerium are documented here. The format follows
 - Join tokens without a node name: the node is named after the host name its agent reports,
   with `-2`, `-3` and so on when that name is taken. A join token for `nodeId` enrolls an
   existing node again, which keeps its name and role.
-- Combined nodes, broker and controller in one Kafka process
-  ([ADR 0021](docs/adr/0021-combined-nodes.md)): `bootstrap-cluster` takes the role `combined`
-  on agent hosts and `combined: <count>` for Docker clusters, and the plan warns about them.
-  They are voters and brokers; rolling restarts and upgrades restart them with the controllers,
-  the quorum leader last, and wait for their replicas. `replace-broker`, `drain-broker` and
-  `remove-controller` refuse combined nodes, and adopted nodes with both roles become combined
-  nodes.
+- Kafka releases from an internal mirror: `BROKERIUM_KAFKA_MIRROR` (Helm `agents.kafkaMirror`)
+  goes into every install command, and agents try it before the Apache mirrors; checksums keep
+  coming from Apache.
 
 ### Changed
 
@@ -58,6 +72,10 @@ All notable changes to Brokerium are documented here. The format follows
   servers again at the end, so that changed advertised hosts are used; clusters with adopted
   nodes keep theirs.
 - A controller quorum grows to at most five voters.
+- The dashboard offers **Create in Docker** only when the server offers Docker clusters, and
+  **Connect an existing cluster** no longer offers the Docker provider.
+- `edge` and `lab` images are built nightly from `main` instead of on every push, and `sha-*`
+  tags are no longer published ([ADR 0020](docs/adr/0020-ci-by-need.md)).
 
 ### Fixed
 
@@ -70,8 +88,15 @@ All notable changes to Brokerium are documented here. The format follows
   their unit when they start Kafka; run the install command again on hosts with the agent
   without root.
 
+### Security
+
+- Built with Go 1.27.4, whose `crypto/x509` distrusts compromised intermediate certificates
+  (GO-2026-6809); the agent verifies certificates when it renews its own.
+
 ### Upgrading
 
+- Update the server first, then the agents: on the **Nodes** page create a join token with the
+  name of the node and run its command on the host again.
 - A server that runs on the Docker host and creates Docker clusters, in development or tests,
   needs `BROKERIUM_DOCKER_PROVIDER=on`; `make dev` sets it.
 - Existing agent clusters keep their addresses: nodes that run Kafka get their name as advertised
@@ -254,7 +279,8 @@ First public alpha. Every lab scenario of the roadmap runs as an automated end-t
 - The Helm chart installs from a checkout; it is not published to a chart repository yet.
 - Agent certificates are valid for one year and are not renewed automatically yet.
 
-[Unreleased]: https://github.com/brokerium/brokerium/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/brokerium/brokerium/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/brokerium/brokerium/releases/tag/v0.3.1
 [0.3.0]: https://github.com/brokerium/brokerium/releases/tag/v0.3.0
 [0.2.1]: https://github.com/brokerium/brokerium/releases/tag/v0.2.1
 [0.2.0]: https://github.com/brokerium/brokerium/releases/tag/v0.2.0

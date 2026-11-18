@@ -635,7 +635,7 @@ func addBrokerPlan(p *ops.Planner, f fleet, params addBrokerParams) (*ops.Planne
 		a.Mode, a.Version = "join", s.KafkaVersion
 		steps = append(steps, startSteps(a)...)
 		steps = append(steps, ops.StepSpec{Name: fmt.Sprintf("Wait for broker %d", mb.id), Kind: KindWaitBroker, Args: NodeArgs{NodeID: mb.id}})
-		name := fmt.Sprintf("%d (%s)", mb.id, mb.rack)
+		name := brokerLabel(mb.id, mb.rack)
 		if !docker {
 			name += " on " + mb.name
 		}
@@ -872,8 +872,16 @@ func replacePlan(p *ops.Planner, f fleet, params replaceParams) (*ops.Planned, e
 	}
 	steps = append(steps, ops.StepSpec{Name: "Update bootstrap servers", Kind: KindSyncBootstrap, Args: NodeArgs{}})
 	return &ops.Planned{Doc: ops.PlanDoc{Summary: fmt.Sprintf(
-		"Replace broker %d with new broker %d (%s)%s: move %d partition(s) over, then unregister %d", old, id, mb.rack, on, len(moves), old),
+		"Replace broker %d with new broker %s%s: move %d partition(s) over, then unregister %d", old, brokerLabel(id, mb.rack), on, len(moves), old),
 		Irreversible: true, Moves: moves, Warnings: warnings}, Steps: steps}, nil
+}
+
+// brokerLabel names a broker in plan summaries: its id, and its rack when it has one.
+func brokerLabel(id int32, rack string) string {
+	if rack == "" {
+		return fmt.Sprint(id)
+	}
+	return fmt.Sprintf("%d (%s)", id, rack)
 }
 
 type addControllerParams struct {

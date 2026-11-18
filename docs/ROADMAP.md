@@ -80,10 +80,21 @@ the lab scenarios with the Kafka CLI, code skeleton, CI and the first container 
   TLS-terminating proxies ([ADR 0017](adr/0017-agent-transport-behind-proxies.md)); the agent
   without root.
 
-## Phase 11: v0.3.1 (next)
+## Phase 11: v0.3.1 (done, 2026-11-18)
+
+- Clusters created from the dashboard on hosts with agents; hosts chosen explicitly and keeping
+  their own names, with an advertised host per node
+  ([ADR 0018](adr/0018-explicit-node-assignment.md)); broker and controller on one node
+  ([ADR 0021](adr/0021-combined-nodes.md)).
+- Docker clusters only for the Docker installation
+  ([ADR 0019](adr/0019-docker-clusters-for-docker-installations.md)).
+- Kafka starts again after a host reboot; Kafka from an internal mirror; CI runs only the jobs a
+  change needs ([ADR 0020](adr/0020-ci-by-need.md)), with the Enterprise features in the
+  end-to-end scenarios; Go 1.27.4.
+
+## Phase 12: v0.3.2 (next)
 
 - Node.js 26 LTS for the dashboard build.
-- Kafka starts again after a host reboot; the Enterprise features in the end-to-end scenarios.
 
 ## Later: Enterprise
 

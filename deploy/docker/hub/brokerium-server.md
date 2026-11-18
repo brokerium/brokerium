@@ -35,7 +35,7 @@ For Kubernetes, use the Helm chart in the repository; see the
 
 | Tag | Meaning |
 | --- | --- |
-| `latest`, `0.3`, `0.3.0` | The latest release, the latest patch of a minor version, an exact release |
+| `latest`, `0.3`, `0.3.1` | The latest release, the latest patch of a minor version, an exact release |
 | `edge` | A nightly build of the `main` branch, for testing |
 
 Images are built for `linux/amd64` and `linux/arm64`, run as the non-root user 65532 and carry
