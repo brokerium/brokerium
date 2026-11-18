@@ -4,7 +4,7 @@
 # community, or enterprise for the image of Brokerium Enterprise (ADR 0016).
 ARG EDITION=community
 
-FROM --platform=$BUILDPLATFORM node:24.22.0-alpine AS web
+FROM --platform=$BUILDPLATFORM node:24.22.3-alpine AS web
 ARG EDITION
 WORKDIR /src/web
 RUN npm install -g pnpm@12.11.2
