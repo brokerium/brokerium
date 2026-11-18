@@ -19,7 +19,8 @@ import (
 const vmServer = "brokerium-vm-server"
 
 // vmHosts are the systemd hosts deploy/lab/vm/vm.sh starts by default. The cluster runs on the
-// first two; the third joins as a broker and is decommissioned again.
+// first two, a combined node and a broker; the third joins as a broker and is decommissioned
+// again.
 var vmHosts = []string{"vm-host-1", "vm-host-2", "vm-host-3"}
 
 type agentHost struct {
@@ -82,10 +83,10 @@ func TestAgentVMs(t *testing.T) {
 		installAgent(t, c, map[string]any{"clusterId": id}, host, "%s BROKERIUM_AGENT_URL=file:///opt/previous-brokerium-agent sh /opt/previous-install.sh")
 	}
 	hosts := waitAgents(t, c, id, vmHosts)
-	controller, broker, third := hosts["vm-host-1"], hosts["vm-host-2"], hosts["vm-host-3"]
+	combined, broker, third := hosts["vm-host-1"], hosts["vm-host-2"], hosts["vm-host-3"]
 	cluster := vmHosts[:2]
-	if controller.AdvertisedHost != "vm-host-1" || controller.Role != "" {
-		t.Errorf("a new host advertises %q with role %q, want its host name and no role", controller.AdvertisedHost, controller.Role)
+	if combined.AdvertisedHost != "vm-host-1" || combined.Role != "" {
+		t.Errorf("a new host advertises %q with role %q, want its host name and no role", combined.AdvertisedHost, combined.Role)
 	}
 
 	// The rack of a host is the default of the brokers it runs.
@@ -94,30 +95,46 @@ func TestAgentVMs(t *testing.T) {
 	if patched.Rack != "r1" || patched.Name != "vm-host-2" || !patched.Connected {
 		t.Errorf("patched node %+v", patched)
 	}
-	if got := c.do("PATCH", "/api/v1/nodes/"+broker.ID, map[string]any{"name": controller.Name}, nil); got != http.StatusConflict {
+	if got := c.do("PATCH", "/api/v1/nodes/"+broker.ID, map[string]any{"name": combined.Name}, nil); got != http.StatusConflict {
 		t.Errorf("renaming a node to a taken name: status %d, want 409", got)
 	}
 	if got := c.do("POST", "/api/v1/clusters/"+id+"/operations", map[string]any{"type": "bootstrap-cluster",
-		"params": map[string]any{"nodes": []map[string]any{{"node": controller.ID, "role": "controller"}}}}, nil); got != http.StatusBadRequest {
+		"params": map[string]any{"nodes": []map[string]any{{"node": combined.ID, "role": "controller"}}}}, nil); got != http.StatusBadRequest {
 		t.Errorf("a cluster without a broker was planned (status %d)", got)
 	}
 
+	// vm-host-1 runs broker and controller 1 in one process, vm-host-2 broker 101.
 	op := c.run(id, name, "bootstrap-cluster", map[string]any{"nodes": []map[string]any{
-		{"node": controller.ID, "role": "controller"}, {"node": broker.ID, "role": "broker"},
+		{"node": combined.ID, "role": "combined", "rack": "r0"}, {"node": broker.ID, "role": "broker"},
 	}}, 20*time.Minute)
 	t.Logf("bootstrap on the hosts: %s", op.Summary)
 	v := waitView(t, c, id, 3*time.Minute, "a healthy cluster on the hosts", healthy)
-	if len(v.Snapshot.Brokers) != 1 || v.Snapshot.Brokers[0].ID != 101 || v.Snapshot.Brokers[0].Rack != "r1" {
-		t.Errorf("brokers %+v, want broker 101 in rack r1", v.Snapshot.Brokers)
+	racks := map[int32]string{}
+	for _, b := range v.Snapshot.Brokers {
+		racks[b.ID] = b.Rack
+	}
+	if len(racks) != 2 || racks[1] != "r0" || racks[101] != "r1" {
+		t.Errorf("brokers %+v, want the combined node 1 in rack r0 and broker 101 in rack r1", v.Snapshot.Brokers)
+	}
+	if got := voterIDs(v); !slices.Equal(got, []int32{1}) {
+		t.Errorf("voters %v, want the combined node 1", got)
 	}
 	var registered struct {
 		Cluster struct {
 			BootstrapServers []string `json:"bootstrapServers"`
+			Settings         struct {
+				ControllerBootstrapServers []string `json:"controllerBootstrapServers"`
+			} `json:"settings"`
 		} `json:"cluster"`
 	}
 	c.must(http.StatusOK, "GET", "/api/v1/clusters/"+id, nil, &registered)
-	if !slices.Equal(registered.Cluster.BootstrapServers, []string{"vm-host-2:9092"}) {
-		t.Errorf("bootstrap servers %v, want the advertised host of the broker", registered.Cluster.BootstrapServers)
+	if !slices.Equal(registered.Cluster.BootstrapServers, []string{"vm-host-1:9092", "vm-host-2:9092"}) ||
+		!slices.Equal(registered.Cluster.Settings.ControllerBootstrapServers, []string{"vm-host-1:9093"}) {
+		t.Errorf("bootstrap servers %v and controller servers %v, want the advertised hosts of the brokers and the combined node",
+			registered.Cluster.BootstrapServers, registered.Cluster.Settings.ControllerBootstrapServers)
+	}
+	if roles := hostOutput(t, "vm-host-1", "sed", "-n", "s/^process.roles=//p", "/var/lib/brokerium-agent/server.properties"); roles != "broker,controller" {
+		t.Errorf("vm-host-1 runs process.roles=%q, want broker,controller", roles)
 	}
 	c.must(http.StatusCreated, "POST", "/api/v1/clusters/"+id+"/topics", map[string]any{"name": "on-vms", "partitions": 3, "replicationFactor": 1}, nil)
 	c.must(http.StatusCreated, "POST", "/api/v1/clusters/"+id+"/topics/on-vms/messages", map[string]any{"value": "hello"}, nil)
@@ -146,12 +163,12 @@ func TestAgentVMs(t *testing.T) {
 		return slices.Equal(brokerIDs(v), []int32{101, 102}) && healthy(v)
 	})
 	c.must(http.StatusOK, "GET", "/api/v1/clusters/"+id, nil, &registered)
-	if !slices.Equal(registered.Cluster.BootstrapServers, []string{"vm-host-2:9092", "vm-host-3:9092"}) {
+	if !slices.Equal(registered.Cluster.BootstrapServers, []string{"vm-host-1:9092", "vm-host-2:9092", "vm-host-3:9092"}) {
 		t.Errorf("bootstrap servers with broker 102: %v", registered.Cluster.BootstrapServers)
 	}
 	c.run(id, name, "drain-broker", map[string]any{"brokerId": 102, "decommission": true}, 15*time.Minute)
 	waitView(t, c, id, 3*time.Minute, "a healthy cluster without broker 102", func(v view) bool {
-		return slices.Equal(brokerIDs(v), []int32{101}) && healthy(v)
+		return slices.Equal(brokerIDs(v), []int32{1, 101}) && healthy(v)
 	})
 	var all struct {
 		Nodes []agentHost `json:"nodes"`
@@ -166,8 +183,13 @@ func TestAgentVMs(t *testing.T) {
 		t.Error("Kafka still runs on the decommissioned host")
 	}
 	c.must(http.StatusOK, "GET", "/api/v1/clusters/"+id, nil, &registered)
-	if !slices.Equal(registered.Cluster.BootstrapServers, []string{"vm-host-2:9092"}) {
+	if !slices.Equal(registered.Cluster.BootstrapServers, []string{"vm-host-1:9092", "vm-host-2:9092"}) {
 		t.Errorf("bootstrap servers after the decommission: %v", registered.Cluster.BootstrapServers)
+	}
+	if status, body := c.send("POST", "/api/v1/clusters/"+id+"/operations", map[string]any{"type": "drain-broker",
+		"params": map[string]any{"brokerId": 1, "decommission": true}}); status != http.StatusBadRequest ||
+		!strings.Contains(string(body), "node 1 (vm-host-1) is a combined node") {
+		t.Errorf("decommissioning the combined node: %d %s, want 400 naming vm-host-1", status, body)
 	}
 
 	for _, host := range vmHosts {
@@ -200,6 +222,9 @@ func TestAgentVMs(t *testing.T) {
 	if n := again["vm-host-2"]; n.ID != broker.ID || n.Role != "broker" {
 		t.Errorf("after enrolling again vm-host-2 is node %s with role %q, want node %s with role broker", n.ID, n.Role, broker.ID)
 	}
+	if n := again["vm-host-1"]; n.Role != "combined" {
+		t.Errorf("vm-host-1 has role %q, want combined", n.Role)
+	}
 	if got := hostOutput(t, "vm-host-2", "systemctl", "show", "-p", "MainPID", "--value", "brokerium-kafka.service"); got != pid {
 		t.Errorf("enrolling again restarted Kafka (pid %s, was %s)", got, pid)
 	}
@@ -208,6 +233,15 @@ func TestAgentVMs(t *testing.T) {
 	// The agent restarts Kafka through sudo; Kafka then runs from the static unit of the installer.
 	op = c.run(id, name, "rolling-restart", map[string]any{}, 15*time.Minute)
 	t.Logf("rolling restart on the hosts: %s", op.Summary)
+	var restarted []string
+	for _, s := range op.Steps {
+		if s.Kind == "node-restart" {
+			restarted = append(restarted, s.Name)
+		}
+	}
+	if !slices.Equal(restarted, []string{"Restart vm-host-1", "Restart vm-host-2"}) {
+		t.Errorf("restarts %v, want the combined node first", restarted)
+	}
 	waitView(t, c, id, 3*time.Minute, "a healthy cluster after the rolling restart", healthy)
 	for _, host := range cluster {
 		pid := hostOutput(t, host, "systemctl", "show", "-p", "MainPID", "--value", "brokerium-kafka.service")
