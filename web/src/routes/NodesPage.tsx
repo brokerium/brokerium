@@ -22,7 +22,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 
 import { useOverview } from '../api/clusters';
-import { useCreateJoinToken, useDeleteNode, useNodes, useUpdateNode } from '../api/nodes';
+import { type NodeUpdate, useCreateJoinToken, useDeleteNode, useNodes, useUpdateNode } from '../api/nodes';
 import type { AgentNode, JoinTokenResponse } from '../api/types';
 import { confirmAction } from '../components/confirm';
 import { JoinCommand } from '../components/nodes/JoinCommand';
@@ -180,11 +180,20 @@ function EditNodeModal({ node, onClose }: { node: AgentNode; onClose: () => void
   const addressError = address.trim() === '' ? undefined : (hostAddressError(address) ?? undefined);
   const rackError = RACK.test(rack.trim()) ? undefined : 'Letters, digits, ".", "_" and "-", at most 64';
   const runsKafka = node.role !== '';
+  const container = node.providerRef !== '';
 
   const submit = () => {
     if (nameError || addressError || rackError) return;
+    const changes: NodeUpdate = {};
+    if (name.trim() !== node.name) changes.name = name.trim();
+    if (address.trim() !== node.advertisedHost) changes.advertisedHost = address.trim();
+    if (rack.trim() !== node.rack) changes.rack = rack.trim();
+    if (Object.keys(changes).length === 0) {
+      onClose();
+      return;
+    }
     update.mutate(
-      { id: node.id, update: { name: name.trim(), advertisedHost: address.trim(), rack: rack.trim() } },
+      { id: node.id, update: changes },
       {
         onSuccess: (saved) => {
           notifySuccess('Node updated', saved.name);
@@ -203,14 +212,25 @@ function EditNodeModal({ node, onClose }: { node: AgentNode; onClose: () => void
         }}
       >
         <Stack>
-          <TextInput label="Name" required value={name} onChange={(e) => setName(e.currentTarget.value)} error={nameError} />
+          <TextInput
+            label="Name"
+            description={container ? 'Nodes of Docker clusters keep the name of their container' : undefined}
+            required
+            disabled={container}
+            value={name}
+            onChange={(e) => setName(e.currentTarget.value)}
+            error={nameError}
+          />
           <TextInput
             label="Advertised host"
             description={
-              runsKafka
-                ? 'DNS name or IP address the Kafka listeners advertise. A change takes effect when the node is configured again, for example by a rolling restart.'
-                : 'DNS name or IP address the Kafka listeners will advertise. Leave empty for the host name the agent reports.'
+              container
+                ? 'Nodes of Docker clusters are reached through their container'
+                : runsKafka
+                  ? 'DNS name or IP address the Kafka listeners advertise. A change takes effect when the node is configured again, for example by a rolling restart.'
+                  : 'DNS name or IP address the Kafka listeners will advertise. Leave empty for the host name the agent reports.'
             }
+            disabled={container}
             placeholder={node.hostname}
             value={address}
             onChange={(e) => setAddress(e.currentTarget.value)}
