@@ -13,7 +13,7 @@ RUN pnpm install --frozen-lockfile
 COPY web/ ./
 RUN VITE_EDITION=$EDITION pnpm build && node scripts/check-edition.mjs "$EDITION" dist
 
-FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine AS build
 ARG TARGETOS TARGETARCH VERSION=dev COMMIT=none DATE=unknown EDITION
 WORKDIR /src
 COPY go.mod go.sum ./
