@@ -106,7 +106,7 @@ The Docker provider also needs:
   elsewhere run `docker network create brokerium-lab`;
 - the lab node image `BROKERIUM_AGENT_IMAGE`: Apache Kafka with the agent as the main process. A
   release of the server defaults to `bvaliev/brokerium-agent:<version>-lab`, other builds to
-  `bvaliev/brokerium-agent:lab`, published from `main`. The provider pulls the image when it is
+  `bvaliev/brokerium-agent:lab`, published nightly from `main`. The provider pulls the image when it is
   missing; `make images` builds it locally after agent changes;
 - the address of the agent gateway for the agents in the nodes, `BROKERIUM_DOCKER_AGENT_ENDPOINT`:
   `brokerium:8443` in the Docker installation. It defaults to `BROKERIUM_AGENT_ENDPOINT`, whose

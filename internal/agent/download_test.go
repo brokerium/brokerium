@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -67,6 +68,38 @@ func TestDownloadStall(t *testing.T) {
 				if err == nil || !strings.Contains(err.Error(), "HTTP 404") {
 					t.Fatalf("download = %v, want HTTP 404", err)
 				}
+			}
+		})
+	}
+}
+
+func TestRelease(t *testing.T) {
+	t.Parallel()
+	apache := []string{
+		"https://dlcdn.apache.org/kafka/4.4.0/kafka_2.13-4.4.0.tgz",
+		"https://downloads.apache.org/kafka/4.4.0/kafka_2.13-4.4.0.tgz",
+		"https://archive.apache.org/dist/kafka/4.4.0/kafka_2.13-4.4.0.tgz",
+	}
+	checksums := []string{
+		"https://downloads.apache.org/kafka/4.4.0/kafka_2.13-4.4.0.tgz.sha512",
+		"https://archive.apache.org/dist/kafka/4.4.0/kafka_2.13-4.4.0.tgz.sha512",
+	}
+	tests := []struct {
+		name, mirror string
+		archives     []string
+	}{
+		{"Apache mirrors only", "", apache},
+		{"mirror first", "https://artifacts.example.com/kafka",
+			append([]string{"https://artifacts.example.com/kafka/4.4.0/kafka_2.13-4.4.0.tgz"}, apache...)},
+		{"trailing slash", "http://10.0.0.5:8090/kafka/",
+			append([]string{"http://10.0.0.5:8090/kafka/4.4.0/kafka_2.13-4.4.0.tgz"}, apache...)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			file, archives, sums := release("4.4.0", tt.mirror)
+			if file != "kafka_2.13-4.4.0.tgz" || !slices.Equal(archives, tt.archives) || !slices.Equal(sums, checksums) {
+				t.Errorf("release = %q,\n%q,\n%q", file, archives, sums)
 			}
 		})
 	}

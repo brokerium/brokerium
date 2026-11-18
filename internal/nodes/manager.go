@@ -33,6 +33,8 @@ type Config struct {
 	// ServerInContainer is set when the server runs in a container on LabNetwork; it reaches the
 	// nodes of Docker clusters by container name instead of through ports published on localhost.
 	ServerInContainer bool
+	// KafkaMirror goes into every Kafka install command; agents try it before the Apache mirrors.
+	KafkaMirror string
 }
 
 // Manager implements ops.NodeManager.

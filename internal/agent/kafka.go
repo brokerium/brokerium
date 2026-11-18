@@ -153,15 +153,7 @@ func (k *Kafka) Install(ctx context.Context, version, mirror string) (string, er
 		return "already installed at " + h, nil
 	}
 	k.mu.Unlock()
-	file := fmt.Sprintf("kafka_2.13-%s.tgz", version)
-	mirrors := []string{"https://dlcdn.apache.org/kafka", "https://downloads.apache.org/kafka", "https://archive.apache.org/dist/kafka"}
-	if mirror != "" {
-		mirrors = append([]string{strings.TrimRight(mirror, "/")}, mirrors...)
-	}
-	sumURLs := []string{
-		fmt.Sprintf("https://downloads.apache.org/kafka/%s/%s.sha512", version, file),
-		fmt.Sprintf("https://archive.apache.org/dist/kafka/%s/%s.sha512", version, file),
-	}
+	file, archives, sumURLs := release(version, mirror)
 	want, err := fetchSHA512(ctx, sumURLs, stallTimeout)
 	if err != nil {
 		return "", err
@@ -174,8 +166,8 @@ func (k *Kafka) Install(ctx context.Context, version, mirror string) (string, er
 	defer os.RemoveAll(tmp)
 	archive := filepath.Join(tmp, file)
 	var lastErr error
-	for _, m := range mirrors {
-		lastErr = download(ctx, fmt.Sprintf("%s/%s/%s", m, version, file), archive, stallTimeout)
+	for _, u := range archives {
+		lastErr = download(ctx, u, archive, stallTimeout)
 		if lastErr == nil {
 			break
 		}
@@ -207,6 +199,25 @@ func (k *Kafka) Install(ctx context.Context, version, mirror string) (string, er
 	k.saveState()
 	k.mu.Unlock()
 	return "installed " + version + " to " + dest + " (sha512 verified)", nil
+}
+
+// release names the archive of a Kafka release and lists the URLs of the archive, the mirror
+// first, and of its SHA-512 checksum, which only Apache publishes. A mirror has the layout of the
+// Apache mirrors: <mirror>/<version>/kafka_2.13-<version>.tgz.
+func release(version, mirror string) (file string, archives, checksums []string) {
+	file = fmt.Sprintf("kafka_2.13-%s.tgz", version)
+	bases := []string{"https://dlcdn.apache.org/kafka", "https://downloads.apache.org/kafka", "https://archive.apache.org/dist/kafka"}
+	if mirror != "" {
+		bases = append([]string{strings.TrimRight(mirror, "/")}, bases...)
+	}
+	for _, b := range bases {
+		archives = append(archives, fmt.Sprintf("%s/%s/%s", b, version, file))
+	}
+	checksums = []string{
+		fmt.Sprintf("https://downloads.apache.org/kafka/%s/%s.sha512", version, file),
+		fmt.Sprintf("https://archive.apache.org/dist/kafka/%s/%s.sha512", version, file),
+	}
+	return file, archives, checksums
 }
 
 // stallTimeout is how long a download may receive no data before the agent gives up on the

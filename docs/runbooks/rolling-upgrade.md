@@ -18,8 +18,10 @@ Automated as `TestRollingUpgrade` in [test/e2e/upgrade_test.go](../../test/e2e/u
 ## Order of steps
 
 1. Health gate.
-2. Download the release on every node first (SHA-512 checked against the Apache signature
-   file), so a failed download stops the plan before any restart.
+2. Download the release on every node first (SHA-512 checked against the checksum file of
+   Apache), so a failed download stops the plan before any restart. Agents try
+   `BROKERIUM_KAFKA_MIRROR` first when it is set
+   ([internal mirror](../guide/install.md#kafka-releases-from-an-internal-mirror)).
 3. For each node, controllers first and the quorum leader last, then brokers: write the
    configuration for the new version, stop gracefully, start on the new version, wait until
    the node is back (broker registered and unfenced, controller caught up), health gate.

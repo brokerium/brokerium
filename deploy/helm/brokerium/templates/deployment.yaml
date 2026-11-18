@@ -72,6 +72,10 @@ spec:
               value: {{ .tls | quote }}
             {{- end }}
             {{- end }}
+            {{- with .Values.agents.kafkaMirror }}
+            - name: BROKERIUM_KAFKA_MIRROR
+              value: {{ . | quote }}
+            {{- end }}
             - name: BROKERIUM_SECURE_COOKIES
               value: {{ or .Values.secureCookies (hasPrefix "https://" (include "brokerium.publicURL" .)) | quote }}
             - name: BROKERIUM_SNAPSHOT_INTERVAL
