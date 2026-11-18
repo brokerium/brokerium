@@ -387,13 +387,16 @@ func planCordon(_ context.Context, p *Planner, raw json.RawMessage) (*Planned, e
 	}}, nil
 }
 
-func planDrain(_ context.Context, p *Planner, raw json.RawMessage) (*Planned, error) {
+func planDrain(ctx context.Context, p *Planner, raw json.RawMessage) (*Planned, error) {
 	params, err := parse[brokerParams](raw)
 	if err != nil {
 		return nil, err
 	}
 	b, err := p.broker(params.BrokerID)
 	if err != nil {
+		return nil, err
+	}
+	if err := p.checkNode(ctx, "drain-broker", b.ID); err != nil {
 		return nil, err
 	}
 	if !b.Alive || b.Fenced {
@@ -469,7 +472,7 @@ func planUnregister(_ context.Context, p *Planner, raw json.RawMessage) (*Planne
 	}}, nil
 }
 
-func planRemoveController(_ context.Context, p *Planner, raw json.RawMessage) (*Planned, error) {
+func planRemoveController(ctx context.Context, p *Planner, raw json.RawMessage) (*Planned, error) {
 	params, err := parse[nodeParams](raw)
 	if err != nil {
 		return nil, err
@@ -481,6 +484,9 @@ func planRemoveController(_ context.Context, p *Planner, raw json.RawMessage) (*
 	v, ok := q.Voter(*params.NodeID)
 	if !ok {
 		return nil, fmt.Errorf("node %d is not a voter", *params.NodeID)
+	}
+	if err := p.checkNode(ctx, "remove-controller", v.NodeID); err != nil {
+		return nil, err
 	}
 	if len(q.Voters) <= 1 {
 		return nil, errors.New("cannot remove the last voter")
