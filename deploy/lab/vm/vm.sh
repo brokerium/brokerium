@@ -4,7 +4,7 @@
 # Agent-on-VM lab: brokerium-server in a container (image built from this repository) and
 # systemd hosts that install brokerium-agent with the real install.sh. Used by TestAgentVMs.
 #
-#   deploy/lab/vm/vm.sh up [host...]   default hosts: vm-lab-c1 vm-lab-b101
+#   deploy/lab/vm/vm.sh up [host...]   default hosts: vm-host-1 vm-host-2 vm-host-3
 #   deploy/lab/vm/vm.sh down
 set -euo pipefail
 
@@ -18,7 +18,7 @@ case "${1:-}" in
   up)
     shift
     hosts=("$@")
-    [[ ${#hosts[@]} -gt 0 ]] || hosts=(vm-lab-c1 vm-lab-b101)
+    [[ ${#hosts[@]} -gt 0 ]] || hosts=(vm-host-1 vm-host-2 vm-host-3)
     docker build -q -t brokerium-vm . >/dev/null
     docker build -q -f "$ROOT/deploy/docker/server.Dockerfile" -t bvaliev/brokerium-server:dev "$ROOT" >/dev/null
     (cd "$ROOT" && GOOS=linux GOARCH="$(docker info --format '{{.Architecture}}' | sed 's/x86_64/amd64/;s/aarch64/arm64/')" \
@@ -42,7 +42,7 @@ case "${1:-}" in
     echo "server: http://localhost:18080 (admin / brokerium-admin), hosts: ${hosts[*]}"
     ;;
   down)
-    docker ps -a --format '{{.Names}}' | grep -E "^($SERVER|vm-lab-.*)$" | xargs -r docker rm -f >/dev/null
+    docker ps -a --format '{{.Names}}' | grep -E "^($SERVER|vm-host-.*)$" | xargs -r docker rm -f >/dev/null
     docker volume rm -f "$SERVER-data" >/dev/null 2>&1 || true
     docker exec "$PG" psql -U brokerium -d brokerium -c "DROP DATABASE IF EXISTS brokerium_vm" >/dev/null || true
     ;;

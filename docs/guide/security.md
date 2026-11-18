@@ -81,8 +81,8 @@ never returned by the API. Back up the key together with the database.
   in the health of its cluster, an expired one is critical. Agents older than 0.2.0 do not
   renew: upgrade them before their certificates expire.
 - An agent with an expired certificate cannot connect. Run the install command with a new
-  join token on the host: the agent enrolls again under the same node name and Kafka is not
-  touched.
+  join token for its node (`nodeId`) or its node name on the host: the agent enrolls again as
+  the same node and Kafka is not touched.
 
 ### Agents behind a TLS-terminating proxy
 
@@ -111,8 +111,8 @@ messages carry the authenticity instead ([ADR 0017](../adr/0017-agent-transport-
   certificate) and the plaintext listener on a network you trust. Anyone on the path can still
   block connections, or use up a join token by forwarding its request first.
 - Nodes of the insecure transport have no certificate, and their secret neither expires nor
-  rotates. Enrolling the node again with a new join token replaces it; enrolling with the other
-  transport revokes the credentials of the old one.
+  rotates. Enrolling the node again with a new join token for it replaces the secret; enrolling
+  with the other transport revokes the credentials of the old one.
 
 ## Docker clusters
 

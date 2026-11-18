@@ -162,21 +162,48 @@ own CA (or, [behind a TLS-terminating proxy](#agents-behind-a-tls-terminating-pr
 signed messages), and execute only typed commands (install a Kafka release with its SHA-512
 checked, write the configuration, format storage, start, stop, report status).
 
-1. In the dashboard open **Nodes**, create a join token for the host and copy the command:
+1. In the dashboard open **Nodes**, create a join token and copy the command:
 
    ```bash
    curl -fsSL https://brokerium.example.com/api/v1/agent/install.sh | \
      sudo BROKERIUM_AGENT_SERVER=brokerium.example.com:8443 BROKERIUM_AGENT_TOKEN=brk1.… sh
    ```
 
+   A token can be used once, on any host. It may name the node and reserve it for a cluster;
+   without a name the node is named after the host name the agent reports, with `-2`, `-3` and
+   so on when that name is taken.
 2. The script installs `/usr/local/bin/brokerium-agent`, writes `/etc/brokerium-agent.env`
    (mode 0600) and starts `brokerium-agent.service`, which runs as the `brokerium-agent`
    account, not as root. Kafka itself runs as `brokerium-kafka.service` under the `kafka`
    account, so restarting or upgrading the agent never stops Kafka. Hosts need systemd, sudo,
    Java 17 or later and `curl`.
-3. Name hosts the way Brokerium names nodes of a cluster: `<cluster>-c<id>` for controllers
-   (ids 1-99) and `<cluster>-b<id>` for brokers (ids from 101). Brokerium advertises these names
-   as listener addresses, so they must resolve in DNS for clients and other nodes.
+3. The host appears on the **Nodes** page. When you create a cluster or add a node, you choose
+   the hosts that run Kafka ([agent clusters](clusters.md#agent-clusters)); the names of the
+   hosts do not matter.
+
+Every node has an **advertised host**: the address the listeners of its Kafka node advertise,
+which clients, the other nodes and the server connect to. It starts as the host name the agent
+reports, so that name must resolve in DNS, or you set another name or an IP address. A host whose
+reported name is neither a DNS name nor an IP address, for example one with an underscore, can
+run Kafka once you set its advertised host. Each node also has a **rack**, the `broker.rack` of a
+broker on it unless the operation sets another one. Change the name, the advertised host and the
+rack on the **Nodes** page or with the API (role operator; an empty `advertisedHost` goes back to
+the reported host name):
+
+```bash
+curl -X PATCH https://brokerium.example.com/api/v1/nodes/<node id> \
+  -H "Authorization: Bearer $TOKEN" -H 'X-Brokerium-Request: 1' -H 'Content-Type: application/json' \
+  -d '{"advertisedHost": "kafka-17.example.com", "rack": "rack-a"}'
+```
+
+A new advertised host of a node that runs Kafka takes effect when the node is configured again,
+by a rolling restart or a rolling upgrade, which also records the new bootstrap servers of the
+cluster.
+
+To install a host again, for example after a new operating system or when the agent certificate
+expired, create a join token for its node (`{"nodeId": "<node id>"}` in
+`POST /api/v1/join-tokens`) and run its command: the agent enrolls as the same node, with its
+name, advertised host and role, and Kafka is not touched.
 
 Installer variables: `BROKERIUM_AGENT_VERSION` (release tag), `BROKERIUM_AGENT_URL` (download
 from your own mirror) with `BROKERIUM_AGENT_SHA256` (its expected checksum),
@@ -316,10 +343,11 @@ which the signatures decide, only who can read them: the proxy and every segment
 commands, results and status in clear. Keep TLS up to the proxy and the plaintext port 8444 on a
 network you trust.
 
-Running the install command again with a new join token switches an agent between the transports
-without stopping Kafka; the credentials of the old transport stop working. Agents of the insecure
-transport have no certificate to renew, and their secret does not expire: to replace it, enroll
-the node again with a new join token. `HTTPS_PROXY` works with this transport too.
+Running the install command again with a new join token for the node (`nodeId`) switches an agent
+between the transports without stopping Kafka; the credentials of the old transport stop working.
+A join token without a node would enroll the host as a new node. Agents of the insecure transport
+have no certificate to renew, and their secret does not expire: to replace it, enroll the node
+again with a new join token for it. `HTTPS_PROXY` works with this transport too.
 
 Where the proxy can stay out of the TLS connection, keep mutual TLS end to end instead:
 

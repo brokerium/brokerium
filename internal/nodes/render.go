@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,10 +16,11 @@ import (
 	"github.com/brokerium/brokerium/internal/store"
 )
 
-// Roles of managed nodes.
+// Roles of managed nodes. Combined nodes run broker and controller in one process.
 const (
 	RoleBroker     = "broker"
 	RoleController = "controller"
+	RoleCombined   = "combined"
 )
 
 // Settings of a cluster whose nodes Brokerium manages, stored in clusters.settings.
@@ -72,7 +74,8 @@ func (s Settings) toMap() map[string]any {
 	return m
 }
 
-// NodeName is the name of a managed node: <cluster>-c<id> or <cluster>-b<id>.
+// NodeName is the container name of a node of a Docker cluster: <cluster>-c<id> or
+// <cluster>-b<id>.
 func NodeName(cluster, role string, id int32) string {
 	if role == RoleController {
 		return fmt.Sprintf("%s-c%d", cluster, id)
@@ -103,6 +106,11 @@ func (m *Manager) managedNodes(ctx context.Context, clusterID string) (managed, 
 	if err != nil {
 		return managed{}, err
 	}
+	return classify(nodes), nil
+}
+
+// classify sorts the nodes of a cluster into controllers and brokers, each ordered by node id.
+func classify(nodes []*store.Node) managed {
 	out := managed{nodes: nodes}
 	for _, n := range nodes {
 		if n.KafkaNodeID == nil {
@@ -120,40 +128,41 @@ func (m *Manager) managedNodes(ctx context.Context, clusterID string) (managed, 
 	}
 	byID(out.controllers)
 	byID(out.brokers)
-	return out, nil
+	return out
 }
 
 // quorumBootstrap lists controller endpoints for controller.quorum.bootstrap.servers.
-func quorumBootstrap(controllers []string) string {
+func quorumBootstrap(hosts []string) string {
 	var parts []string
-	for _, c := range controllers {
-		parts = append(parts, c+":9093")
+	for _, h := range hosts {
+		parts = append(parts, net.JoinHostPort(h, "9093"))
 	}
 	return strings.Join(parts, ",")
 }
 
 // brokerAddress is how clients reach a managed broker: Docker lab nodes publish their listener
 // on localhost, and a server in a container on the lab network reaches their internal listener
-// by container name; agent nodes are reached by their node name, which must be a DNS name.
-func (m *Manager) brokerAddress(s Settings, docker bool, name string, id int32) string {
+// by container name; agent nodes are reached at their advertised host.
+func (m *Manager) brokerAddress(s Settings, docker bool, host string, id int32) string {
 	if docker && !m.Cfg.ServerInContainer {
 		return fmt.Sprintf("localhost:%d", s.PortBase+int(id))
 	}
-	return name + ":9092"
+	return net.JoinHostPort(host, "9092")
 }
 
 // controllerAddress is how the server reaches a managed controller directly.
-func (m *Manager) controllerAddress(s Settings, docker bool, name string, id int32) string {
+func (m *Manager) controllerAddress(s Settings, docker bool, host string, id int32) string {
 	if docker && !m.Cfg.ServerInContainer {
 		return fmt.Sprintf("localhost:%d", s.PortBase+int(id))
 	}
-	return name + ":9093"
+	return net.JoinHostPort(host, "9093")
 }
 
-// renderProperties builds server.properties for a node. quorum is either a bootstrap server
-// list (dynamic) or a voters string (static). Docker lab nodes get a second listener published
-// on localhost; agent nodes have one listener on their node name.
-func renderProperties(s Settings, docker bool, role, name string, id int32, rack, quorumKind, quorum string) map[string]string {
+// renderProperties builds server.properties for a node. host is the container name of a Docker
+// node and the advertised host of an agent node. quorum is either a bootstrap server list
+// (dynamic) or a voters string (static). Docker lab nodes get a second listener published on
+// localhost; agent nodes have one listener, advertised on their host.
+func renderProperties(s Settings, docker bool, role, host string, id int32, rack, quorumKind, quorum string) map[string]string {
 	p := map[string]string{
 		"node.id":                          strconv.Itoa(int(id)),
 		"controller.listener.names":        "CONTROLLER",
@@ -176,11 +185,11 @@ func renderProperties(s Settings, docker bool, role, name string, id int32, rack
 	}
 	if role == RoleController {
 		p["process.roles"] = "controller"
-		p["listeners"] = "CONTROLLER://" + name + ":9093"
+		p["listeners"] = "CONTROLLER://" + net.JoinHostPort(host, "9093")
 		if !docker {
 			p["listeners"] = "CONTROLLER://0.0.0.0:9093"
 		}
-		p["advertised.listeners"] = "CONTROLLER://" + name + ":9093"
+		p["advertised.listeners"] = "CONTROLLER://" + net.JoinHostPort(host, "9093")
 		p["listener.security.protocol.map"] = "CONTROLLER:PLAINTEXT"
 		return p
 	}
@@ -188,12 +197,12 @@ func renderProperties(s Settings, docker bool, role, name string, id int32, rack
 	if docker {
 		port := s.PortBase + int(id)
 		p["listeners"] = fmt.Sprintf("INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:%d", port)
-		p["advertised.listeners"] = fmt.Sprintf("INTERNAL://%s:9092,EXTERNAL://localhost:%d", name, port)
+		p["advertised.listeners"] = fmt.Sprintf("INTERNAL://%s,EXTERNAL://localhost:%d", net.JoinHostPort(host, "9092"), port)
 		p["inter.broker.listener.name"] = "INTERNAL"
 		p["listener.security.protocol.map"] = "CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
 	} else {
 		p["listeners"] = "PLAINTEXT://0.0.0.0:9092"
-		p["advertised.listeners"] = "PLAINTEXT://" + name + ":9092"
+		p["advertised.listeners"] = "PLAINTEXT://" + net.JoinHostPort(host, "9092")
 		p["inter.broker.listener.name"] = "PLAINTEXT"
 		p["listener.security.protocol.map"] = "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
 	}

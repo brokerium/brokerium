@@ -92,7 +92,7 @@ func (g *Gateway) enrollInsecure(ctx context.Context, req *agentv1.EnrollRequest
 	if err != nil {
 		return nil, err
 	}
-	node, err := g.enrolledNode(ctx, tok)
+	node, err := enrolledNode(ctx, g.Store, tok, req.GetHostname())
 	if err != nil {
 		return nil, err
 	}

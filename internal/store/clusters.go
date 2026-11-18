@@ -151,16 +151,25 @@ func (s *Store) SetKafkaClusterID(ctx context.Context, id, kafkaClusterID string
 	return err
 }
 
-// DeleteCluster removes a cluster and its operations.
+// DeleteCluster removes a cluster and its operations. Its nodes lose their Kafka role and
+// cluster, so that they can be chosen for another cluster.
 func (s *Store) DeleteCluster(ctx context.Context, id string) error {
-	tag, err := s.Pool.Exec(ctx, `DELETE FROM clusters WHERE id=$1`, id)
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx)) //nolint:errcheck // a no-op after Commit
+	if _, err := tx.Exec(ctx, `UPDATE nodes SET cluster_id=NULL, role='', kafka_node_id=NULL WHERE cluster_id=$1`, id); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `DELETE FROM clusters WHERE id=$1`, id)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func nonNilMap(m map[string]string) map[string]string {

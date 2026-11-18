@@ -7,7 +7,7 @@ cluster cannot support are not shown.
 | Provider | Nodes are run by | Brokerium can |
 | --- | --- | --- |
 | `external` | you | everything over the Kafka protocol: health, topics, ACLs, quotas, groups, messages, rebalancing, leader elections, cordon and unregister brokers, remove controllers from dynamic quorums |
-| `agent` | `brokerium-agent` on your hosts | all of the above plus creating clusters, adding, replacing and decommissioning brokers, adding controllers, quorum migration, rolling restarts and upgrades |
+| `agent` | `brokerium-agent` on your hosts | all of the above plus creating clusters on hosts you choose, adding, replacing and decommissioning brokers, adding controllers, quorum migration, rolling restarts and upgrades |
 | `strimzi` | the Strimzi operator on Kubernetes | Kafka-protocol features plus node pool scaling with rebalancing, rolling restarts and upgrades through the operator |
 | `docker` | the Docker provider (Docker installation, labs) | everything, with nodes as containers on the server's Docker host |
 
@@ -23,6 +23,64 @@ reassignments and elections).
 When no broker answers but the cluster has controller addresses
 (`settings.controllerBootstrapServers`, filled in automatically for agent and Docker
 clusters), Brokerium still reads the controller quorum directly from the controllers.
+
+## Agent clusters
+
+Clusters of the provider `agent` run on hosts with `brokerium-agent`
+([installation](install.md#agents-on-virtual-machines-and-bare-metal)). You choose the host of
+every Kafka node; Brokerium installs the Kafka release, writes the configuration with the
+advertised host of the host, formats the storage and starts the node. A host can be chosen when
+its agent is connected, it runs no Kafka node, it belongs to no other cluster (a join token for
+a cluster reserves its host for that cluster) and its Kafka data directory is empty or holds
+the data of the same node. The dashboard offers these hosts; through the API, take their ids
+from `GET /api/v1/nodes`.
+
+Create the cluster record, then plan the creation of its nodes:
+
+```bash
+api() { curl -fsS -H "Authorization: Bearer $TOKEN" -H 'X-Brokerium-Request: 1' -H 'Content-Type: application/json' "$@"; }
+api -d '{"name": "prod", "provider": "agent", "skipTest": true, "bootstrapServers": []}' \
+  https://brokerium.example.com/api/v1/clusters
+api -d '{"type": "bootstrap-cluster", "params": {"version": "4.3.1", "nodes": [
+      {"node": "3f9c0d2a6b1e4c7d", "role": "controller"},
+      {"node": "8a41e6b0c2d94f13", "role": "controller"},
+      {"node": "c07d5e9b1a2f3468", "role": "controller"},
+      {"node": "1b2c3d4e5f607182", "role": "broker", "rack": "rack-a"},
+      {"node": "92a8b7c6d5e4f301", "role": "broker", "rack": "rack-b"},
+      {"node": "e5f4d3c2b1a09887", "role": "broker", "nodeId": 110}]}}' \
+  https://brokerium.example.com/api/v1/clusters/<cluster id>/operations
+```
+
+- Choose one to five controllers and at least one broker. Combined broker and controller nodes
+  are not supported yet.
+- Node ids default to 1, 2, ... for controllers and 101, 102, ... for brokers in the order of
+  the list; `nodeId` sets one explicitly (unique, at least 0).
+- `rack` defaults to the rack of the host; `quorum` is `dynamic` (default) or `static`.
+- The plan lists the hosts with their node ids, racks and advertised hosts. Confirm it with
+  `POST /api/v1/operations/<operation id>/confirm`. Afterwards the cluster connects to the
+  advertised hosts of its brokers.
+
+Later operations name their hosts the same way:
+
+| Operation | Parameters |
+| --- | --- |
+| `add-broker` | `{"nodes": [{"node": "<node id>", "rack": "rack-c"}], "rebalance": true}`; `nodeId` per host is optional, by default ids continue after the highest broker. |
+| `add-controller` | `{"node": "<node id>"}`, optionally `"nodeId": 4`; a quorum has at most five voters. |
+| `replace-broker` | `{"brokerId": 103, "mode": "same-id"}` starts broker 103 again on its host, for example after its disk was replaced, and followers re-replicate what the disk lacks; add `"node"` to move the id to another free host. `{"brokerId": 103, "mode": "new-id", "node": "<node id>"}` starts a broker with a new id on that host and moves the replicas over. |
+
+Decommissioning a broker, removing a controller and replacing a broker stop Kafka on the old host
+and release it: the host has no role and no cluster afterwards, but keeps its Kafka data. A host
+that is down at that moment is released at once and stops Kafka as soon as its agent connects
+again, so it does not run the old node next to its replacement. Clear the data directory of a
+released host before it runs a node of another cluster or with another node id. Deleting the
+registration of an agent cluster releases its hosts too and leaves Kafka running on them.
+
+An operation that fails halfway leaves the hosts it already reached with their role; a failed
+operation cannot be resumed. After a failed `add-broker` or `add-controller`, fix the cause and
+plan it again with the same hosts: a host whose broker is not registered, or whose controller is
+not a voter, continues that node. After a failed creation, delete the cluster registration, stop
+Kafka on its hosts (`sudo systemctl stop brokerium-kafka.service`) and clear their data
+directories before you choose them again.
 
 ## Amazon MSK
 

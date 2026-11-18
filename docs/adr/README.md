@@ -18,6 +18,7 @@
 | [0015](0015-chart-networking-and-repository.md) | Helm chart networking with Gateway API and the chart repository |
 | [0016](0016-editions-and-license-keys.md) | Community and Enterprise editions, `ee/` and license keys |
 | [0017](0017-agent-transport-behind-proxies.md) | Insecure agent transport with signed messages behind TLS-terminating proxies |
+| [0018](0018-explicit-node-assignment.md) | Operators choose the agent hosts of cluster nodes; nodes advertise their advertised host |
 | [0019](0019-docker-clusters-for-docker-installations.md) | Docker clusters only for the Docker installation, with nodes reached by container name |
 | [0020](0020-ci-by-need.md) | CI runs the jobs a change needs; nightly `edge` images |
 
