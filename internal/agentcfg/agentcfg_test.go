@@ -2,7 +2,10 @@
 
 package agentcfg
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestValidate(t *testing.T) {
 	t.Parallel()
@@ -31,5 +34,53 @@ func TestValidate(t *testing.T) {
 				t.Errorf("Validate() = %v, want ok=%v", err, tt.ok)
 			}
 		})
+	}
+}
+
+func TestValidateHost(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		host string
+		ok   bool
+	}{
+		{"kafka-17.example.com", true},
+		{"Kafka-17", true},
+		{"k", true},
+		{"1kafka.example.com", true},
+		{"broker.1", true},
+		{"192.0.2.10", true},
+		{"2001:db8::10", true},
+		{"::1", true},
+		{"", false},
+		{"kafka_17", false},
+		{"-kafka", false},
+		{"kafka-", false},
+		{"kafka..example.com", false},
+		{"kafka.example.com.", false},
+		{"kafka.example.com:9092", false},
+		{"[2001:db8::10]", false},
+		{"fe80::1%eth0", false},
+		{"10.0.0.256", false},
+		{"12345", false},
+		{"kafka 17", false},
+		{"kafka\n17", false},
+		{strings.Repeat("a", 64) + ".example.com", false},
+		{strings.Repeat(strings.Repeat("a", 60)+".", 4) + "com", true},
+		{strings.Repeat(strings.Repeat("a", 62)+".", 4) + "com", false},
+	}
+	for _, tt := range tests {
+		if err := ValidateHost(tt.host); (err == nil) != tt.ok {
+			t.Errorf("ValidateHost(%q) = %v, want ok=%v", tt.host, err, tt.ok)
+		}
+	}
+}
+
+func TestValidateRack(t *testing.T) {
+	t.Parallel()
+	for rack, ok := range map[string]bool{"": true, "rack-a": true, "eu-west-1a": true, "Rack_1.2": true,
+		strings.Repeat("r", 64): true, strings.Repeat("r", 65): false, "rack a": false, "rack/a": false, "rack\na": false} {
+		if err := ValidateRack(rack); (err == nil) != ok {
+			t.Errorf("ValidateRack(%q) = %v, want ok=%v", rack, err, ok)
+		}
 	}
 }

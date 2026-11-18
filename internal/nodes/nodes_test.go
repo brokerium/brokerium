@@ -73,6 +73,46 @@ func TestRenderAgentNodes(t *testing.T) {
 	}
 }
 
+func TestRenderAdvertisedHosts(t *testing.T) {
+	t.Parallel()
+	s := settingsOf(&store.Cluster{})
+	tests := []struct {
+		host, listener, controller, quorum, address string
+	}{
+		{"kafka-17.example.com", "PLAINTEXT://kafka-17.example.com:9092", "CONTROLLER://kafka-17.example.com:9093",
+			"kafka-17.example.com:9093", "kafka-17.example.com:9092"},
+		{"192.0.2.10", "PLAINTEXT://192.0.2.10:9092", "CONTROLLER://192.0.2.10:9093", "192.0.2.10:9093", "192.0.2.10:9092"},
+		{"2001:db8::10", "PLAINTEXT://[2001:db8::10]:9092", "CONTROLLER://[2001:db8::10]:9093", "[2001:db8::10]:9093", "[2001:db8::10]:9092"},
+	}
+	for _, tt := range tests {
+		broker := renderProperties(s, false, RoleBroker, tt.host, 101, "rack-a", "dynamic", quorumBootstrap([]string{tt.host}))
+		ctrl := renderProperties(s, false, RoleController, tt.host, 1, "", "dynamic", quorumBootstrap([]string{tt.host}))
+		switch {
+		case broker["advertised.listeners"] != tt.listener:
+			t.Errorf("%s: broker advertises %q, want %q", tt.host, broker["advertised.listeners"], tt.listener)
+		case ctrl["advertised.listeners"] != tt.controller:
+			t.Errorf("%s: controller advertises %q, want %q", tt.host, ctrl["advertised.listeners"], tt.controller)
+		case broker["controller.quorum.bootstrap.servers"] != tt.quorum:
+			t.Errorf("%s: quorum %q, want %q", tt.host, broker["controller.quorum.bootstrap.servers"], tt.quorum)
+		case brokerAddress(s, false, tt.host, 101) != tt.address:
+			t.Errorf("%s: broker address %q, want %q", tt.host, brokerAddress(s, false, tt.host, 101), tt.address)
+		case broker["listeners"] != "PLAINTEXT://0.0.0.0:9092" || broker["broker.rack"] != "rack-a":
+			t.Errorf("%s: listeners %q, rack %q", tt.host, broker["listeners"], broker["broker.rack"])
+		}
+	}
+}
+
+func TestHostOf(t *testing.T) {
+	t.Parallel()
+	n := &store.Node{Name: "lab-b101", AdvertisedHost: "kafka-1.example.com"}
+	if hostOf(true, n) != "lab-b101" || hostOf(false, n) != "kafka-1.example.com" {
+		t.Errorf("hostOf: docker %q, agent %q", hostOf(true, n), hostOf(false, n))
+	}
+	if got := hostOf(false, &store.Node{Name: "prod-b101"}); got != "prod-b101" {
+		t.Errorf("a node without an advertised host advertises %q, want its name", got)
+	}
+}
+
 func TestSettingsDefaults(t *testing.T) {
 	t.Parallel()
 	s := settingsOf(&store.Cluster{KafkaClusterID: "abc"})
@@ -84,7 +124,7 @@ func TestSettingsDefaults(t *testing.T) {
 		t.Errorf("settings do not survive toMap: %+v", round)
 	}
 	if NodeName("delta", RoleController, 3) != "delta-c3" || NodeName("delta", RoleBroker, 101) != "delta-b101" {
-		t.Error("NodeName")
+		t.Error("container names of Docker nodes")
 	}
 }
 

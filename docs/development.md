@@ -59,6 +59,11 @@ activate mise in your shell.
 | `deploy/lab/strimzi/strimzi.sh up\|down` | kind cluster with Strimzi and Kafka "lab"; kubeconfig `.data/kind.kubeconfig` |
 | `deploy/lab/vm/vm.sh up\|down` | Containerized server on port 18080 and systemd hosts for the agent installer |
 
+The store tests run against PostgreSQL when `BROKERIUM_TEST_DATABASE_URL` points to a database,
+for example `postgres://brokerium:brokerium@localhost:55432/brokerium_test?sslmode=disable` in
+the lab PostgreSQL after `CREATE DATABASE brokerium_test`; they apply the migrations and remove
+the rows they create. Without the variable they are skipped.
+
 ## Editions
 
 Brokerium Enterprise ([ADR 0016](adr/0016-editions-and-license-keys.md)) is built from the same
@@ -116,7 +121,8 @@ A few facts that matter while developing:
   image `bvaliev/brokerium-agent:lab`; rebuild it with `make images` after agent changes.
 - Strimzi lab: kind cluster `brokerium`, Kafka `lab` with node pools `controllers` (ids 0-9)
   and `brokers` (ids 100+), node ports 32100-32105 on localhost.
-- VM lab: Debian containers with systemd and the server container on port 18080.
+- VM lab: Debian containers with systemd (`vm-host-1` to `vm-host-3`) and the server container on
+  port 18080.
 
 ## Releases
 

@@ -80,8 +80,8 @@ never returned by the API. Back up the key together with the database.
   in the health of its cluster, an expired one is critical. Agents older than 0.2.0 do not
   renew: upgrade them before their certificates expire.
 - An agent with an expired certificate cannot connect. Run the install command with a new
-  join token on the host: the agent enrolls again under the same node name and Kafka is not
-  touched.
+  join token for its node (`nodeId`) or its node name on the host: the agent enrolls again as
+  the same node and Kafka is not touched.
 
 ### Agents behind a TLS-terminating proxy
 

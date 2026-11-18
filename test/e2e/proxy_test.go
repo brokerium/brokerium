@@ -54,8 +54,9 @@ func proxiedNodes(c *client) map[string]proxiedNode {
 // terminates TLS (OpenResty with grpc_pass to BROKERIUM_AGENT_INSECURE_ADDR). It starts nothing
 // itself: the environment runs the proxy and the lab agents proxied-c1 and proxied-b101,
 // enrolled through it with BROKERIUM_AGENT_TRANSPORT=insecure, and the server resolves their
-// names to their Kafka ports (9093 and 9092). The test enrolls through the proxy with its own
-// join token, then creates a cluster on the two agents, which sends them signed commands.
+// host names, which they advertise, to their Kafka ports (9093 and 9092). The test enrolls
+// through the proxy with its own join token, then creates a cluster on the two agents, chosen
+// by their node ids, which sends them signed commands.
 //
 //	BROKERIUM_E2E_INSECURE_PROXY=localhost:9443  the proxy, dialed with TLS without verification
 func TestInsecureAgentBehindProxy(t *testing.T) {
@@ -104,7 +105,11 @@ func TestInsecureAgentBehindProxy(t *testing.T) {
 	id := created.Cluster.ID
 	// Installing, configuring, formatting and starting Kafka are signed commands; every step
 	// waits for the authenticated result.
-	op := c.run(id, name, "bootstrap-cluster", map[string]any{"controllers": 1, "brokers": 1, "racks": []string{"r1"}}, 10*time.Minute)
+	nodes := proxiedNodes(c)
+	op := c.run(id, name, "bootstrap-cluster", map[string]any{"nodes": []map[string]any{
+		{"node": nodes["proxied-c1"].ID, "role": "controller"},
+		{"node": nodes["proxied-b101"].ID, "role": "broker", "rack": "r1"},
+	}}, 10*time.Minute)
 	t.Logf("through the proxy: %s", op.Summary)
 	waitView(t, c, id, 3*time.Minute, "a healthy cluster on the proxied agents", healthy)
 	c.must(http.StatusCreated, "POST", "/api/v1/clusters/"+id+"/topics", map[string]any{"name": "behind-the-proxy", "partitions": 1, "replicationFactor": 1}, nil)

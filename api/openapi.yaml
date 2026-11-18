@@ -978,24 +978,19 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/AgentNode" }
   /api/v1/nodes/{id}:
-    delete:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
       tags: [nodes]
-      summary: Forget a node
-      description: "Role: operator. Refused while the node is connected and assigned to a cluster."
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: string }
-        - { $ref: "#/components/parameters/CSRF" }
-      responses:
-        "204": { description: Deleted. }
-        "409": { $ref: "#/components/responses/Error" }
-  /api/v1/join-tokens:
-    post:
-      tags: [nodes]
-      summary: Create a one-time join token for an agent
-      description: "Role: operator. Returns the install command for the host."
+      summary: Change the name, advertised host or rack of a node
+      description: |
+        Role: operator. Give any of the fields. A changed advertised host of a node that runs
+        Kafka takes effect when the node is configured again (rolling restart, rolling upgrade).
+        Nodes of Docker clusters keep their container names as name and advertised host.
+        Audited as `node.update`.
       parameters: [{ $ref: "#/components/parameters/CSRF" }]
       requestBody:
         required: true
@@ -1003,10 +998,56 @@ paths:
           application/json:
             schema:
               type: object
-              required: [nodeName]
+              minProperties: 1
               properties:
-                nodeName: { type: string, pattern: "^[a-z0-9][a-z0-9.-]*$" }
-                clusterId: { type: [string, "null"] }
+                name: { type: string, pattern: "^[A-Za-z0-9._-]{1,63}$", description: Unique among all nodes. }
+                advertisedHost:
+                  type: string
+                  description: >-
+                    A DNS name (RFC 1123 labels separated by dots) or an IPv4 or IPv6 address; an
+                    empty string goes back to the host name the agent reported.
+                rack: { type: string, pattern: "^[A-Za-z0-9._-]{0,64}$", description: Empty for none. }
+      responses:
+        "200":
+          description: The updated node.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentNode" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409":
+          description: "`conflict`: another node has the name."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [nodes]
+      summary: Forget a node
+      description: "Role: operator. Refused while the node is connected and assigned to a cluster."
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      responses:
+        "204": { description: Deleted. }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/join-tokens:
+    post:
+      tags: [nodes]
+      summary: Create a one-time join token for an agent
+      description: |
+        Role: operator. Returns the install command for the host. Without `nodeName` the node is
+        named after the host name its agent reports at enrollment, with `-2`, `-3`, ... when that
+        name is taken. With `nodeId` the token enrolls an existing node again, which keeps its
+        id, name and assignment; `nodeName` and `clusterId` must be empty then.
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nodeName: { type: string, pattern: "^[A-Za-z0-9._-]{1,63}$" }
+                clusterId: { type: [string, "null"], description: Reserves the new node for this cluster. }
+                nodeId: { type: string, description: The node to enroll again. }
                 ttlMinutes: { type: integer, minimum: 1, maximum: 10080, default: 60 }
       responses:
         "201":
@@ -1020,6 +1061,12 @@ paths:
                   token: { type: string }
                   expiresAt: { type: string, format: date-time }
                   command: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "404":
+          description: "`not_found`: no node has the `nodeId`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/v1/agent/install.sh:
     get:
       tags: [nodes]
@@ -1887,27 +1934,71 @@ components:
                 throttleBytesPerSec: { type: integer, format: int64, default: 10485760 }
         bootstrap-cluster:
           type: object
+          description: >-
+            Agent clusters take `nodes`, the chosen hosts; Docker clusters take `controllers`,
+            `brokers`, `racks` and `portBase`. A host can be chosen when its agent is connected, it
+            has no Kafka role, it belongs to no cluster or this one, and its storage is empty or
+            holds the same node; plans name the host they refuse. Node ids default to 1, 2, ... for
+            controllers and 101, 102, ... for brokers in the given order. The cluster connects to
+            the advertised hosts of its brokers afterwards.
           properties:
-            controllers: { type: integer, minimum: 1, maximum: 5 }
-            brokers: { type: integer, minimum: 1 }
+            nodes:
+              type: array
+              description: "Agent clusters: one to five controllers and at least one broker."
+              items:
+                type: object
+                required: [node, role]
+                properties:
+                  node: { type: string, description: Id of the agent node. }
+                  role:
+                    type: string
+                    enum: [controller, broker]
+                    description: "`combined` is refused until it is supported."
+                  nodeId: { type: integer, minimum: 0, description: Unique within the cluster. }
+                  rack: { type: string, description: "Brokers; defaults to the rack of the node." }
+            controllers: { type: integer, minimum: 1, maximum: 5, description: "Docker clusters." }
+            brokers: { type: integer, minimum: 1, description: "Docker clusters." }
             version: { type: string }
-            racks: { type: array, items: { type: string } }
+            racks: { type: array, items: { type: string }, description: "Docker clusters." }
             quorum: { type: string, enum: [dynamic, static] }
-            portBase: { type: integer }
+            portBase: { type: integer, description: "Docker clusters." }
         add-broker:
           type: object
+          description: >-
+            Agent clusters take `nodes`, Docker clusters `count` and `rack`. Node ids default to the
+            next ids after the highest broker.
           properties:
-            count: { type: integer, minimum: 1 }
-            rack: { type: string }
+            nodes:
+              type: array
+              items:
+                type: object
+                required: [node]
+                properties:
+                  node: { type: string, description: Id of the agent node. }
+                  nodeId: { type: integer, minimum: 0 }
+                  rack: { type: string, description: Defaults to the rack of the node. }
+            count: { type: integer, minimum: 1, description: "Docker clusters." }
+            rack: { type: string, description: "Docker clusters." }
             rebalance: { type: boolean }
         replace-broker:
           type: object
           required: [brokerId]
+          description: >-
+            For `same-id` on an agent cluster, `node` defaults to the host of the broker (the same
+            host with an empty disk); another free host takes over the id. `new-id` on an agent
+            cluster requires `node`. Docker clusters take no `node`.
           properties:
             brokerId: { type: integer }
             mode: { type: string, enum: [new-id, same-id] }
+            node: { type: string, description: Id of the agent node. }
         add-controller:
           type: object
+          description: >-
+            Agent clusters require `node`; the id defaults to the next one after the highest
+            voter. A quorum has at most five voters. Docker clusters take no parameters.
+          properties:
+            node: { type: string, description: Id of the agent node. }
+            nodeId: { type: integer, minimum: 0 }
         migrate-quorum:
           type: object
         rolling-restart:
@@ -1998,9 +2089,15 @@ components:
         id: { type: string }
         name: { type: string }
         clusterId: { type: [string, "null"] }
-        role: { type: string, enum: ["", broker, controller] }
+        role: { type: string, enum: ["", broker, controller, combined] }
         kafkaNodeId: { type: [integer, "null"] }
-        hostname: { type: string }
+        hostname: { type: string, description: The host name the agent reported at enrollment. }
+        advertisedHost:
+          type: string
+          description: >-
+            The host the listeners of the node advertise and the quorum and the server use; the
+            reported host name by default. Never empty for nodes of agent clusters.
+        rack: { type: string, description: "Default broker.rack when the node joins a cluster; empty for none." }
         agentVersion: { type: string }
         transport:
           type: string

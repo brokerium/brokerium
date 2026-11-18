@@ -6,6 +6,44 @@ All notable changes to Brokerium are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Agent nodes have an advertised host, the address their listeners advertise and the server
+  connects to (by default the host name the agent reports), and a rack, the default
+  `broker.rack` of a broker on them. `PATCH /api/v1/nodes/{id}` changes them and the node name.
+- Join tokens without a node name: the node is named after the host name its agent reports,
+  with `-2`, `-3` and so on when that name is taken. A join token for `nodeId` enrolls an
+  existing node again, which keeps its name and role.
+
+### Changed
+
+- Agent clusters run on the hosts you choose instead of hosts named `<cluster>-c<id>` and
+  `<cluster>-b<id>` ([ADR 0018](docs/adr/0018-explicit-node-assignment.md)):
+  `bootstrap-cluster` takes `nodes` with a role and an optional node id and rack per host,
+  `add-broker` takes `nodes`, and `add-controller` and `replace-broker` take `node`. Plans refuse
+  hosts that are not connected, already run Kafka, belong to another cluster or hold the data of
+  another node, and the steps check the hosts again. Docker clusters keep their parameters.
+- Removing a node from an agent cluster (decommission, removing a controller, replacing a
+  broker) releases its host for other clusters, and so does deleting the registration of a
+  cluster.
+- Rolling restarts, upgrades and quorum migrations of agent clusters record the bootstrap
+  servers again at the end, so that changed advertised hosts are used; clusters with adopted
+  nodes keep theirs.
+- A controller quorum grows to at most five voters.
+
+### Fixed
+
+- Decommissioning a broker and removing a controller of an agent cluster stop Kafka on the host.
+  Before, the decommission waited for the broker to stop and failed.
+
+### Upgrading
+
+- Existing agent clusters keep their addresses: nodes that run Kafka get their name as advertised
+  host, the other nodes the host name their agent reported. Check the advertised hosts on the
+  **Nodes** page before you add nodes.
+- Scripts that plan `bootstrap-cluster`, `add-broker`, `add-controller` or `replace-broker` on
+  agent clusters pass the hosts with `nodes` or `node`.
+
 ## [0.3.0] - 2026-10-20
 
 Brokerium Enterprise with the message tools, agents behind TLS-terminating proxies and without
