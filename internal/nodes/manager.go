@@ -899,18 +899,23 @@ func orderedNodes(mn managed, leader int32) []*store.Node {
 }
 
 // syncSteps update the recorded bootstrap servers once the nodes of an agent cluster were
-// configured again, which applies changed advertised hosts. Adopted nodes have listeners that
-// Brokerium does not render, so clusters with adopted nodes keep their addresses.
+// configured again, which applies changed advertised hosts.
 func syncSteps(c *store.Cluster, mn managed) []ops.StepSpec {
-	if c.Provider != store.ProviderAgent {
+	if c.Provider != store.ProviderAgent || mn.hasAdopted() {
 		return nil
 	}
+	return []ops.StepSpec{{Name: "Update bootstrap servers", Kind: KindSyncBootstrap, Args: NodeArgs{}}}
+}
+
+// hasAdopted reports whether a cluster has adopted nodes. Their listeners are not rendered by
+// Brokerium, so such clusters keep the addresses they were registered with.
+func (mn managed) hasAdopted() bool {
 	for _, n := range mn.nodes {
 		if adopted(n) {
-			return nil
+			return true
 		}
 	}
-	return []ops.StepSpec{{Name: "Update bootstrap servers", Kind: KindSyncBootstrap, Args: NodeArgs{}}}
+	return false
 }
 
 func (m *Manager) planMigrate(ctx context.Context, p *ops.Planner, raw json.RawMessage) (*ops.Planned, error) {

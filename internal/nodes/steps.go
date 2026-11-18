@@ -698,6 +698,9 @@ func (m *Manager) stepSyncBootstrap(ctx context.Context, x *ops.Exec, raw json.R
 	if err != nil {
 		return nil, err
 	}
+	if mn.hasAdopted() {
+		return map[string]any{"skipped": "adopted nodes keep the addresses of the cluster"}, nil
+	}
 	s := settingsOf(x.Cluster)
 	var servers []string
 	for _, b := range mn.brokers {
