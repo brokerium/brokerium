@@ -14,6 +14,7 @@ import {
   Table,
   Text,
   TextInput,
+  Tooltip,
 } from '@mantine/core';
 import { IconAlertTriangle, IconServerBolt } from '@tabler/icons-react';
 import { useState } from 'react';
@@ -27,6 +28,7 @@ import {
   bootstrapNodes,
   checkBootstrap,
   hostAddressError,
+  hostData,
   initialHostPlan,
   isBroker,
   isFreeHost,
@@ -159,6 +161,7 @@ export function CreateAgentClusterForm({ onCancel, onDone }: CreateAgentClusterF
                 {hosts.map((h, i) => {
                   const used = h.role !== 'unused';
                   const auto = ids[i];
+                  const data = hostData(h.node);
                   return (
                     <Table.Tr key={h.node.id}>
                       <Table.Td>
@@ -169,6 +172,13 @@ export function CreateAgentClusterForm({ onCancel, onDone }: CreateAgentClusterF
                           <Badge size="xs" variant="dot" color={h.node.connected ? 'green' : 'red'}>
                             {h.node.connected ? 'connected' : 'disconnected'}
                           </Badge>
+                          {data && (
+                            <Tooltip label={`Keeps ${data}. Clear its data directory to use the host.`} withArrow multiline maw={280}>
+                              <Badge size="xs" variant="light" color="yellow">
+                                Kafka data
+                              </Badge>
+                            </Tooltip>
+                          )}
                           {h.node.hostname && h.node.hostname !== h.node.name && (
                             <Text size="xs" c="dimmed" ff="monospace">
                               {h.node.hostname}
@@ -184,7 +194,7 @@ export function CreateAgentClusterForm({ onCancel, onDone }: CreateAgentClusterF
                           value={h.role}
                           onChange={(v) => v && edit(h.node.id, { role: v as HostRole })}
                           allowDeselect={false}
-                          disabled={!h.node.connected}
+                          disabled={!h.node.connected || (data !== null && !used)}
                         />
                       </Table.Td>
                       <Table.Td>

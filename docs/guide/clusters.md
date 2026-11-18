@@ -66,8 +66,9 @@ Brokerium runs in the same Kubernetes cluster (Helm value `rbac.strimzi`). Strim
 
 ## Docker lab clusters
 
-**Add cluster → Create a cluster in Docker** builds a cluster from the lab node image as
-containers on the server's Docker host, for evaluations, labs and tests. **Settings → Delete
+**Add cluster → Create in Docker** builds a cluster from the lab node image as containers on the
+server's Docker host, for evaluations, labs and tests. Give it the numbers of controllers, brokers
+and combined nodes (broker and controller in one process). **Settings → Delete
 cluster nodes** removes the containers and volumes again.
 
 The dashboard offers it only when the server offers Docker clusters, which

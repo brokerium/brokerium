@@ -11,6 +11,7 @@ import {
   bootstrapNodes,
   checkBootstrap,
   hostAddressError,
+  hostData,
   hostLabel,
   initialHostPlan,
   isFreeHost,
@@ -133,6 +134,17 @@ describe('checkBootstrap', () => {
       'c: node ids are whole numbers from 0.',
       'd is not connected.',
       'e: Use a DNS name or an IP address.',
+    ]);
+  });
+
+  it('refuses hosts with Kafka data of an earlier node', () => {
+    const formatted = node('a', {
+      status: { meta: { clusterId: 'Xy3', nodeId: 101, directoryId: 'd', formatted: true } } as AgentNode['status'],
+    });
+    expect(hostData(formatted)).toBe('Kafka data of node 101 of cluster Xy3');
+    expect(hostData(node('b'))).toBeNull();
+    expect(checkBootstrap([{ ...host('a', 'combined'), node: formatted }]).errors).toEqual([
+      'a keeps Kafka data of node 101 of cluster Xy3: clear its data directory first.',
     ]);
   });
 

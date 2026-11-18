@@ -43,6 +43,13 @@ export function hostAddress(node: AgentNode): string {
   return node.advertisedHost || node.hostname || node.name;
 }
 
+/** The Kafka data a host keeps from an earlier node; a new cluster cannot use it until it is cleared. */
+export function hostData(node: AgentNode): string | null {
+  const meta = node.status?.meta;
+  if (!meta?.formatted) return null;
+  return meta.clusterId ? `Kafka data of node ${meta.nodeId} of cluster ${meta.clusterId}` : 'Kafka data';
+}
+
 export function hostLabel(node: AgentNode): string {
   const address = hostAddress(node);
   return address === node.name ? node.name : `${node.name} (${address})`;
@@ -131,6 +138,8 @@ export function checkBootstrap(hosts: HostPlan[]): BootstrapCheck {
       seen.add(h.nodeId);
     }
     if (!h.node.connected) errors.push(`${h.node.name} is not connected.`);
+    const data = hostData(h.node);
+    if (data) errors.push(`${h.node.name} keeps ${data}: clear its data directory first.`);
     const addressError = hostAddressError(h.address);
     if (addressError) errors.push(`${h.node.name}: ${addressError}.`);
   }
