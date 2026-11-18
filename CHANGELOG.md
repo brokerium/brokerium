@@ -58,6 +58,10 @@ All notable changes to Brokerium are documented here. The format follows
   was running before, while a node stopped from Brokerium stays stopped.
 - Decommissioning a broker and removing a controller of an agent cluster stop Kafka on the host.
   Before, the decommission waited for the broker to stop and failed.
+- A stopped `brokerium-kafka.service` is inactive instead of failed (`SuccessExitStatus=143`), so
+  monitoring of failed units no longer reports planned stops. Agents running as root rewrite
+  their unit when they start Kafka; run the install command again on hosts with the agent
+  without root.
 
 ### Upgrading
 
