@@ -59,7 +59,7 @@ func (m *Manager) Types() []ops.OpType {
 	return []ops.OpType{
 		{Type: "bootstrap-cluster", Title: "Create cluster nodes", Scope: "cluster", Requires: []string{"restartNodes"},
 			AllowUnreachable: true, Plan: m.planBootstrap,
-			Description: "Provision controllers and brokers, format storage for a dynamic quorum and start the cluster."},
+			Description: "Provision controllers, brokers and combined nodes, format their storage and start the cluster."},
 		{Type: "add-broker", Title: "Add brokers", Scope: "cluster", Requires: []string{"restartNodes"}, Plan: m.planAddBroker,
 			Description: "Provision new brokers, start them and optionally rebalance data onto them."},
 		{Type: "replace-broker", Title: "Replace broker", Scope: "broker", Requires: []string{"restartNodes"}, Plan: m.planReplace,
@@ -70,7 +70,7 @@ func (m *Manager) Types() []ops.OpType {
 			Irreversible: true, Plan: m.planMigrate,
 			Description: "Upgrade kraft.version to 1 and restart every node with controller.quorum.bootstrap.servers (Kafka 4.1+)."},
 		{Type: "rolling-restart", Title: "Rolling restart", Scope: "cluster", Requires: []string{"restartNodes"}, Plan: m.planRestart,
-			Description: "Restart nodes one at a time with health checks: controllers first (leader last), then brokers."},
+			Description: "Restart nodes one at a time with health checks: controllers and combined nodes first (leader last), then brokers."},
 		{Type: "rolling-upgrade", Title: "Rolling upgrade", Scope: "cluster", Requires: []string{"upgradeVersion"}, Plan: m.planUpgrade,
 			Description: "Install a new Kafka version and restart nodes on it one at a time; finalize separately."},
 		{Type: "destroy-cluster", Title: "Delete cluster nodes", Scope: "cluster", Requires: []string{"provisionNodes"},
@@ -84,14 +84,71 @@ func (m *Manager) Types() []ops.OpType {
 	}
 }
 
-// StopBrokerStep stops and removes a managed broker node.
+// StopBrokerStep stops and removes a managed broker node. Combined nodes are never stopped this
+// way: CheckNode refuses to drain them.
 func (m *Manager) StopBrokerStep(p *ops.Planner, broker int32) (ops.StepSpec, bool) {
 	return m.removeStep(p, RoleBroker, broker)
 }
 
-// StopControllerStep stops and removes a managed controller node.
+// StopControllerStep stops and removes a managed controller node. Combined nodes are never
+// stopped this way: CheckNode refuses to remove them from the quorum.
 func (m *Manager) StopControllerStep(p *ops.Planner, node int32) (ops.StepSpec, bool) {
 	return m.removeStep(p, RoleController, node)
+}
+
+// CheckNode refuses Kafka-level operations that would drain a combined node or remove it from
+// the quorum in a cluster whose nodes Brokerium runs.
+func (m *Manager) CheckNode(ctx context.Context, p *ops.Planner, typ string, id int32) error {
+	if p.Cluster.Provider != store.ProviderDocker && p.Cluster.Provider != store.ProviderAgent {
+		return nil
+	}
+	mn, err := m.managedNodes(ctx, p.Cluster.ID)
+	if err != nil {
+		return err
+	}
+	return refuseCombined(p, mn, typ, id)
+}
+
+// combinedDocs explains how a cluster grows beyond its combined nodes and how they leave it.
+const combinedDocs = "https://brokerium.kaufen/docs/guide/clusters/#combined-nodes"
+
+// refusedOnCombined are the operations that would stop, replace or empty one role of a combined
+// node while the other one keeps running, with what Brokerium does not do.
+var refusedOnCombined = map[string]string{
+	"replace-broker":    "replace combined nodes",
+	"drain-broker":      "drain or decommission combined nodes",
+	"remove-controller": "remove combined nodes from the quorum",
+}
+
+// refuseCombined refuses an operation of type typ on Kafka node id when that node is combined.
+func refuseCombined(p *ops.Planner, mn managed, typ string, id int32) error {
+	action, ok := refusedOnCombined[typ]
+	if !ok {
+		return nil
+	}
+	node, ok := combinedNode(p, mn, id)
+	if !ok {
+		return nil
+	}
+	return fmt.Errorf("%s is a combined node, broker and controller in one process; Brokerium does not %s (see %s)",
+		node, action, combinedDocs)
+}
+
+// combinedNode names the combined node that runs Kafka node id: a managed node with the role
+// combined, or a node that is both a registered broker and a voter.
+func combinedNode(p *ops.Planner, mn managed, id int32) (string, bool) {
+	for _, n := range mn.nodes {
+		if n.Role == RoleCombined && n.KafkaNodeID != nil && *n.KafkaNodeID == id {
+			return fmt.Sprintf("node %d (%s)", id, n.Name), true
+		}
+	}
+	if p.View == nil || p.View.Snapshot == nil || p.View.Snapshot.Quorum == nil {
+		return "", false
+	}
+	if _, voter := p.View.Snapshot.Quorum.Voter(id); voter && registeredBrokers(p)[id] {
+		return fmt.Sprintf("node %d", id), true
+	}
+	return "", false
 }
 
 func (m *Manager) removeStep(p *ops.Planner, role string, id int32) (ops.StepSpec, bool) {
@@ -168,6 +225,7 @@ func checkHostsStep(kafkaClusterID string, members []member) ops.StepSpec {
 type bootstrapParams struct {
 	Controllers int          `json:"controllers"`
 	Brokers     int          `json:"brokers"`
+	Combined    int          `json:"combined"`
 	Version     string       `json:"version"`
 	Racks       []string     `json:"racks"`
 	Quorum      string       `json:"quorum"`
@@ -245,25 +303,30 @@ func (m *Manager) bootstrapPlan(p *ops.Planner, f fleet, params bootstrapParams,
 	if err != nil {
 		return nil, err
 	}
-	var controllers, brokers []member
+	var voters, brokers []member
+	combined := 0
 	for _, mb := range members {
-		if mb.role == RoleController {
-			controllers = append(controllers, mb)
-		} else {
+		if runsController(mb.role) {
+			voters = append(voters, mb)
+		}
+		if runsBroker(mb.role) {
 			brokers = append(brokers, mb)
+		}
+		if mb.role == RoleCombined {
+			combined++
 		}
 	}
 	rf := min(3, len(brokers))
 	s.ReplicationFactor, s.MinISR = rf, min(2, rf)
 	s = settingsOf(&store.Cluster{Settings: s.toMap()})
 
-	var hosts, initial, voters []string
-	for _, c := range controllers {
+	var hosts, initial, static []string
+	for _, c := range voters {
 		addr := net.JoinHostPort(c.host(), "9093")
 		hosts = append(hosts, c.host())
-		s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, m.controllerAddress(s, docker, c.host(), c.id))
+		s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, m.controllerAddress(s, docker, c.role, c.host(), c.id))
 		initial = append(initial, fmt.Sprintf("%d@%s:%s", c.id, addr, RandomUUID()))
-		voters = append(voters, fmt.Sprintf("%d@%s", c.id, addr))
+		static = append(static, fmt.Sprintf("%d@%s", c.id, addr))
 	}
 	var bootstrap []string
 	for _, b := range brokers {
@@ -277,14 +340,17 @@ func (m *Manager) bootstrapPlan(p *ops.Planner, f fleet, params bootstrapParams,
 		Args: NodeArgs{Settings: &s, BootstrapServers: bootstrap}})
 	quorumKind, quorum, mode := "dynamic", quorumBootstrap(hosts), "initial"
 	if params.Quorum == "static" {
-		quorumKind, quorum, mode = "static", strings.Join(voters, ","), "static"
+		quorumKind, quorum, mode = "static", strings.Join(static, ","), "static"
 	}
-	for _, c := range controllers {
+	for _, c := range voters {
 		a := c.args()
 		a.Mode, a.InitialControllers, a.Version, a.QuorumKind, a.Quorum = mode, strings.Join(initial, ","), params.Version, quorumKind, quorum
 		steps = append(steps, startSteps(a)...)
 	}
 	for _, b := range brokers {
+		if b.role != RoleBroker {
+			continue
+		}
 		a := b.args()
 		a.Mode, a.Version, a.QuorumKind, a.Quorum = "join", params.Version, quorumKind, quorum
 		steps = append(steps, startSteps(a)...)
@@ -293,11 +359,11 @@ func (m *Manager) bootstrapPlan(p *ops.Planner, f fleet, params bootstrapParams,
 		steps = append(steps, ops.StepSpec{Name: fmt.Sprintf("Wait for broker %d", b.id), Kind: KindWaitBroker,
 			Args: NodeArgs{NodeID: b.id}})
 	}
-	steps = append(steps, ops.StepSpec{Name: fmt.Sprintf("Wait for a quorum of %d voters", len(controllers)),
-		Kind: KindWaitQuorum, Args: NodeArgs{ExpectVoters: len(controllers)}})
+	steps = append(steps, ops.StepSpec{Name: fmt.Sprintf("Wait for a quorum of %d voters", len(voters)),
+		Kind: KindWaitQuorum, Args: NodeArgs{ExpectVoters: len(voters)}})
 
-	doc := ops.PlanDoc{Summary: fmt.Sprintf("Create %d controller(s) and %d broker(s) running Kafka %s with a %s quorum",
-		len(controllers), len(brokers), params.Version, params.Quorum),
+	counts := counted(len(voters)-combined, "controller(s)", combined, "combined node(s)", len(brokers)-combined, "broker(s)")
+	doc := ops.PlanDoc{Summary: fmt.Sprintf("Create %s running Kafka %s with a %s quorum", counts, params.Version, params.Quorum),
 		Details: map[string]any{"kafkaClusterId": s.KafkaClusterID, "bootstrapServers": bootstrap}}
 	if docker {
 		doc.Details["portBase"] = s.PortBase
@@ -306,34 +372,61 @@ func (m *Manager) bootstrapPlan(p *ops.Planner, f fleet, params bootstrapParams,
 		doc.Details["hosts"] = hostDetails(members)
 		doc.Warnings = append(doc.Warnings, rackWarnings(nil, members)...)
 	}
+	if combined > 0 {
+		doc.Warnings = append(doc.Warnings, "combined nodes run broker and controller in one process, which Apache Kafka recommends only "+
+			"for small and test clusters: a busy broker slows the quorum down and both roles fail together; Brokerium cannot replace, "+
+			"drain or remove combined nodes")
+	}
 	if params.Quorum == "static" {
 		doc.Warnings = append(doc.Warnings, "a static quorum cannot change controllers until it is migrated to a dynamic quorum")
 	}
-	if len(controllers)%2 == 0 {
-		doc.Warnings = append(doc.Warnings, fmt.Sprintf("%d controllers tolerate as many failures as %d", len(controllers), len(controllers)-1))
+	if len(voters)%2 == 0 {
+		doc.Warnings = append(doc.Warnings, fmt.Sprintf("%d voters tolerate as many failures as %d", len(voters), len(voters)-1))
 	}
 	return &ops.Planned{Doc: doc, Steps: steps}, nil
 }
 
-// dockerMembers names the containers of a new Docker cluster and picks its port base.
+// counted lists the non-zero counts of three kinds of nodes for a plan summary, for example
+// "2 controller(s), 1 combined node(s) and 3 broker(s)".
+func counted(n1 int, what1 string, n2 int, what2 string, n3 int, what3 string) string {
+	var parts []string
+	for i, n := range []int{n1, n2, n3} {
+		if n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, []string{what1, what2, what3}[i]))
+		}
+	}
+	if len(parts) < 2 {
+		return strings.Join(parts, "")
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+}
+
+// dockerMembers names the containers of a new Docker cluster and picks its port base. Voters get
+// the ids from 1, controllers before combined nodes, and dedicated brokers the ids from 101.
 func dockerMembers(cluster string, params *bootstrapParams, usedPortBases map[int]bool) ([]member, error) {
 	if len(params.Nodes) > 0 {
-		return nil, errors.New("the Docker provider creates the nodes of Docker clusters: give controllers and brokers instead of nodes")
+		return nil, errors.New("the Docker provider creates the nodes of Docker clusters: give controllers, combined and brokers instead of nodes")
 	}
-	if params.Controllers == 0 {
-		params.Controllers = 3
-	}
-	if params.Brokers == 0 {
-		params.Brokers = 3
+	// Counts of 0 stand for the defaults unless the cluster has combined nodes, which can take
+	// the place of either role.
+	if params.Combined == 0 {
+		if params.Controllers == 0 {
+			params.Controllers = 3
+		}
+		if params.Brokers == 0 {
+			params.Brokers = 3
+		}
 	}
 	if len(params.Racks) == 0 {
 		params.Racks = []string{"rack-a", "rack-b", "rack-c"}
 	}
-	switch {
-	case params.Controllers < 1 || params.Controllers > maxVoters:
-		return nil, errors.New("controllers must be between 1 and 5")
-	case params.Brokers < 1 || params.Brokers > 9:
-		return nil, errors.New("brokers must be between 1 and 9")
+	switch voters := params.Controllers + params.Combined; {
+	case params.Controllers < 0 || params.Combined < 0 || params.Brokers < 0:
+		return nil, errors.New("controllers, combined and brokers cannot be negative")
+	case voters > maxVoters:
+		return nil, fmt.Errorf("controllers and combined nodes are the voters of the quorum: at most %d together, not %d", maxVoters, voters)
+	case params.Brokers > 9:
+		return nil, errors.New("brokers must be at most 9")
 	}
 	if params.PortBase == 0 {
 		for base := 21000; base < 60000; base += 1000 {
@@ -344,23 +437,36 @@ func dockerMembers(cluster string, params *bootstrapParams, usedPortBases map[in
 		}
 	}
 	var out []member
-	for i := 1; i <= params.Controllers; i++ {
-		out = append(out, member{role: RoleController, id: int32(i), name: NodeName(cluster, RoleController, int32(i))})
+	racks := 0
+	add := func(role string, id int32) {
+		mb := member{role: role, id: id, name: NodeName(cluster, role, id)}
+		if runsBroker(role) {
+			mb.rack = params.Racks[racks%len(params.Racks)]
+			racks++
+		}
+		out = append(out, mb)
+	}
+	id := int32(1)
+	for range params.Controllers {
+		add(RoleController, id)
+		id++
+	}
+	for range params.Combined {
+		add(RoleCombined, id)
+		id++
 	}
 	for i := 0; i < params.Brokers; i++ {
-		id := int32(101 + i)
-		out = append(out, member{role: RoleBroker, id: id, rack: params.Racks[i%len(params.Racks)],
-			name: NodeName(cluster, RoleBroker, id)})
+		add(RoleBroker, int32(101+i))
 	}
 	return out, nil
 }
 
 // chooseHosts checks the hosts chosen for a new agent cluster and gives each its node id: the
-// explicit one, else the next free id from 1 for controllers and from 101 for brokers, in the
-// order of the list.
+// explicit one, else the next free id from 1 for controllers and combined nodes and from 101 for
+// brokers, in the order of the list.
 func chooseHosts(clusterID string, f fleet, params bootstrapParams, kafkaClusterID string) ([]member, error) {
-	if params.Controllers != 0 || params.Brokers != 0 || len(params.Racks) > 0 || params.PortBase != 0 {
-		return nil, errors.New("controllers, brokers, racks and portBase apply to Docker clusters; choose the hosts of an agent cluster with nodes")
+	if params.Controllers != 0 || params.Brokers != 0 || params.Combined != 0 || len(params.Racks) > 0 || params.PortBase != 0 {
+		return nil, errors.New("controllers, brokers, combined, racks and portBase apply to Docker clusters; choose the hosts of an agent cluster with nodes")
 	}
 	if len(params.Nodes) == 0 {
 		return nil, errors.New(`choose the hosts with nodes: [{"node": "<agent node id>", "role": "controller"}, ...]`)
@@ -374,9 +480,10 @@ func chooseHosts(clusterID string, f fleet, params bootstrapParams, kafkaCluster
 		case RoleBroker:
 			brokers++
 		case RoleCombined:
-			return nil, fmt.Errorf("nodes[%d]: combined nodes are not supported yet; choose controller or broker", i)
+			voters++
+			brokers++
 		default:
-			return nil, fmt.Errorf("nodes[%d]: role must be controller or broker, not %q", i, c.Role)
+			return nil, fmt.Errorf("nodes[%d]: role must be controller, broker or combined, not %q", i, c.Role)
 		}
 		switch {
 		case c.Node == "":
@@ -396,11 +503,11 @@ func chooseHosts(clusterID string, f fleet, params bootstrapParams, kafkaCluster
 	}
 	switch {
 	case voters == 0:
-		return nil, errors.New("choose at least one controller")
+		return nil, errors.New("choose at least one controller or combined node")
 	case voters > maxVoters:
-		return nil, fmt.Errorf("choose at most %d controllers, not %d", maxVoters, voters)
+		return nil, fmt.Errorf("choose at most %d controllers and combined nodes together, not %d", maxVoters, voters)
 	case brokers == 0:
-		return nil, errors.New("choose at least one broker")
+		return nil, errors.New("choose at least one broker or combined node")
 	}
 	members := make([]member, 0, len(params.Nodes))
 	for _, c := range params.Nodes {
@@ -408,7 +515,7 @@ func chooseHosts(clusterID string, f fleet, params bootstrapParams, kafkaCluster
 		switch {
 		case c.NodeID != nil:
 			id = *c.NodeID
-		case c.Role == RoleController:
+		case runsController(c.Role):
 			id = used.next(1)
 		default:
 			id = used.next(101)
@@ -418,7 +525,7 @@ func chooseHosts(clusterID string, f fleet, params bootstrapParams, kafkaCluster
 			return nil, err
 		}
 		mb := member{role: c.Role, id: id, name: n.Name, node: n}
-		if c.Role == RoleBroker {
+		if runsBroker(c.Role) {
 			mb.rack = cmp.Or(c.Rack, n.Rack)
 		}
 		members = append(members, mb)
@@ -440,10 +547,11 @@ type brokerChoice struct {
 	NodeID *int32 `json:"nodeId"`
 }
 
-func nextID(mn managed, role string, start int32) int32 {
+// nextID is the id after the highest one of the nodes, at least start.
+func nextID(nodes []*store.Node, start int32) int32 {
 	id := start
-	for _, n := range mn.nodes {
-		if n.KafkaNodeID != nil && n.Role == role && *n.KafkaNodeID >= id {
+	for _, n := range nodes {
+		if *n.KafkaNodeID >= id {
 			id = *n.KafkaNodeID + 1
 		}
 	}
@@ -452,7 +560,7 @@ func nextID(mn managed, role string, start int32) int32 {
 
 // nextBrokerID is where new broker ids start: after the highest managed or registered broker.
 func nextBrokerID(p *ops.Planner, mn managed) int32 {
-	id := nextID(mn, RoleBroker, 101)
+	id := nextID(mn.brokers, 101)
 	for _, b := range p.View.Snapshot.Brokers {
 		if b.ID >= id {
 			id = b.ID + 1
@@ -637,11 +745,14 @@ func replacePlan(p *ops.Planner, f fleet, params replaceParams) (*ops.Planned, e
 	if !found {
 		return nil, fmt.Errorf("broker %d is not registered", old)
 	}
+	mn := f.managed(p.Cluster.ID)
+	if err := refuseCombined(p, mn, "replace-broker", old); err != nil {
+		return nil, err
+	}
 	if alive {
 		return nil, fmt.Errorf("broker %d is serving; replace only failed brokers (drain a healthy one instead)", old)
 	}
 	s := settingsOf(p.Cluster)
-	mn := f.managed(p.Cluster.ID)
 	var oldNode *store.Node
 	for _, n := range mn.brokers {
 		if *n.KafkaNodeID == old {
@@ -793,7 +904,7 @@ func addControllerPlan(p *ops.Planner, f fleet, params addControllerParams) (*op
 	mn := f.managed(p.Cluster.ID)
 	s := settingsOf(p.Cluster)
 	used := usedIDs(p, mn)
-	first := nextID(mn, RoleController, 1)
+	first := nextID(mn.controllers, 1)
 	for _, v := range q.Voters {
 		if v.NodeID >= first {
 			first = v.NodeID + 1
@@ -877,12 +988,17 @@ func (m *Manager) planDestroy(ctx context.Context, p *ops.Planner, raw json.RawM
 	if err != nil {
 		return nil, err
 	}
+	return destroyPlan(p, mn)
+}
+
+// destroyPlan deletes the dedicated brokers first, then the controllers and combined nodes.
+func destroyPlan(p *ops.Planner, mn managed) (*ops.Planned, error) {
 	if len(mn.nodes) == 0 {
 		return nil, errors.New("the cluster has no nodes")
 	}
 	var steps []ops.StepSpec
 	var names []string
-	for _, n := range append(append([]*store.Node(nil), mn.brokers...), mn.controllers...) {
+	for _, n := range append(dedicatedBrokers(mn), mn.controllers...) {
 		names = append(names, n.Name)
 		var id int32
 		if n.KafkaNodeID != nil {
@@ -897,13 +1013,25 @@ func (m *Manager) planDestroy(ctx context.Context, p *ops.Planner, raw json.RawM
 	return &ops.Planned{Doc: doc, Steps: steps}, nil
 }
 
-// orderedNodes returns managed controllers (quorum leader last) followed by brokers.
+// orderedNodes returns the managed nodes in the order of rolling restarts and upgrades: the
+// controllers and combined nodes with the quorum leader last, then the dedicated brokers.
 func orderedNodes(mn managed, leader int32) []*store.Node {
-	ctrls := append([]*store.Node(nil), mn.controllers...)
-	sort.SliceStable(ctrls, func(i, j int) bool {
-		return *ctrls[i].KafkaNodeID != leader && *ctrls[j].KafkaNodeID == leader
+	voters := append([]*store.Node(nil), mn.controllers...)
+	sort.SliceStable(voters, func(i, j int) bool {
+		return *voters[i].KafkaNodeID != leader && *voters[j].KafkaNodeID == leader
 	})
-	return append(ctrls, mn.brokers...)
+	return append(voters, dedicatedBrokers(mn)...)
+}
+
+// dedicatedBrokers are the brokers of a cluster that run no controller.
+func dedicatedBrokers(mn managed) []*store.Node {
+	var out []*store.Node
+	for _, b := range mn.brokers {
+		if b.Role == RoleBroker {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 // syncSteps update the recorded bootstrap servers once the nodes of an agent cluster were
@@ -956,7 +1084,8 @@ func migratePlan(p *ops.Planner, mn managed) (*ops.Planned, error) {
 		{Name: "Upgrade kraft.version to 1", Kind: ops.KindUpdateFeature, Args: ops.FeatureArgs{Feature: "kraft.version", Level: 1}},
 		{Name: "Save quorum mode", Kind: KindSetSettings, Args: NodeArgs{Settings: &s}},
 	}
-	for _, n := range orderedNodes(mn, p.View.Health.QuorumLeader) {
+	nodes := orderedNodes(mn, p.View.Health.QuorumLeader)
+	for _, n := range nodes {
 		a := nodeArgs(p.Cluster, n)
 		a.Rack, a.QuorumKind, a.Quorum = rackOf(p, n), "dynamic", quorumBootstrap(hosts)
 		steps = append(steps, ops.StepSpec{Name: "Restart " + n.Name + " with bootstrap servers", Kind: KindRestart, Args: a})
@@ -964,7 +1093,7 @@ func migratePlan(p *ops.Planner, mn managed) (*ops.Planned, error) {
 	steps = append(steps, ops.StepSpec{Name: "Wait for the quorum", Kind: KindWaitQuorum, Args: NodeArgs{ExpectVoters: len(mn.controllers)}})
 	steps = append(steps, syncSteps(p.Cluster, mn)...)
 	return &ops.Planned{Doc: ops.PlanDoc{Summary: fmt.Sprintf(
-		"Migrate the static quorum of %d controller(s) to a dynamic quorum and restart %d node(s) one by one", len(mn.controllers), len(mn.nodes)),
+		"Migrate the static quorum of %d voter(s) to a dynamic quorum and restart %d node(s) one by one", len(mn.controllers), len(nodes)),
 		Irreversible: true, Warnings: []string{"kraft.version cannot be downgraded from 1 to 0"}}, Steps: steps}, nil
 }
 

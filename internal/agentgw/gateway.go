@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -404,14 +405,18 @@ func (g *Gateway) adopt(ctx context.Context, nodeID string, st *agentv1.NodeStat
 	g.Log.Info("adopted node", "node", n.Name, "kafkaNodeId", id, "role", role)
 }
 
-// AdoptedRole maps process.roles of an adopted node to a Brokerium role; combined
-// broker+controller nodes are not managed.
+// AdoptedRole maps process.roles of an adopted node to a Brokerium role: broker, controller, or
+// combined for both in one process.
 func AdoptedRole(processRoles string) (string, bool) {
-	switch strings.ReplaceAll(processRoles, " ", "") {
+	roles := strings.Split(strings.ReplaceAll(processRoles, " ", ""), ",")
+	slices.Sort(roles)
+	switch strings.Join(roles, ",") {
 	case "broker":
 		return "broker", true
 	case "controller":
 		return "controller", true
+	case "broker,controller":
+		return "combined", true
 	}
 	return "", false
 }

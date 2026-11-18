@@ -277,18 +277,27 @@ func (m *Manager) stepProvision(ctx context.Context, x *ops.Exec, raw json.RawMe
 		Volumes: map[string]string{a.Name + "-data": "/var/lib/kafka/data", a.Name + "-agent": "/var/lib/brokerium-agent",
 			a.Name + "-kafka": "/opt/brokerium/kafka"},
 		Labels: map[string]string{"brokerium.cluster": x.Cluster.Name, "brokerium.node": a.Name, "brokerium.role": a.Role},
-	}
-	port := s.PortBase + int(a.NodeID)
-	if a.Role == RoleBroker {
-		spec.Ports = map[int]int{port: port}
-	} else {
-		spec.Ports = map[int]int{9093: port}
+		Ports:  containerPorts(s, a.Role, a.NodeID),
 	}
 	id, err := m.Docker.Run(ctx, spec)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{"container": id, "image": image}, nil
+}
+
+// containerPorts maps the listener ports of a node of a Docker cluster to the ports on localhost:
+// the client listener of brokers and combined nodes, the controller listener of controllers and
+// combined nodes.
+func containerPorts(s Settings, role string, id int32) map[int]int {
+	port := s.PortBase + int(id)
+	switch role {
+	case RoleBroker:
+		return map[int]int{port: port}
+	case RoleCombined:
+		return map[int]int{port: port, 9093: controllerPort(s, role, id)}
+	}
+	return map[int]int{9093: port}
 }
 
 // stepWaitAgent waits until the agent of the node is connected and gives the node its Kafka
@@ -642,9 +651,14 @@ func (m *Manager) stepWaitInSync(ctx context.Context, x *ops.Exec, raw json.RawM
 		})
 }
 
+// waitReady waits until a restarted node is back: a controller in the quorum, a broker
+// registered and unfenced with every replica in sync, a combined node both.
 func (m *Manager) waitReady(ctx context.Context, x *ops.Exec, a NodeArgs) (any, error) {
-	if a.Role == RoleController {
-		return m.stepWaitObserver(ctx, x, mustJSON(NodeArgs{NodeID: a.NodeID, TimeoutSeconds: a.TimeoutSeconds}))
+	if runsController(a.Role) {
+		detail, err := m.stepWaitObserver(ctx, x, mustJSON(NodeArgs{NodeID: a.NodeID, TimeoutSeconds: a.TimeoutSeconds}))
+		if err != nil || a.Role == RoleController {
+			return detail, err
+		}
 	}
 	if _, err := m.stepWaitBroker(ctx, x, mustJSON(NodeArgs{NodeID: a.NodeID, TimeoutSeconds: a.TimeoutSeconds})); err != nil {
 		return nil, err
@@ -719,7 +733,7 @@ func (m *Manager) stepSyncBootstrap(ctx context.Context, x *ops.Exec, raw json.R
 	s.ControllerBootstrapServers = nil
 	for _, c := range mn.controllers {
 		if c.KafkaNodeID != nil {
-			s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, m.controllerAddress(s, docker, hostOf(docker, c), *c.KafkaNodeID))
+			s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, m.controllerAddress(s, docker, c.Role, hostOf(docker, c), *c.KafkaNodeID))
 		}
 	}
 	return m.stepSetSettings(ctx, x, mustJSON(NodeArgs{BootstrapServers: servers, Settings: &s}))
