@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 
-import type { Flavor, Provider, Role, SaslMechanism, SecurityProtocol } from '../api/types';
+import type { Flavor, NodeRole, Provider, Role, SaslMechanism, SecurityProtocol } from '../api/types';
 
 export const PROVIDER_LABELS: Record<Provider, string> = {
   external: 'External',
@@ -14,6 +14,18 @@ export const PROVIDER_DESCRIPTIONS: Record<Provider, string> = {
   agent: 'Nodes run brokerium-agent on their hosts',
   docker: 'Lab nodes managed through Docker',
   strimzi: 'Cluster managed by the Strimzi operator on Kubernetes',
+};
+
+export const NODE_ROLE_LABELS: Record<NodeRole, string> = {
+  controller: 'Controller',
+  broker: 'Broker',
+  combined: 'Controller and broker',
+};
+
+export const NODE_ROLE_COLORS: Record<NodeRole, string> = {
+  controller: 'grape',
+  broker: 'indigo',
+  combined: 'teal',
 };
 
 export const FLAVOR_LABELS: Record<Flavor, string> = {

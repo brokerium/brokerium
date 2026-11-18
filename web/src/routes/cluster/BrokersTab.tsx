@@ -33,6 +33,7 @@ import { useState } from 'react';
 import type { Broker } from '../../api/types';
 import { BrokerStateBadges } from '../../components/badges';
 import { GatedButton, GatedMenuItem } from '../../components/Gated';
+import { HostMultiSelect, HostSelect } from '../../components/nodes/HostSelect';
 import { usePlanner } from '../../components/operations/plannerContext';
 import { diskUsedPercent } from '../../lib/distribution';
 import { formatBytes, formatNumber, formatPercent } from '../../lib/format';
@@ -96,14 +97,18 @@ export default function BrokersTab() {
   const [configBroker, setConfigBroker] = useState<number | null>(null);
   const [dialog, setDialog] = useState<BrokerDialog | null>(null);
   const [addCount, setAddCount] = useState<number>(1);
+  const [addHosts, setAddHosts] = useState<string[]>([]);
   const [addRack, setAddRack] = useState('');
   const [addRebalance, setAddRebalance] = useState(true);
   const [restartNodes, setRestartNodes] = useState<string[]>([]);
   const [throttle, setThrottle] = useState<number | ''>('');
   const [replaceMode, setReplaceMode] = useState<'new-id' | 'same-id'>('new-id');
+  const [replaceHost, setReplaceHost] = useState<string | null>(null);
 
   if (!snapshot) return <NoSnapshot />;
 
+  const onAgents = cluster.provider === 'agent';
+  const rack = addRack.trim() || undefined;
   const brokers = [...snapshot.brokers].sort((a, b) => a.id - b.id);
   const nodeIds = [
     ...new Set([...brokers.map((b) => b.id), ...(snapshot.quorum?.voters.map((v) => v.nodeId) ?? [])]),
@@ -131,7 +136,10 @@ export default function BrokersTab() {
           <GatedButton
             availability={planner.availability('add-broker')}
             leftSection={<IconPlus size={16} />}
-            onClick={() => setDialog({ kind: 'add' })}
+            onClick={() => {
+              setAddHosts([]);
+              setDialog({ kind: 'add' });
+            }}
           >
             Add broker
           </GatedButton>
@@ -242,6 +250,7 @@ export default function BrokersTab() {
                             leftSection={<IconReplace size={16} />}
                             onClick={() => {
                               setReplaceMode('new-id');
+                              setReplaceHost(null);
                               setDialog({ kind: 'replace', broker: b });
                             }}
                           >
@@ -276,18 +285,39 @@ export default function BrokersTab() {
         opened={dialog?.kind === 'add'}
         onClose={close}
         title="Add broker"
-        description="Provisions new broker nodes, waits until they join the cluster and optionally rebalances replicas onto them."
+        description={
+          onAgents
+            ? 'Installs Kafka on the chosen hosts, waits until the brokers join the cluster and optionally rebalances replicas onto them.'
+            : 'Provisions new broker nodes, waits until they join the cluster and optionally rebalances replicas onto them.'
+        }
         planning={planner.pendingKey === 'add-broker'}
+        disabled={onAgents && addHosts.length === 0}
         onPlan={() =>
-          planner.plan('add-broker', {
-            count: addCount,
-            rack: addRack.trim() || undefined,
-            rebalance: addRebalance,
-          })
+          planner.plan(
+            'add-broker',
+            onAgents
+              ? { nodes: addHosts.map((node) => ({ node, ...(rack ? { rack } : {}) })), rebalance: addRebalance }
+              : { count: addCount, rack, rebalance: addRebalance },
+          )
         }
       >
-        <NumberInput label="Number of brokers" min={1} max={10} value={addCount} onChange={(v) => setAddCount(Number(v) || 1)} />
-        <TextInput label="Rack" placeholder="Optional" value={addRack} onChange={(e) => setAddRack(e.currentTarget.value)} />
+        {onAgents ? (
+          <HostMultiSelect
+            clusterId={cluster.id}
+            label="Hosts"
+            description="Connected agents without a Kafka role"
+            value={addHosts}
+            onChange={setAddHosts}
+          />
+        ) : (
+          <NumberInput label="Number of brokers" min={1} max={10} value={addCount} onChange={(v) => setAddCount(Number(v) || 1)} />
+        )}
+        <TextInput
+          label="Rack"
+          placeholder={onAgents ? 'The rack of each host' : 'Optional'}
+          value={addRack}
+          onChange={(e) => setAddRack(e.currentTarget.value)}
+        />
         <Checkbox
           label="Rebalance replicas onto the new brokers"
           checked={addRebalance}
@@ -354,7 +384,14 @@ export default function BrokersTab() {
           onClose={close}
           title={`Replace broker ${dialog.broker.id}`}
           planning={planner.pendingKey === 'replace-broker'}
-          onPlan={() => planner.plan('replace-broker', { brokerId: dialog.broker.id, mode: replaceMode })}
+          disabled={onAgents && replaceMode === 'new-id' && !replaceHost}
+          onPlan={() =>
+            planner.plan('replace-broker', {
+              brokerId: dialog.broker.id,
+              mode: replaceMode,
+              ...(onAgents && replaceHost ? { node: replaceHost } : {}),
+            })
+          }
         >
           <SegmentedControl
             fullWidth
@@ -370,6 +407,21 @@ export default function BrokersTab() {
               ? 'Provisions a new broker with a new id, moves the replicas to it and unregisters the old broker.'
               : 'Rebuilds the broker with the same id on a new node; its replicas are copied back from the leaders.'}
           </Text>
+          {onAgents && (
+            <HostSelect
+              clusterId={cluster.id}
+              label="Host"
+              description={
+                replaceMode === 'same-id'
+                  ? 'Leave empty to rebuild the broker on its current host with an empty disk'
+                  : 'Connected agent without a Kafka role'
+              }
+              placeholder={replaceMode === 'same-id' ? 'The current host' : undefined}
+              required={replaceMode === 'new-id'}
+              value={replaceHost}
+              onChange={setReplaceHost}
+            />
+          )}
         </ParamsModal>
       )}
     </Stack>

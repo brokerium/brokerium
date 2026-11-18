@@ -10,10 +10,19 @@ export interface NodesResponse {
   nodes: AgentNode[];
 }
 
+/** Without nodeName the node is named after the host name it reports; nodeId enrolls a node again. */
 export interface JoinTokenRequest {
-  nodeName: string;
+  nodeName?: string;
   clusterId?: string;
   ttlMinutes?: number;
+  nodeId?: string;
+}
+
+/** PATCH /nodes/{id}; an empty advertisedHost resets it to the reported host name. */
+export interface NodeUpdate {
+  name?: string;
+  advertisedHost?: string;
+  rack?: string;
 }
 
 export const nodeKeys = {
@@ -42,11 +51,22 @@ export function useNodePools(clusterId: string, enabled: boolean) {
   });
 }
 
-export function useNodes(clusterId?: string) {
+/** Agent nodes; refetchInterval polls faster while waiting for a new host to connect. */
+export function useNodes(clusterId?: string, refetchInterval = 10_000) {
   return useQuery({
     queryKey: nodeKeys.list(clusterId),
     queryFn: async () => (await api.get<NodesResponse>(`/nodes${queryString({ clusterId })}`)).nodes,
-    refetchInterval: 10_000,
+    refetchInterval,
+  });
+}
+
+export function useUpdateNode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, update }: { id: string; update: NodeUpdate }) =>
+      api.patch<AgentNode>(`/nodes/${encodeURIComponent(id)}`, update),
+    onSuccess: () => qc.invalidateQueries({ queryKey: nodeKeys.all }),
+    meta: { errorTitle: 'Could not update the node' },
   });
 }
 

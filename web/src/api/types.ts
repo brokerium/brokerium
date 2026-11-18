@@ -407,6 +407,23 @@ export interface OperationType {
   feature?: string;
 }
 
+/** Agent host (AgentNode.id) chosen for a new broker or controller. */
+export interface HostChoice {
+  node: string;
+  rack?: string;
+  nodeId?: number;
+}
+
+/** Kafka role of a node: combined nodes run broker and controller in one process. */
+export type NodeRole = 'controller' | 'broker' | 'combined';
+
+export interface BootstrapNode {
+  node: string;
+  role: NodeRole;
+  nodeId?: number;
+  rack?: string;
+}
+
 /**
  * Params per operation type (body of POST /clusters/{id}/operations: {type, params}).
  * The server always returns a 'planned' operation; POST /operations/{id}/confirm starts it.
@@ -430,21 +447,27 @@ export interface OperationParams {
   'cordon-broker': { brokerId: number; cordon: boolean };
   'drain-broker': { brokerId: number; decommission?: boolean; throttleBytesPerSec?: number };
   'unregister-broker': { brokerId: number };
-  'add-broker': { count?: number; rack?: string; rebalance?: boolean };
-  'replace-broker': { brokerId: number; mode?: 'new-id' | 'same-id' };
-  'add-controller': Record<string, never>;
+  /** Agent clusters take the hosts in nodes; Docker clusters a count. */
+  'add-broker': { count?: number; rack?: string; rebalance?: boolean; nodes?: HostChoice[] };
+  /** node: the agent host of an agent cluster; same-id defaults to the host the broker has. */
+  'replace-broker': { brokerId: number; mode?: 'new-id' | 'same-id'; node?: string };
+  /** node: the agent host of an agent cluster. */
+  'add-controller': { node?: string; nodeId?: number };
   'remove-controller': { nodeId: number };
   'migrate-quorum': Record<string, never>;
   'rolling-restart': { nodeIds?: number[] };
   'rolling-upgrade': { version: string };
   'finalize-upgrade': Record<string, never>;
+  /** Agent clusters take their hosts in nodes; Docker clusters counts, racks and a port base. */
   'bootstrap-cluster': {
     controllers?: number;
     brokers?: number;
+    combined?: number;
     version?: string;
     racks?: string[];
     quorum?: 'dynamic' | 'static';
     portBase?: number;
+    nodes?: BootstrapNode[];
   };
   'destroy-cluster': Record<string, never>;
   'scale-node-pool': { pool: string; replicas: number };
@@ -517,9 +540,13 @@ export interface AgentNode {
   id: string;
   name: string;
   clusterId: string | null;
-  role: '' | 'broker' | 'controller';
+  role: '' | NodeRole;
   kafkaNodeId: number | null;
   hostname: string;
+  /** Host that the listeners of the node advertise; defaults to the reported host name. */
+  advertisedHost: string;
+  /** Default broker.rack when the node joins a cluster; empty for none. */
+  rack: string;
   agentVersion: string;
   /** insecure: signed messages behind a TLS-terminating proxy instead of a client certificate. */
   transport: 'mtls' | 'insecure';
@@ -595,6 +622,23 @@ export interface LicenseView {
   edition: Edition;
   features: EditionFeature[];
   license: LicenseInfo | null;
+}
+
+// ---------------------------------------------------------------- server
+
+/** Whether the server can create clusters of a provider; reason says why not. */
+export interface ProviderAvailability {
+  available: boolean;
+  reason: string;
+}
+
+/** GET /server */
+export interface ServerInfo {
+  version: string;
+  commit: string;
+  date: string;
+  edition: Edition;
+  providers: { docker: ProviderAvailability };
 }
 
 export interface ApiErrorBody {
