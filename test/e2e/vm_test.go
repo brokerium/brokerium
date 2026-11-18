@@ -136,7 +136,7 @@ func TestAgentVMs(t *testing.T) {
 	if roles := hostOutput(t, "vm-host-1", "sed", "-n", "s/^process.roles=//p", "/var/lib/brokerium-agent/server.properties"); roles != "broker,controller" {
 		t.Errorf("vm-host-1 runs process.roles=%q, want broker,controller", roles)
 	}
-	c.must(http.StatusCreated, "POST", "/api/v1/clusters/"+id+"/topics", map[string]any{"name": "on-vms", "partitions": 3, "replicationFactor": 1}, nil)
+	c.must(http.StatusCreated, "POST", "/api/v1/clusters/"+id+"/topics", map[string]any{"name": "on-vms", "partitions": 3, "replicationFactor": 2}, nil)
 	c.must(http.StatusCreated, "POST", "/api/v1/clusters/"+id+"/topics/on-vms/messages", map[string]any{"value": "hello"}, nil)
 
 	if previous != "" {
@@ -160,7 +160,7 @@ func TestAgentVMs(t *testing.T) {
 	// releases the host.
 	c.run(id, name, "add-broker", map[string]any{"nodes": []map[string]any{{"node": third.ID, "rack": "r2"}}}, 15*time.Minute)
 	waitView(t, c, id, 3*time.Minute, "a healthy cluster with broker 102", func(v view) bool {
-		return slices.Equal(brokerIDs(v), []int32{101, 102}) && healthy(v)
+		return slices.Equal(brokerIDs(v), []int32{1, 101, 102}) && healthy(v)
 	})
 	c.must(http.StatusOK, "GET", "/api/v1/clusters/"+id, nil, &registered)
 	if !slices.Equal(registered.Cluster.BootstrapServers, []string{"vm-host-1:9092", "vm-host-2:9092", "vm-host-3:9092"}) {
