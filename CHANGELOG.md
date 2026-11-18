@@ -23,6 +23,13 @@ All notable changes to Brokerium are documented here. The format follows
 - Join tokens without a node name: the node is named after the host name its agent reports,
   with `-2`, `-3` and so on when that name is taken. A join token for `nodeId` enrolls an
   existing node again, which keeps its name and role.
+- Combined nodes, broker and controller in one Kafka process
+  ([ADR 0021](docs/adr/0021-combined-nodes.md)): `bootstrap-cluster` takes the role `combined`
+  on agent hosts and `combined: <count>` for Docker clusters, and the plan warns about them.
+  They are voters and brokers; rolling restarts and upgrades restart them with the controllers,
+  the quorum leader last, and wait for their replicas. `replace-broker`, `drain-broker` and
+  `remove-controller` refuse combined nodes, and adopted nodes with both roles become combined
+  nodes.
 
 ### Changed
 

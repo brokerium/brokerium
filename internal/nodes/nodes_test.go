@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -76,29 +78,142 @@ func TestAddresses(t *testing.T) {
 	tests := []struct {
 		name                       string
 		docker, inContainer        bool
-		node                       string
+		role, node                 string
 		id                         int32
 		wantBroker, wantController string
 	}{
-		{name: "agent node", node: "kafka-1.example.net", id: 101,
+		{name: "agent node", role: RoleBroker, node: "kafka-1.example.net", id: 101,
 			wantBroker: "kafka-1.example.net:9092", wantController: "kafka-1.example.net:9093"},
-		{name: "agent node, server in a container", inContainer: true, node: "kafka-1.example.net", id: 101,
+		{name: "agent node, server in a container", inContainer: true, role: RoleBroker, node: "kafka-1.example.net", id: 101,
 			wantBroker: "kafka-1.example.net:9092", wantController: "kafka-1.example.net:9093"},
-		{name: "Docker node, server on the Docker host", docker: true, node: "lab-b101", id: 101,
+		{name: "agent combined node", role: RoleCombined, node: "kafka-1.example.net", id: 1,
+			wantBroker: "kafka-1.example.net:9092", wantController: "kafka-1.example.net:9093"},
+		{name: "Docker node, server on the Docker host", docker: true, role: RoleBroker, node: "lab-b101", id: 101,
 			wantBroker: "localhost:21101", wantController: "localhost:21101"},
-		{name: "Docker controller, server on the Docker host", docker: true, node: "lab-c2", id: 2,
+		{name: "Docker controller, server on the Docker host", docker: true, role: RoleController, node: "lab-c2", id: 2,
 			wantBroker: "localhost:21002", wantController: "localhost:21002"},
-		{name: "Docker node, server in a container on the lab network", docker: true, inContainer: true, node: "lab-b101", id: 101,
+		{name: "Docker combined node, server on the Docker host", docker: true, role: RoleCombined, node: "lab-cb3", id: 3,
+			wantBroker: "localhost:21003", wantController: "localhost:21903"},
+		{name: "Docker node, server in a container on the lab network", docker: true, inContainer: true, role: RoleBroker, node: "lab-b101", id: 101,
 			wantBroker: "lab-b101:9092", wantController: "lab-b101:9093"},
+		{name: "Docker combined node, server in a container on the lab network", docker: true, inContainer: true, role: RoleCombined,
+			node: "lab-cb3", id: 3, wantBroker: "lab-cb3:9092", wantController: "lab-cb3:9093"},
 	}
 	for _, tt := range tests {
 		m := &Manager{Cfg: Config{ServerInContainer: tt.inContainer}}
 		if got := m.brokerAddress(s, tt.docker, tt.node, tt.id); got != tt.wantBroker {
 			t.Errorf("%s: broker address %s, want %s", tt.name, got, tt.wantBroker)
 		}
-		if got := m.controllerAddress(s, tt.docker, tt.node, tt.id); got != tt.wantController {
+		if got := m.controllerAddress(s, tt.docker, tt.role, tt.node, tt.id); got != tt.wantController {
 			t.Errorf("%s: controller address %s, want %s", tt.name, got, tt.wantController)
 		}
+	}
+}
+
+func TestRenderCombined(t *testing.T) {
+	t.Parallel()
+	s := settingsOf(&store.Cluster{Settings: map[string]any{"portBase": 21000}})
+	tests := []struct {
+		name   string
+		docker bool
+		host   string
+		quorum string
+		want   map[string]string
+	}{
+		{"agent node", false, "kafka-1.example.net", "dynamic", map[string]string{
+			"listeners":                           "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093",
+			"advertised.listeners":                "PLAINTEXT://kafka-1.example.net:9092,CONTROLLER://kafka-1.example.net:9093",
+			"listener.security.protocol.map":      "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT",
+			"inter.broker.listener.name":          "PLAINTEXT",
+			"controller.quorum.bootstrap.servers": "kafka-1.example.net:9093,kafka-2.example.net:9093",
+		}},
+		{"agent node with an IPv6 address", false, "2001:db8::1", "dynamic", map[string]string{
+			"listeners":            "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093",
+			"advertised.listeners": "PLAINTEXT://[2001:db8::1]:9092,CONTROLLER://[2001:db8::1]:9093",
+		}},
+		{"Docker node", true, "lab-cb3", "dynamic", map[string]string{
+			"listeners":                      "INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:21003,CONTROLLER://lab-cb3:9093",
+			"advertised.listeners":           "INTERNAL://lab-cb3:9092,EXTERNAL://localhost:21003,CONTROLLER://lab-cb3:9093",
+			"listener.security.protocol.map": "CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT",
+			"inter.broker.listener.name":     "INTERNAL",
+		}},
+		{"static quorum", false, "kafka-1.example.net", "static", map[string]string{
+			"controller.quorum.voters": "3@kafka-1.example.net:9093,4@kafka-2.example.net:9093",
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			quorum := "kafka-1.example.net:9093,kafka-2.example.net:9093"
+			if tt.quorum == "static" {
+				quorum = "3@kafka-1.example.net:9093,4@kafka-2.example.net:9093"
+			}
+			p := renderProperties(s, tt.docker, RoleCombined, tt.host, 3, "rack-a", tt.quorum, quorum)
+			common := map[string]string{
+				"node.id":                          "3",
+				"process.roles":                    "broker,controller",
+				"controller.listener.names":        "CONTROLLER",
+				"broker.rack":                      "rack-a",
+				"offsets.topic.replication.factor": "3",
+				"min.insync.replicas":              "2",
+			}
+			for _, want := range []map[string]string{common, tt.want} {
+				for k, v := range want {
+					if p[k] != v {
+						t.Errorf("%s = %q, want %q", k, p[k], v)
+					}
+				}
+			}
+			if _, ok := p["controller.quorum.voters"]; ok != (tt.quorum == "static") {
+				t.Errorf("controller.quorum.voters set: %v, want it only for a static quorum", ok)
+			}
+		})
+	}
+}
+
+func TestContainerPorts(t *testing.T) {
+	t.Parallel()
+	s := settingsOf(&store.Cluster{Settings: map[string]any{"portBase": 21000}})
+	tests := []struct {
+		role string
+		id   int32
+		want map[int]int
+	}{
+		{RoleController, 2, map[int]int{9093: 21002}},
+		{RoleBroker, 101, map[int]int{21101: 21101}},
+		{RoleCombined, 3, map[int]int{21003: 21003, 9093: 21903}},
+	}
+	for _, tt := range tests {
+		if got := containerPorts(s, tt.role, tt.id); !maps.Equal(got, tt.want) {
+			t.Errorf("%s %d publishes %v, want %v", tt.role, tt.id, got, tt.want)
+		}
+	}
+}
+
+func TestClassify(t *testing.T) {
+	t.Parallel()
+	mn := classify([]*store.Node{
+		host("b", "b", runs("c1", RoleBroker, 101)), host("x", "x", runs("c1", RoleCombined, 2)),
+		host("c", "c", runs("c1", RoleController, 1)), host("j", "j", joined("c1")),
+	})
+	ids := func(nodes []*store.Node) []int32 {
+		var out []int32
+		for _, n := range nodes {
+			out = append(out, *n.KafkaNodeID)
+		}
+		return out
+	}
+	if got := ids(mn.controllers); !slices.Equal(got, []int32{1, 2}) {
+		t.Errorf("controllers %v, want the controller and the combined node", got)
+	}
+	if got := ids(mn.brokers); !slices.Equal(got, []int32{2, 101}) {
+		t.Errorf("brokers %v, want the combined node and the broker", got)
+	}
+	if got := ids(dedicatedBrokers(mn)); !slices.Equal(got, []int32{101}) {
+		t.Errorf("dedicated brokers %v", got)
+	}
+	if len(mn.nodes) != 4 {
+		t.Errorf("%d nodes, want all 4", len(mn.nodes))
 	}
 }
 
@@ -189,7 +304,8 @@ func TestSettingsDefaults(t *testing.T) {
 	if round.KafkaVersion != s.KafkaVersion || round.MinISR != s.MinISR {
 		t.Errorf("settings do not survive toMap: %+v", round)
 	}
-	if NodeName("delta", RoleController, 3) != "delta-c3" || NodeName("delta", RoleBroker, 101) != "delta-b101" {
+	if NodeName("delta", RoleController, 3) != "delta-c3" || NodeName("delta", RoleBroker, 101) != "delta-b101" ||
+		NodeName("delta", RoleCombined, 4) != "delta-cb4" {
 		t.Error("container names of Docker nodes")
 	}
 }

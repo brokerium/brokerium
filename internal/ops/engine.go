@@ -115,6 +115,13 @@ type PlanChecker interface {
 	CheckPlan(ctx context.Context, c *store.Cluster, kinds []string) error
 }
 
+// NodeChecker is implemented by node managers that refuse operations on some of the nodes they
+// run, for example draining a node that runs broker and controller in one process.
+type NodeChecker interface {
+	// CheckNode returns an error when an operation of type typ must not act on Kafka node id.
+	CheckNode(ctx context.Context, p *Planner, typ string, id int32) error
+}
+
 // Engine runs operations.
 type Engine struct {
 	Store    *store.Store
@@ -129,6 +136,7 @@ type Engine struct {
 	stopStep           func(p *Planner, broker int32) (StepSpec, bool)
 	stopControllerStep func(p *Planner, node int32) (StepSpec, bool)
 	checks             []PlanChecker
+	nodeChecks         []NodeChecker
 
 	mu      sync.Mutex
 	running map[string]context.CancelFunc
@@ -167,6 +175,22 @@ func (e *Engine) Extend(m NodeManager) {
 	if c, ok := m.(PlanChecker); ok {
 		e.checks = append(e.checks, c)
 	}
+	if c, ok := m.(NodeChecker); ok {
+		e.nodeChecks = append(e.nodeChecks, c)
+	}
+}
+
+// checkNode asks the node managers whether an operation of type typ may act on Kafka node id.
+func (p *Planner) checkNode(ctx context.Context, typ string, id int32) error {
+	if p.Engine == nil {
+		return nil
+	}
+	for _, c := range p.Engine.nodeChecks {
+		if err := c.CheckNode(ctx, p, typ, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // checkPlan asks the node managers whether steps of these kinds can run on the cluster now.

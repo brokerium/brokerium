@@ -57,3 +57,6 @@ Removing a voter that is no longer in the set fails with `VoterNotFoundException
 - Brokerium must collect `directory.id` from the node (agent) to call `AddRaftVoter`.
 - On agent clusters the operator chooses the host of a new controller. Removing a voter stops
   Kafka on its host afterwards and releases the host.
+- Brokerium does not remove combined nodes from the quorum, because stopping one stops a broker
+  too; the commands above remove one by hand
+  ([combined nodes](../guide/clusters.md#combined-nodes)).

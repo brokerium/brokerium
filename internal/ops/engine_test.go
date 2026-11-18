@@ -12,7 +12,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/brokerium/brokerium/internal/cluster"
 	"github.com/brokerium/brokerium/internal/edition"
+	"github.com/brokerium/brokerium/internal/kafka"
 	"github.com/brokerium/brokerium/internal/store"
 )
 
@@ -55,6 +57,50 @@ func (n refusingNodes) CheckPlan(_ context.Context, c *store.Cluster, kinds []st
 		return fmt.Errorf("%s cannot run on %s now", n.kind, c.Name)
 	}
 	return nil
+}
+
+// guardedNodes is a node manager that refuses every operation on one Kafka node.
+type guardedNodes struct {
+	refusingNodes
+	node int32
+}
+
+func (n guardedNodes) CheckNode(_ context.Context, _ *Planner, typ string, id int32) error {
+	if id == n.node {
+		return fmt.Errorf("%s refused on node %d", typ, id)
+	}
+	return nil
+}
+
+func TestExtendChecksNodes(t *testing.T) {
+	t.Parallel()
+	e := New(nil, nil, nil, slog.New(slog.DiscardHandler))
+	e.Extend(guardedNodes{node: 3})
+	snap := &kafka.Snapshot{
+		Brokers: []kafka.Broker{{ID: 3, Alive: true}, {ID: 101, Alive: true}, {ID: 102, Alive: true}},
+		Quorum: &kafka.Quorum{LeaderID: 1, Voters: []kafka.QuorumReplica{
+			{NodeID: 1, DirectoryID: "d1"}, {NodeID: 2, DirectoryID: "d2"}, {NodeID: 3, DirectoryID: "d3"}}},
+		Topics: []kafka.Topic{{Name: "t", Partitions: []kafka.Partition{{ID: 0, Leader: 3, Replicas: []int32{3, 101}}}}},
+	}
+	p := &Planner{Engine: e, Cluster: &store.Cluster{Name: "lab"}, View: &cluster.View{Snapshot: snap}}
+	tests := []struct {
+		name    string
+		plan    func(context.Context, *Planner, json.RawMessage) (*Planned, error)
+		params  string
+		wantErr string
+	}{
+		{"drain the guarded node", planDrain, `{"brokerId": 3}`, "drain-broker refused on node 3"},
+		{"decommission the guarded node", planDrain, `{"brokerId": 3, "decommission": true}`, "drain-broker refused on node 3"},
+		{"drain another broker", planDrain, `{"brokerId": 101}`, ""},
+		{"remove the guarded voter", planRemoveController, `{"nodeId": 3}`, "remove-controller refused on node 3"},
+		{"remove another voter", planRemoveController, `{"nodeId": 2}`, ""},
+	}
+	for _, tt := range tests {
+		_, err := tt.plan(t.Context(), p, json.RawMessage(tt.params))
+		if (err == nil) != (tt.wantErr == "") || (err != nil && err.Error() != tt.wantErr) {
+			t.Errorf("%s: %v, want %q", tt.name, err, tt.wantErr)
+		}
+	}
 }
 
 func TestExtendChecksPlans(t *testing.T) {

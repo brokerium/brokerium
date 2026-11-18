@@ -264,7 +264,7 @@ func rackWarnings(existing []kafka.Broker, added []member) []string {
 		}
 	}
 	for _, mb := range added {
-		if mb.role != RoleBroker {
+		if !runsBroker(mb.role) {
 			continue
 		}
 		if mb.rack == "" {

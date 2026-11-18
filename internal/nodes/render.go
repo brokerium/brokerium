@@ -23,6 +23,13 @@ const (
 	RoleCombined   = "combined"
 )
 
+// runsController reports whether nodes of the role are voters of the quorum: controllers and
+// combined nodes.
+func runsController(role string) bool { return role == RoleController || role == RoleCombined }
+
+// runsBroker reports whether nodes of the role host partitions: brokers and combined nodes.
+func runsBroker(role string) bool { return role == RoleBroker || role == RoleCombined }
+
 // Settings of a cluster whose nodes Brokerium manages, stored in clusters.settings.
 type Settings struct {
 	KafkaVersion      string   `json:"kafkaVersion"`
@@ -74,11 +81,14 @@ func (s Settings) toMap() map[string]any {
 	return m
 }
 
-// NodeName is the container name of a node of a Docker cluster: <cluster>-c<id> or
-// <cluster>-b<id>.
+// NodeName is the container name of a node of a Docker cluster: <cluster>-c<id> for a
+// controller, <cluster>-cb<id> for a combined node and <cluster>-b<id> for a broker.
 func NodeName(cluster, role string, id int32) string {
-	if role == RoleController {
+	switch role {
+	case RoleController:
 		return fmt.Sprintf("%s-c%d", cluster, id)
+	case RoleCombined:
+		return fmt.Sprintf("%s-cb%d", cluster, id)
 	}
 	return fmt.Sprintf("%s-b%d", cluster, id)
 }
@@ -95,6 +105,8 @@ func RandomUUID() string {
 	}
 }
 
+// managed are the nodes of a cluster. controllers are the voters, controller and combined nodes,
+// and brokers the broker and combined nodes, so a combined node is in both.
 type managed struct {
 	nodes       []*store.Node
 	controllers []*store.Node
@@ -116,10 +128,10 @@ func classify(nodes []*store.Node) managed {
 		if n.KafkaNodeID == nil {
 			continue
 		}
-		switch n.Role {
-		case RoleController:
+		if runsController(n.Role) {
 			out.controllers = append(out.controllers, n)
-		case RoleBroker:
+		}
+		if runsBroker(n.Role) {
 			out.brokers = append(out.brokers, n)
 		}
 	}
@@ -150,18 +162,30 @@ func (m *Manager) brokerAddress(s Settings, docker bool, host string, id int32) 
 	return net.JoinHostPort(host, "9092")
 }
 
-// controllerAddress is how the server reaches a managed controller directly.
-func (m *Manager) controllerAddress(s Settings, docker bool, host string, id int32) string {
+// controllerAddress is how the server reaches the controller of a managed controller or combined
+// node directly.
+func (m *Manager) controllerAddress(s Settings, docker bool, role, host string, id int32) string {
 	if docker && !m.Cfg.ServerInContainer {
-		return fmt.Sprintf("localhost:%d", s.PortBase+int(id))
+		return fmt.Sprintf("localhost:%d", controllerPort(s, role, id))
 	}
 	return net.JoinHostPort(host, "9093")
 }
 
+// controllerPort is the port on localhost that publishes the controller listener of a node of a
+// Docker cluster. A combined node publishes its client listener at port base + node id, as
+// brokers do, so its controller listener moves 900 ports up, past the ids brokers get.
+func controllerPort(s Settings, role string, id int32) int {
+	if role == RoleCombined {
+		return s.PortBase + 900 + int(id)
+	}
+	return s.PortBase + int(id)
+}
+
 // renderProperties builds server.properties for a node. host is the container name of a Docker
 // node and the advertised host of an agent node. quorum is either a bootstrap server list
-// (dynamic) or a voters string (static). Docker lab nodes get a second listener published on
-// localhost; agent nodes have one listener, advertised on their host.
+// (dynamic) or a voters string (static). Docker lab nodes get a second client listener published
+// on localhost; agent nodes have one, advertised on their host. Combined nodes have the client
+// listeners of a broker and the controller listener of a controller.
 func renderProperties(s Settings, docker bool, role, host string, id int32, rack, quorumKind, quorum string) map[string]string {
 	p := map[string]string{
 		"node.id":                          strconv.Itoa(int(id)),
@@ -183,29 +207,39 @@ func renderProperties(s Settings, docker bool, role, host string, id int32, rack
 	} else {
 		p["controller.quorum.bootstrap.servers"] = quorum
 	}
+	controller := "CONTROLLER://" + net.JoinHostPort(host, "9093")
+	controllerBind := controller
+	if !docker {
+		controllerBind = "CONTROLLER://0.0.0.0:9093"
+	}
 	if role == RoleController {
 		p["process.roles"] = "controller"
-		p["listeners"] = "CONTROLLER://" + net.JoinHostPort(host, "9093")
-		if !docker {
-			p["listeners"] = "CONTROLLER://0.0.0.0:9093"
-		}
-		p["advertised.listeners"] = "CONTROLLER://" + net.JoinHostPort(host, "9093")
+		p["listeners"] = controllerBind
+		p["advertised.listeners"] = controller
 		p["listener.security.protocol.map"] = "CONTROLLER:PLAINTEXT"
 		return p
 	}
-	p["process.roles"] = "broker"
+	var listeners, advertised []string
 	if docker {
 		port := s.PortBase + int(id)
-		p["listeners"] = fmt.Sprintf("INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:%d", port)
-		p["advertised.listeners"] = fmt.Sprintf("INTERNAL://%s,EXTERNAL://localhost:%d", net.JoinHostPort(host, "9092"), port)
+		listeners = []string{"INTERNAL://0.0.0.0:9092", fmt.Sprintf("EXTERNAL://0.0.0.0:%d", port)}
+		advertised = []string{"INTERNAL://" + net.JoinHostPort(host, "9092"), fmt.Sprintf("EXTERNAL://localhost:%d", port)}
 		p["inter.broker.listener.name"] = "INTERNAL"
 		p["listener.security.protocol.map"] = "CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
 	} else {
-		p["listeners"] = "PLAINTEXT://0.0.0.0:9092"
-		p["advertised.listeners"] = "PLAINTEXT://" + net.JoinHostPort(host, "9092")
+		listeners = []string{"PLAINTEXT://0.0.0.0:9092"}
+		advertised = []string{"PLAINTEXT://" + net.JoinHostPort(host, "9092")}
 		p["inter.broker.listener.name"] = "PLAINTEXT"
 		p["listener.security.protocol.map"] = "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
 	}
+	p["process.roles"] = "broker"
+	if role == RoleCombined {
+		p["process.roles"] = "broker,controller"
+		listeners = append(listeners, controllerBind)
+		advertised = append(advertised, controller)
+	}
+	p["listeners"] = strings.Join(listeners, ",")
+	p["advertised.listeners"] = strings.Join(advertised, ",")
 	p["offsets.topic.replication.factor"] = strconv.Itoa(s.ReplicationFactor)
 	p["transaction.state.log.replication.factor"] = strconv.Itoa(s.ReplicationFactor)
 	p["transaction.state.log.min.isr"] = strconv.Itoa(s.MinISR)
