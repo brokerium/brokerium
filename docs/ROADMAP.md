@@ -84,7 +84,8 @@ the lab scenarios with the Kafka CLI, code skeleton, CI and the first container 
 
 - Clusters created from the dashboard on hosts with agents; hosts chosen explicitly and keeping
   their own names, with an advertised host per node
-  ([ADR 0018](adr/0018-explicit-node-assignment.md)); broker and controller on one node.
+  ([ADR 0018](adr/0018-explicit-node-assignment.md)); broker and controller on one node
+  ([ADR 0021](adr/0021-combined-nodes.md)).
 - Docker clusters only for the Docker installation
   ([ADR 0019](adr/0019-docker-clusters-for-docker-installations.md)).
 - Kafka starts again after a host reboot; Kafka from an internal mirror; CI runs only the jobs a
