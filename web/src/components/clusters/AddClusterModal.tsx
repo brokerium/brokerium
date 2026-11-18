@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 
-import { Modal, SegmentedControl, Stack } from '@mantine/core';
+import { Modal, SegmentedControl, Stack, useMatches } from '@mantine/core';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 
@@ -24,6 +24,7 @@ export function AddClusterModal({ opened, onClose }: AddClusterModalProps) {
   const create = useCreateCluster();
   const { data: server } = useServerInfo();
   const [selected, setSelected] = useState<Mode>('connect');
+  const orientation = useMatches<'vertical' | 'horizontal'>({ base: 'vertical', sm: 'horizontal' });
   const dockerAvailable = Boolean(server?.providers.docker.available);
   const mode: Mode = selected === 'docker' && !dockerAvailable ? 'connect' : selected;
   const close = () => {
@@ -73,6 +74,8 @@ export function AddClusterModal({ opened, onClose }: AddClusterModalProps) {
       <Stack>
         <SegmentedControl
           value={mode}
+          orientation={orientation}
+          fullWidth
           onChange={(v) => setSelected(v as Mode)}
           data={[
             { value: 'connect', label: 'Connect an existing cluster' },

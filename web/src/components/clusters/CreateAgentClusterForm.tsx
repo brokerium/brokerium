@@ -63,7 +63,7 @@ export function CreateAgentClusterForm({ onCancel, onDone }: CreateAgentClusterF
   const create = useCreateNewCluster();
   const update = useUpdateNode();
   const [name, setName] = useState('');
-  const [version, setVersion] = useState('4.3.1');
+  const [version, setVersion] = useState('4.4.0');
   const [quorum, setQuorum] = useState<Quorum>('dynamic');
   const [edits, setEdits] = useState<Record<string, HostEdit>>({});
   const [waiting, setWaiting] = useState(false);
