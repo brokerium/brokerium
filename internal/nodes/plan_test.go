@@ -165,7 +165,7 @@ func TestBootstrapAgentHosts(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			planned, err := bootstrapPlan(plannerFor(&store.Cluster{ID: "c1", Name: "prod", Provider: store.ProviderAgent}, nil), tt.fleet, tt.params, nil)
+			planned, err := (&Manager{}).bootstrapPlan(plannerFor(&store.Cluster{ID: "c1", Name: "prod", Provider: store.ProviderAgent}, nil), tt.fleet, tt.params, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -268,7 +268,7 @@ func TestBootstrapAgentRefusals(t *testing.T) {
 			if c == nil {
 				c = &store.Cluster{ID: "c1", Name: "prod", Provider: store.ProviderAgent}
 			}
-			_, err := bootstrapPlan(plannerFor(c, nil), f, tt.params, nil)
+			_, err := (&Manager{}).bootstrapPlan(plannerFor(c, nil), f, tt.params, nil)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error %v, want %q", err, tt.want)
 			}
@@ -279,7 +279,7 @@ func TestBootstrapAgentRefusals(t *testing.T) {
 func TestBootstrapDocker(t *testing.T) {
 	t.Parallel()
 	p := plannerFor(&store.Cluster{ID: "c1", Name: "lab", Provider: store.ProviderDocker}, nil)
-	planned, err := bootstrapPlan(p, fleet{}, bootstrapParams{Controllers: 1, Brokers: 2}, map[int]bool{21000: true})
+	planned, err := (&Manager{}).bootstrapPlan(p, fleet{}, bootstrapParams{Controllers: 1, Brokers: 2}, map[int]bool{21000: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +298,7 @@ func TestBootstrapDocker(t *testing.T) {
 	if quorum := stepsOf(KindConfigure, planned.Steps)[0].Args.(NodeArgs).Quorum; quorum != "lab-c1:9093" {
 		t.Errorf("quorum %q", quorum)
 	}
-	if _, err := bootstrapPlan(p, fleet{}, bootstrapParams{Nodes: []hostChoice{{Node: "n1", Role: RoleBroker}}}, nil); err == nil ||
+	if _, err := (&Manager{}).bootstrapPlan(p, fleet{}, bootstrapParams{Nodes: []hostChoice{{Node: "n1", Role: RoleBroker}}}, nil); err == nil ||
 		!strings.Contains(err.Error(), "give controllers and brokers instead of nodes") {
 		t.Errorf("nodes on a Docker cluster: %v", err)
 	}

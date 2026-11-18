@@ -37,9 +37,10 @@ never returned by the API. Back up the key together with the database.
 - The server signs a client certificate for the agent from its own CA; afterwards the agent
   connects with mutual TLS 1.3.
 - The agent executes a closed set of typed commands. There is no shell and no arbitrary file
-  access. Kafka releases are downloaded from Apache (or the mirror in the command) and checked
-  against the SHA-512 published on `downloads.apache.org`, never against a checksum from the
-  server.
+  access. Kafka releases are downloaded from Apache, or first from the mirror the server sets
+  with `BROKERIUM_KAFKA_MIRROR`, and checked against the SHA-512 published on
+  `downloads.apache.org` (`archive.apache.org` for older releases), never against a checksum
+  from the server or the mirror.
 - What the agent accepts from the server: Kafka versions in the `x.y.z` form; properties for
   `server.properties` whose names consist of letters, digits, `.`, `_` and `-` and whose values
   contain no control characters; heap options made only of `-Xms<size>` and `-Xmx<size>`. The
@@ -112,6 +113,15 @@ messages carry the authenticity instead ([ADR 0017](../adr/0017-agent-transport-
 - Nodes of the insecure transport have no certificate, and their secret neither expires nor
   rotates. Enrolling the node again with a new join token for it replaces the secret; enrolling
   with the other transport revokes the credentials of the old one.
+
+## Docker clusters
+
+A server with the Docker socket controls the Docker host, and operators can start containers of
+the lab node image there by creating Docker clusters. With the default
+`BROKERIUM_DOCKER_PROVIDER=auto` the server offers Docker clusters only in the
+[Docker installation](install.md#docker-clusters) and ignores a socket it finds in Kubernetes or
+on a host; the Helm chart turns them off. Give the server the socket only for evaluations and
+labs ([ADR 0019](../adr/0019-docker-clusters-for-docker-installations.md)).
 
 ## Reporting vulnerabilities
 

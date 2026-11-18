@@ -29,9 +29,15 @@ import (
 
 // Config holds provider settings.
 type Config struct {
+	// AgentEndpoint is the address the agents in the containers of Docker clusters dial.
 	AgentEndpoint string
 	AgentImage    string
 	LabNetwork    string
+	// ServerInContainer is set when the server runs in a container on LabNetwork; it reaches the
+	// nodes of Docker clusters by container name instead of through ports published on localhost.
+	ServerInContainer bool
+	// KafkaMirror goes into every Kafka install command; agents try it before the Apache mirrors.
+	KafkaMirror string
 }
 
 // Manager implements ops.NodeManager.
@@ -42,6 +48,8 @@ type Manager struct {
 	Clusters *cluster.Service
 	Log      *slog.Logger
 	Cfg      Config
+	// DockerClusters tells whether the server offers Docker clusters (ADR 0019).
+	DockerClusters *docker.Detector
 }
 
 var versionRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
@@ -202,10 +210,10 @@ func (m *Manager) planBootstrap(ctx context.Context, p *ops.Planner, raw json.Ra
 	if p.Cluster.Provider == store.ProviderDocker {
 		used = m.usedPortBases(ctx, p.Cluster.ID)
 	}
-	return bootstrapPlan(p, f, params, used)
+	return m.bootstrapPlan(p, f, params, used)
 }
 
-func bootstrapPlan(p *ops.Planner, f fleet, params bootstrapParams, usedPortBases map[int]bool) (*ops.Planned, error) {
+func (m *Manager) bootstrapPlan(p *ops.Planner, f fleet, params bootstrapParams, usedPortBases map[int]bool) (*ops.Planned, error) {
 	if params.Version == "" {
 		params.Version = "4.3.1"
 	}
@@ -253,13 +261,13 @@ func bootstrapPlan(p *ops.Planner, f fleet, params bootstrapParams, usedPortBase
 	for _, c := range controllers {
 		addr := net.JoinHostPort(c.host(), "9093")
 		hosts = append(hosts, c.host())
-		s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, controllerAddress(s, docker, c.host(), c.id))
+		s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, m.controllerAddress(s, docker, c.host(), c.id))
 		initial = append(initial, fmt.Sprintf("%d@%s:%s", c.id, addr, RandomUUID()))
 		voters = append(voters, fmt.Sprintf("%d@%s", c.id, addr))
 	}
 	var bootstrap []string
 	for _, b := range brokers {
-		bootstrap = append(bootstrap, brokerAddress(s, docker, b.host(), b.id))
+		bootstrap = append(bootstrap, m.brokerAddress(s, docker, b.host(), b.id))
 	}
 	var steps []ops.StepSpec
 	if !docker {

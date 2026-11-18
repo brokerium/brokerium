@@ -32,6 +32,7 @@ Values worth setting (see the [chart README](../../deploy/helm/brokerium/README.
 | `loadBalancer.*` | A `LoadBalancer` service with the dashboard port, the agent port or both, and a host name for external-dns. |
 | `publicURL`, `agents.endpoint` | The dashboard URL and the address agents dial. Derived from `gateway.*` or `loadBalancer.hostname` when empty. |
 | `agents.insecure.*` | Plaintext listener (port 8444) and install command for [agents behind a TLS-terminating proxy](#agents-behind-a-tls-terminating-proxy). |
+| `agents.kafkaMirror` | A mirror of the Kafka releases that agents try before the Apache mirrors ([details](#kafka-releases-from-an-internal-mirror)). |
 | `rbac.strimzi` | ClusterRole for managing Strimzi clusters in the same Kubernetes cluster with the pod's service account. |
 | `edition`, `license.*` | `enterprise` runs Brokerium Enterprise; `license.existingSecret` or `license.key` passes its license key. See [Editions and license keys](enterprise.md). |
 
@@ -78,6 +79,47 @@ for `linux/amd64` and `linux/arm64`, and Brokerium Enterprise as
 `bvaliev/brokerium-server-enterprise` with the same tags. To build them from source, run
 `make images VERSION=0.3.0` (add `EDITION=enterprise` for the Enterprise server image).
 
+#### Docker clusters
+
+The Docker installation can also create Kafka clusters as containers next to the server, for
+evaluations and labs: **Add cluster → Create a cluster in Docker** (see
+[Docker lab clusters](clusters.md#docker-lab-clusters)). Put the server and its database on the
+Docker network `brokerium-lab` and give the server the Docker socket:
+
+```bash
+docker network create brokerium-lab
+docker run -d --name brokerium-db --network brokerium-lab -v brokerium-db:/var/lib/postgresql \
+  -e POSTGRES_USER=brokerium -e POSTGRES_PASSWORD=brokerium -e POSTGRES_DB=brokerium postgres:18-alpine
+docker run -d --name brokerium --network brokerium-lab -p 8080:8080 -p 8443:8443 \
+  -v brokerium-data:/var/lib/brokerium \
+  -v /var/run/docker.sock:/var/run/docker.sock --group-add "$(stat -c %g /var/run/docker.sock)" \
+  -e BROKERIUM_ADMIN_PASSWORD=change-me \
+  -e BROKERIUM_DATABASE_URL='postgres://brokerium:brokerium@brokerium-db:5432/brokerium?sslmode=disable' \
+  -e BROKERIUM_DOCKER_AGENT_ENDPOINT=brokerium:8443 \
+  bvaliev/brokerium-server:0.3.0
+```
+
+- The server runs as the non-root user 65532, so it needs the group of the socket. On Linux that
+  is the group of `/var/run/docker.sock` on the host, usually `docker`, whose id `stat -c %g`
+  prints. On Docker Desktop (macOS and Windows) the socket appears in containers as `root:root`
+  with mode 0660: use `--group-add 0`.
+- Nodes are containers on `brokerium-lab`, and the server reaches them by their container names.
+  Their agents connect to the server at `BROKERIUM_DOCKER_AGENT_ENDPOINT`, here the server
+  container `brokerium` on the same network.
+- `BROKERIUM_AGENT_ENDPOINT` stays the address that agents on other hosts dial, and it goes into
+  the join commands of the **Nodes** page. To manage such hosts too, set it to a name of the
+  Docker host they can reach, for example `-e BROKERIUM_AGENT_ENDPOINT=docker-host.example.com:8443`
+  (the command publishes port 8443). The hosts of both endpoints are always in the certificate of
+  the agent gateway.
+- The first cluster pulls the lab node image `bvaliev/brokerium-agent:<version>-lab`. Clients on
+  the Docker host reach the brokers at `localhost:<port base + broker id>`; the plan of the
+  cluster shows the port base.
+- The Docker socket gives control over the Docker host: whoever may create clusters in Brokerium
+  can start containers there. Keep this setup for evaluations and labs.
+
+`BROKERIUM_DOCKER_PROVIDER` decides whether the server offers Docker clusters; the default `auto`
+offers them only in this setup. `GET /api/v1/server` reports whether it does and, if not, why.
+
 ### Binary
 
 Release assets contain `brokerium-server-<os>-<arch>` with the dashboard built in, and
@@ -93,17 +135,20 @@ Release assets contain `brokerium-server-<os>-<arch>` with the dashboard built i
 | `BROKERIUM_ADMIN_USERNAME`, `BROKERIUM_ADMIN_PASSWORD` | `admin`, none | First administrator, created when there are no users. |
 | `BROKERIUM_HTTP_ADDR`, `BROKERIUM_GRPC_ADDR` | `:8080`, `:8443` | Dashboard and API; agent gateway. |
 | `BROKERIUM_PUBLIC_URL` | `http://localhost:8080` | Used in links and agent install commands. |
-| `BROKERIUM_AGENT_ENDPOINT` | `host.docker.internal:8443` | Address agents dial. |
-| `BROKERIUM_AGENT_SERVER_NAMES` | `localhost,host.docker.internal,brokerium,brokerium-server` | Names in the gateway certificate. |
+| `BROKERIUM_AGENT_ENDPOINT` | `host.docker.internal:8443` | Address agents on hosts dial; it goes into the join commands of the **Nodes** page. |
+| `BROKERIUM_AGENT_SERVER_NAMES` | `localhost,host.docker.internal,brokerium,brokerium-server` | Names in the gateway certificate; the hosts of `BROKERIUM_AGENT_ENDPOINT` and `BROKERIUM_DOCKER_AGENT_ENDPOINT` are always added. |
 | `BROKERIUM_AGENT_PROXY`, `BROKERIUM_AGENT_NO_PROXY` | none | `HTTPS_PROXY` and `NO_PROXY` in the agent install command. |
 | `BROKERIUM_AGENT_INSECURE_ADDR` | none | Plaintext listener of the insecure agent transport for a proxy that terminates TLS, for example `:8444` ([details](#agents-behind-a-tls-terminating-proxy)). |
 | `BROKERIUM_AGENT_TRANSPORT` | `mtls` | Transport of the agent install command: `mtls`, or `insecure` with the listener and the endpoint below. |
 | `BROKERIUM_AGENT_INSECURE_ENDPOINT` | none | `host:port` agents of the insecure transport dial, usually the proxy. |
 | `BROKERIUM_AGENT_INSECURE_TLS` | `system` | How those agents connect to the proxy: `system` (TLS verified against the system CAs), `skip-verify` or `none` (plaintext). |
 | `BROKERIUM_AGENT_CERT_LIFETIME` | `8760h` (one year) | Lifetime of agent certificates and the gateway certificate; they are renewed after two thirds of it. At least `1m`. |
+| `BROKERIUM_KAFKA_MIRROR` | none | Base URL of a mirror of the Kafka releases that agents try before the Apache mirrors, for example `https://artifacts.example.com/kafka` ([details](#kafka-releases-from-an-internal-mirror)). |
 | `BROKERIUM_SECURE_COOKIES` | `false` | Set `true` behind HTTPS. |
 | `BROKERIUM_SNAPSHOT_INTERVAL` | `15s` | How often clusters are polled. |
-| `BROKERIUM_DOCKER_HOST`, `BROKERIUM_LAB_NETWORK`, `BROKERIUM_AGENT_IMAGE` | lab values | Docker provider (labs only, see [Docker lab clusters](clusters.md#docker-lab-clusters)). |
+| `BROKERIUM_DOCKER_PROVIDER` | `auto` | Docker clusters: `auto` offers them only in the [Docker installation](#docker-clusters) (a Docker container outside Kubernetes that reaches the Docker API), `on` always (development with the server on the Docker host), `off` never. The Helm chart sets `off`. |
+| `BROKERIUM_DOCKER_HOST`, `BROKERIUM_LAB_NETWORK`, `BROKERIUM_AGENT_IMAGE` | `unix:///var/run/docker.sock`, `brokerium-lab`, the lab node image of the release | Docker API, network and node image of [Docker clusters](clusters.md#docker-lab-clusters). |
+| `BROKERIUM_DOCKER_AGENT_ENDPOINT` | `BROKERIUM_AGENT_ENDPOINT` | Address the agents in the nodes of Docker clusters dial, `brokerium:8443` in the [Docker installation](#docker-clusters). |
 | `BROKERIUM_DEBUG` | `0` | `1` logs every API request. |
 | `BROKERIUM_LICENSE` | none | License key of Brokerium Enterprise; takes precedence over a key added on the **License** page. The Community edition ignores it. |
 | `BROKERIUM_LICENSE_FILE` | none | File that contains the license key, for example a mounted Secret; used when `BROKERIUM_LICENSE` is empty. |
@@ -176,7 +221,7 @@ GitHub releases are always checked against the `SHA256SUMS` of the release.
 | `/var/lib/brokerium-agent` | `brokerium-agent`, 0711 | Agent state: identity, client certificate and key (0600), `server.properties`, `kafka.env`. Kafka writes its logs to `logs/`. |
 | `/opt/brokerium/kafka` | `brokerium-agent:kafka`, 0755 | Kafka releases the agent installed; `current` points at the active one. |
 | `/var/lib/kafka/data` | `kafka:kafka`, 2770 | Kafka data. New files belong to the `kafka` group, through which the agent formats and wipes storage. |
-| `brokerium-kafka.service` | root | `User=kafka`, `UMask=0007`, heap options from `kafka.env`, starts the release behind `current`. |
+| `brokerium-kafka.service` | root | `User=kafka`, `UMask=0007`, heap options from `kafka.env`, starts the release behind `current`. Not enabled: after a host reboot the agent starts it when Kafka was running before, and a node stopped from Brokerium stays stopped. |
 | `brokerium-agent.service` | root | `User=brokerium-agent`, `SupplementaryGroups=kafka`, `ProtectSystem=full`, `ProtectHome=yes`, `PrivateTmp=yes`. |
 | `/etc/sudoers.d/brokerium-agent` | root, 0440 | The sudo rule below. |
 
@@ -321,6 +366,30 @@ Where the proxy can stay out of the TLS connection, keep mutual TLS end to end i
   ```
 
 - or route by SNI with TLS passthrough through a Gateway (`gateway.agents` in the chart).
+
+### Kafka releases from an internal mirror
+
+Agents download a Kafka release when Brokerium creates a node on the host or upgrades it to a
+release the host does not have yet, from `dlcdn.apache.org`, `downloads.apache.org` and
+`archive.apache.org` in this order. Set `BROKERIUM_KAFKA_MIRROR` (Helm: `agents.kafkaMirror`) to
+the base URL of a mirror, and the server sends it with every install command: agents try the
+mirror first and the Apache mirrors after it.
+
+The mirror has the layout of the Apache mirrors: the archive of release `<version>` is
+`<mirror>/<version>/kafka_2.13-<version>.tgz`. With
+`BROKERIUM_KAFKA_MIRROR=https://artifacts.example.com/kafka`, Kafka 4.4.0 comes from
+`https://artifacts.example.com/kafka/4.4.0/kafka_2.13-4.4.0.tgz`. A copy of
+`https://downloads.apache.org/kafka/` works, and so does a repository in Artifactory or Nexus
+that proxies it. The server refuses to start unless the URL uses `http` or `https` and has no
+query or fragment.
+
+Checksums keep coming from Apache: the agent checks every archive against
+`https://downloads.apache.org/kafka/<version>/kafka_2.13-<version>.tgz.sha512`, or the same file
+on `archive.apache.org` for older releases, never against a checksum from the mirror or the
+server. Hosts therefore still need HTTPS access to one of these two hosts, directly or through
+`HTTPS_PROXY`; the checksum files are small. An archive with another checksum fails the step.
+When the mirror answers with an error or sends no data for a minute, the agent moves on to the
+Apache mirrors.
 
 ### Adopting running nodes
 

@@ -55,8 +55,8 @@ func newClient(t *testing.T) *client {
 	return c
 }
 
-// do sends a request and decodes a JSON response into out; it returns the status code.
-func (c *client) do(method, path string, body, out any) int {
+// send sends a request and returns the status code and the response body.
+func (c *client) send(method, path string, body any) (int, []byte) {
 	c.t.Helper()
 	var rd io.Reader
 	if body != nil {
@@ -81,15 +81,22 @@ func (c *client) do(method, path string, body, out any) int {
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
-	if out != nil && len(raw) > 0 && resp.StatusCode < 300 {
+	return resp.StatusCode, raw
+}
+
+// do sends a request and decodes a JSON response into out; it returns the status code.
+func (c *client) do(method, path string, body, out any) int {
+	c.t.Helper()
+	status, raw := c.send(method, path, body)
+	if out != nil && len(raw) > 0 && status < 300 {
 		if err := json.Unmarshal(raw, out); err != nil {
 			c.t.Fatalf("%s %s: decoding %s: %v", method, path, raw, err)
 		}
 	}
-	if resp.StatusCode >= 300 {
-		c.t.Logf("%s %s -> %d %s", method, path, resp.StatusCode, raw)
+	if status >= 300 {
+		c.t.Logf("%s %s -> %d %s", method, path, status, raw)
 	}
-	return resp.StatusCode
+	return status
 }
 
 func (c *client) must(status int, method, path string, body, out any) {

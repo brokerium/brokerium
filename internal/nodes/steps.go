@@ -336,11 +336,16 @@ func (m *Manager) stepInstall(ctx context.Context, x *ops.Exec, raw json.RawMess
 	if version == "" {
 		version = settingsOf(x.Cluster).KafkaVersion
 	}
-	res, err := m.send(ctx, a, &agentv1.Command{Action: &agentv1.Command_Install{Install: &agentv1.InstallKafka{Version: version}}}, 30*time.Minute)
+	res, err := m.send(ctx, a, m.installCommand(version), 30*time.Minute)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{"version": version, "output": res.GetOutput()}, nil
+}
+
+// installCommand asks an agent to install a Kafka release, from the configured mirror first.
+func (m *Manager) installCommand(version string) *agentv1.Command {
+	return &agentv1.Command{Action: &agentv1.Command_Install{Install: &agentv1.InstallKafka{Version: version, MirrorUrl: m.Cfg.KafkaMirror}}}
 }
 
 // quorumFor returns the quorum configuration a node should use now.
@@ -705,7 +710,7 @@ func (m *Manager) stepSyncBootstrap(ctx context.Context, x *ops.Exec, raw json.R
 	var servers []string
 	for _, b := range mn.brokers {
 		if b.KafkaNodeID != nil {
-			servers = append(servers, brokerAddress(s, docker, hostOf(docker, b), *b.KafkaNodeID))
+			servers = append(servers, m.brokerAddress(s, docker, hostOf(docker, b), *b.KafkaNodeID))
 		}
 	}
 	if len(servers) == 0 {
@@ -714,7 +719,7 @@ func (m *Manager) stepSyncBootstrap(ctx context.Context, x *ops.Exec, raw json.R
 	s.ControllerBootstrapServers = nil
 	for _, c := range mn.controllers {
 		if c.KafkaNodeID != nil {
-			s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, controllerAddress(s, docker, hostOf(docker, c), *c.KafkaNodeID))
+			s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, m.controllerAddress(s, docker, hostOf(docker, c), *c.KafkaNodeID))
 		}
 	}
 	return m.stepSetSettings(ctx, x, mustJSON(NodeArgs{BootstrapServers: servers, Settings: &s}))

@@ -8,6 +8,15 @@ All notable changes to Brokerium are documented here. The format follows
 
 ### Added
 
+- `GET /api/v1/server` reports the version, the edition and whether the server offers Docker
+  clusters, with the reason when it does not.
+- The Docker installation creates and manages Docker clusters: the server in its container
+  reaches the nodes by container name on the network `brokerium-lab`. The install guide shows
+  the `docker run` commands with the Docker socket. The Docker provider pulls a missing node
+  image.
+- `BROKERIUM_DOCKER_AGENT_ENDPOINT` is the address the agents in the nodes of Docker clusters
+  dial, `brokerium:8443` in the Docker installation. It defaults to `BROKERIUM_AGENT_ENDPOINT`,
+  which stays the address in the join commands for agents on other hosts.
 - Agent nodes have an advertised host, the address their listeners advertise and the server
   connects to (by default the host name the agent reports), and a rack, the default
   `broker.rack` of a broker on them. `PATCH /api/v1/nodes/{id}` changes them and the node name.
@@ -17,6 +26,14 @@ All notable changes to Brokerium are documented here. The format follows
 
 ### Changed
 
+- Docker clusters are offered only where they work
+  ([ADR 0019](docs/adr/0019-docker-clusters-for-docker-installations.md)): with
+  `BROKERIUM_DOCKER_PROVIDER=auto`, the default, only by a server in a Docker container outside
+  Kubernetes that reaches the Docker API; `on` offers them for development on the Docker host and
+  `off` never, as set by the Helm chart. Otherwise creating a Docker cluster and operations that
+  change its nodes fail with 409 `docker_unavailable`; existing Docker clusters stay monitored.
+- The certificate of the agent gateway always includes the hosts of `BROKERIUM_AGENT_ENDPOINT` and
+  `BROKERIUM_DOCKER_AGENT_ENDPOINT`.
 - Agent clusters run on the hosts you choose instead of hosts named `<cluster>-c<id>` and
   `<cluster>-b<id>` ([ADR 0018](docs/adr/0018-explicit-node-assignment.md)):
   `bootstrap-cluster` takes `nodes` with a role and an optional node id and rack per host,
@@ -37,11 +54,15 @@ All notable changes to Brokerium are documented here. The format follows
 
 ### Fixed
 
+- Kafka starts again after a host reboot: the agent starts `brokerium-kafka.service` when Kafka
+  was running before, while a node stopped from Brokerium stays stopped.
 - Decommissioning a broker and removing a controller of an agent cluster stop Kafka on the host.
   Before, the decommission waited for the broker to stop and failed.
 
 ### Upgrading
 
+- A server that runs on the Docker host and creates Docker clusters, in development or tests,
+  needs `BROKERIUM_DOCKER_PROVIDER=on`; `make dev` sets it.
 - Existing agent clusters keep their addresses: nodes that run Kafka get their name as advertised
   host, the other nodes the host name their agent reported. Check the advertised hosts on the
   **Nodes** page before you add nodes.

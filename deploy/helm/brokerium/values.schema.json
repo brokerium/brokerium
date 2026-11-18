@@ -107,6 +107,11 @@
             },
             "tls": { "enum": ["system", "skip-verify", "none"] }
           }
+        },
+        "kafkaMirror": {
+          "type": "string",
+          "pattern": "^(https?://[^/?#]+[^?#]*)?$",
+          "description": "Base URL of a mirror of the Apache Kafka releases that agents try first: <kafkaMirror>/<version>/kafka_2.13-<version>.tgz."
         }
       }
     },

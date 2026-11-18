@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 
 // Package docker is the lab node provider: it talks to the Docker Engine API over its unix
-// socket to create and remove containers that run brokerium-agent, simulating virtual machines.
+// socket to create and remove containers that run brokerium-agent, simulating virtual machines,
+// and decides whether the server offers Docker clusters at all (ADR 0019).
 package docker
 
 import (
@@ -28,10 +29,12 @@ var ErrNotFound = errors.New("not found")
 type Client struct {
 	http *http.Client
 	base string
+	host string
 }
 
 // New connects to host ("unix:///path" or "tcp://host:port"). An empty host or a missing
 // default socket falls back to DOCKER_HOST and the Docker Desktop socket in the home directory.
+// When no socket exists yet, the client keeps the socket of host and uses it once it appears.
 func New(host string) (*Client, error) {
 	candidates := []string{host, os.Getenv("DOCKER_HOST"), "unix:///var/run/docker.sock"}
 	if home, err := os.UserHomeDir(); err == nil {
@@ -45,16 +48,28 @@ func New(host string) (*Client, error) {
 			if _, err := os.Stat(path); err != nil { //nolint:gosec // socket path from BROKERIUM_DOCKER_HOST
 				continue
 			}
-			tr := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return (&net.Dialer{}).DialContext(ctx, "unix", path)
-			}}
-			return &Client{http: &http.Client{Transport: tr}, base: "http://docker"}, nil
+			return unixClient(h, path), nil
 		}
 		if addr, ok := strings.CutPrefix(h, "tcp://"); ok {
-			return &Client{http: &http.Client{}, base: "http://" + addr}, nil
+			return &Client{http: &http.Client{}, base: "http://" + addr, host: h}, nil
 		}
 	}
-	return nil, errors.New("no Docker socket found")
+	if path, ok := strings.CutPrefix(host, "unix://"); ok && path != "" {
+		return unixClient(host, path), nil
+	}
+	return nil, fmt.Errorf("unsupported Docker host %q: use unix:///path or tcp://host:port", host)
+}
+
+func unixClient(host, path string) *Client {
+	tr := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", path)
+	}}
+	return &Client{http: &http.Client{Transport: tr}, base: "http://docker", host: host}
+}
+
+// Host is the Docker host the client connects to.
+func (c *Client) Host() string {
+	return c.host
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
@@ -152,13 +167,68 @@ func (c *Client) Run(ctx context.Context, spec ContainerSpec) (string, error) {
 		},
 	}
 	var created struct{ ID string }
-	if err := c.do(ctx, http.MethodPost, "/containers/create?name="+url.QueryEscape(spec.Name), body, &created); err != nil {
+	create := "/containers/create?name=" + url.QueryEscape(spec.Name)
+	err := c.do(ctx, http.MethodPost, create, body, &created)
+	if errors.Is(err, ErrNotFound) && strings.Contains(strings.ToLower(err.Error()), "no such image") {
+		if err := c.Pull(ctx, spec.Image); err != nil {
+			return "", err
+		}
+		err = c.do(ctx, http.MethodPost, create, body, &created)
+	}
+	if err != nil {
 		return "", err
 	}
 	if err := c.Start(ctx, spec.Name); err != nil {
 		return "", err
 	}
 	return created.ID, nil
+}
+
+// Pull downloads an image from its registry.
+func (c *Client) Pull(ctx context.Context, image string) error {
+	repo, tag := splitImage(image)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.base+"/images/create?fromImage="+url.QueryEscape(repo)+"&tag="+url.QueryEscape(tag), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		return fmt.Errorf("docker pull %s: HTTP %d: %s", image, resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	// The pull reports progress and failures as a stream of JSON messages.
+	dec := json.NewDecoder(resp.Body)
+	for {
+		var msg struct {
+			Error string `json:"error"`
+		}
+		err := dec.Decode(&msg)
+		switch {
+		case errors.Is(err, io.EOF):
+			return nil
+		case err != nil:
+			return fmt.Errorf("docker pull %s: %w", image, err)
+		case msg.Error != "":
+			return fmt.Errorf("docker pull %s: %s", image, msg.Error)
+		}
+	}
+}
+
+// splitImage splits an image reference into the repository and the tag or digest. The tag
+// defaults to latest: an empty tag would pull every tag of the repository.
+func splitImage(image string) (repo, tag string) {
+	if i := strings.LastIndex(image, "@"); i >= 0 {
+		return image[:i], image[i+1:]
+	}
+	if i := strings.LastIndex(image, ":"); i > strings.LastIndex(image, "/") {
+		return image[:i], image[i+1:]
+	}
+	return image, "latest"
 }
 
 // Info is the state of a container.
