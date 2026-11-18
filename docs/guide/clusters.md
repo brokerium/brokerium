@@ -35,7 +35,16 @@ a cluster reserves its host for that cluster) and its Kafka data directory is em
 the data of the same node. The dashboard offers these hosts; through the API, take their ids
 from `GET /api/v1/nodes`.
 
-Create the cluster record, then plan the creation of its nodes:
+In the dashboard, **Add cluster → Create on hosts with agents** lists the free hosts. Give each
+host you need a role (controller, broker, or controller and broker), keep the suggested node id
+or type one, and set its rack and the address its listeners advertise. **Add host** shows the
+install command with a join token for another host, and the table picks the host up as soon as
+its agent connects. The dashboard checks the choice (at least one controller and one broker, at
+most five voters, no Kafka data left from another node), saves changed addresses on the hosts,
+shows the plan and starts it after **Create cluster**. **Add broker**, **Add controller** and
+**Replace broker** on the pages of the cluster offer its free hosts the same way.
+
+Through the API, create the cluster record, then plan the creation of its nodes:
 
 ```bash
 api() { curl -fsS -H "Authorization: Bearer $TOKEN" -H 'X-Brokerium-Request: 1' -H 'Content-Type: application/json' "$@"; }
@@ -124,8 +133,9 @@ Brokerium runs in the same Kubernetes cluster (Helm value `rbac.strimzi`). Strim
 
 ## Docker lab clusters
 
-**Add cluster → Create a cluster in Docker** builds a cluster from the lab node image as
-containers on the server's Docker host, for evaluations, labs and tests. **Settings → Delete
+**Add cluster → Create in Docker** builds a cluster from the lab node image as containers on the
+server's Docker host, for evaluations, labs and tests. Give it the numbers of controllers, brokers
+and combined nodes (broker and controller in one process). **Settings → Delete
 cluster nodes** removes the containers and volumes again.
 
 The dashboard offers it only when the server offers Docker clusters, which

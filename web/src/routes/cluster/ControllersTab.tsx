@@ -2,10 +2,12 @@
 
 import { Alert, Badge, Group, Paper, SimpleGrid, Stack, Table, Text, Tooltip } from '@mantine/core';
 import { IconArrowsTransferUp, IconCrown, IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-react';
+import { useState } from 'react';
 
 import type { QuorumReplica } from '../../api/types';
 import { CopyText } from '../../components/CopyText';
 import { GatedButton } from '../../components/Gated';
+import { HostSelect } from '../../components/nodes/HostSelect';
 import { usePlanner } from '../../components/operations/plannerContext';
 import { RelativeTime } from '../../components/RelativeTime';
 import { StatCard } from '../../components/StatCard';
@@ -13,7 +15,7 @@ import type { Availability } from '../../lib/capabilities';
 import { formatNumber } from '../../lib/format';
 import { canRemoveVoter, classifyObservers, faultTolerance, isDynamicQuorum, kraftVersionOf, quorumHint, quorumKindLabel } from '../../lib/quorum';
 import { useClusterContext } from './clusterContext';
-import { NoSnapshot, Section, TabNotAvailable } from './common';
+import { NoSnapshot, ParamsModal, Section, TabNotAvailable } from './common';
 
 function shortDirectoryId(id: string): string {
   return id.length > 12 ? `${id.slice(0, 8)}…` : id;
@@ -28,8 +30,10 @@ function LagText({ lag }: { lag: number }) {
 }
 
 export default function ControllersTab() {
-  const { snapshot, caps } = useClusterContext();
+  const { snapshot, caps, cluster } = useClusterContext();
   const planner = usePlanner();
+  const [choosingHost, setChoosingHost] = useState(false);
+  const [host, setHost] = useState<string | null>(null);
 
   if (!caps.describeQuorum) return <TabNotAvailable what="Describing the controller quorum" />;
   if (!snapshot) return <NoSnapshot />;
@@ -87,7 +91,14 @@ export default function ControllersTab() {
               availability={planner.availability('add-controller')}
               leftSection={<IconPlus size={16} />}
               loading={planner.pendingKey === 'add-controller'}
-              onClick={() => void planner.plan('add-controller', {})}
+              onClick={() => {
+                if (cluster.provider === 'agent') {
+                  setHost(null);
+                  setChoosingHost(true);
+                } else {
+                  void planner.plan('add-controller', {});
+                }
+              }}
             >
               Add controller
             </GatedButton>
@@ -236,6 +247,25 @@ export default function ControllersTab() {
           </Text>
         </Paper>
       )}
+
+      <ParamsModal
+        opened={choosingHost}
+        onClose={() => setChoosingHost(false)}
+        title="Add controller"
+        description="Installs Kafka on the chosen host, starts it as an observer and adds it to the quorum once it has caught up."
+        planning={planner.pendingKey === 'add-controller'}
+        disabled={!host}
+        onPlan={() => planner.plan('add-controller', host ? { node: host } : {})}
+      >
+        <HostSelect
+          clusterId={cluster.id}
+          label="Host"
+          description="Connected agent without a Kafka role"
+          required
+          value={host}
+          onChange={setHost}
+        />
+      </ParamsModal>
     </Stack>
   );
 }
