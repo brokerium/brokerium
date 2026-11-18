@@ -790,3 +790,20 @@ func TestIDs(t *testing.T) {
 		}
 	}
 }
+
+func TestBrokerLabel(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		id   int32
+		rack string
+		want string
+	}{
+		{102, "", "102"},
+		{105, "r3", "105 (r3)"},
+	}
+	for _, tt := range tests {
+		if got := brokerLabel(tt.id, tt.rack); got != tt.want {
+			t.Errorf("brokerLabel(%d, %q) = %q, want %q", tt.id, tt.rack, got, tt.want)
+		}
+	}
+}
