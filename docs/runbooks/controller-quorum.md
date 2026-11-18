@@ -55,3 +55,5 @@ Removing a voter that is no longer in the set fails with `VoterNotFoundException
   unregister a controller; `unregister-controller` (KIP-1312) arrives in 4.4.
 - Quorum changes are committed in about a second when the new node has caught up.
 - Brokerium must collect `directory.id` from the node (agent) to call `AddRaftVoter`.
+- On agent clusters the operator chooses the host of a new controller. Removing a voter stops
+  Kafka on its host afterwards and releases the host.

@@ -17,6 +17,12 @@ All notable changes to Brokerium are documented here. The format follows
 - `BROKERIUM_DOCKER_AGENT_ENDPOINT` is the address the agents in the nodes of Docker clusters
   dial, `brokerium:8443` in the Docker installation. It defaults to `BROKERIUM_AGENT_ENDPOINT`,
   which stays the address in the join commands for agents on other hosts.
+- Agent nodes have an advertised host, the address their listeners advertise and the server
+  connects to (by default the host name the agent reports), and a rack, the default
+  `broker.rack` of a broker on them. `PATCH /api/v1/nodes/{id}` changes them and the node name.
+- Join tokens without a node name: the node is named after the host name its agent reports,
+  with `-2`, `-3` and so on when that name is taken. A join token for `nodeId` enrolls an
+  existing node again, which keeps its name and role.
 
 ### Changed
 
@@ -28,16 +34,43 @@ All notable changes to Brokerium are documented here. The format follows
   change its nodes fail with 409 `docker_unavailable`; existing Docker clusters stay monitored.
 - The certificate of the agent gateway always includes the hosts of `BROKERIUM_AGENT_ENDPOINT` and
   `BROKERIUM_DOCKER_AGENT_ENDPOINT`.
+- Agent clusters run on the hosts you choose instead of hosts named `<cluster>-c<id>` and
+  `<cluster>-b<id>` ([ADR 0018](docs/adr/0018-explicit-node-assignment.md)):
+  `bootstrap-cluster` takes `nodes` with a role and an optional node id and rack per host,
+  `add-broker` takes `nodes`, and `add-controller` and `replace-broker` take `node`. Plans refuse
+  hosts that are not connected, already run Kafka, belong to another cluster or hold the data of
+  another node, and the steps check the hosts again. Docker clusters keep their parameters.
+- Removing a node from an agent cluster (decommission, removing a controller, replacing a
+  broker) releases its host for other clusters, and so does deleting the registration of a
+  cluster. A host that is down at that moment stops Kafka when its agent connects again, so that
+  it does not run the node next to its replacement.
+- Planning `add-broker` or `add-controller` again on a host that kept its role from a failed
+  attempt continues its node, as long as the broker is not registered or the controller is not a
+  voter.
+- Rolling restarts, upgrades and quorum migrations of agent clusters record the bootstrap
+  servers again at the end, so that changed advertised hosts are used; clusters with adopted
+  nodes keep theirs.
+- A controller quorum grows to at most five voters.
 
 ### Fixed
 
 - Kafka starts again after a host reboot: the agent starts `brokerium-kafka.service` when Kafka
   was running before, while a node stopped from Brokerium stays stopped.
+- Decommissioning a broker and removing a controller of an agent cluster stop Kafka on the host.
+  Before, the decommission waited for the broker to stop and failed.
 
 ### Upgrading
 
 - A server that runs on the Docker host and creates Docker clusters, in development or tests,
   needs `BROKERIUM_DOCKER_PROVIDER=on`; `make dev` sets it.
+- Existing agent clusters keep their addresses: nodes that run Kafka get their name as advertised
+  host, the other nodes the host name their agent reported. Check the advertised hosts on the
+  **Nodes** page before you add nodes.
+- Scripts that plan `bootstrap-cluster`, `add-broker`, `add-controller` or `replace-broker` on
+  agent clusters pass the hosts with `nodes` or `node`.
+- To enroll a host again, for example to switch the agent transport or after its certificate
+  expired, create the join token for its node (`nodeId`) or with its node name; a token without
+  either enrolls the host as a new node.
 
 ## [0.3.0] - 2026-10-20
 

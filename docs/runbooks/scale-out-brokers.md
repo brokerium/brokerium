@@ -64,3 +64,5 @@ preferred leader election or let the planner reorder replicas.
 
 - Show the rack constraint explicitly ("rack-c has one broker; it must host every partition").
 - Balance leaders separately from replicas.
+- On agent clusters the operator chooses the hosts of the new brokers; a broker gets the rack of
+  its host unless the operation sets one.

@@ -3,10 +3,12 @@
 package nodes
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 // Step kinds of node lifecycle operations.
 const (
 	KindSetSettings   = "node-set-settings"
+	KindCheckHosts    = "node-check-hosts"
 	KindProvision     = "node-provision"
 	KindWaitAgent     = "node-wait-agent"
 	KindInstall       = "node-install"
@@ -41,9 +44,13 @@ const (
 	KindRebalance     = "node-rebalance"
 )
 
-// NodeArgs are the arguments of node steps.
+// NodeArgs are the arguments of node steps. Steps address agent nodes by Node, the agent node
+// id, and Docker nodes by Name, their container name.
 type NodeArgs struct {
-	Name               string    `json:"name,omitempty"`
+	Name string `json:"name,omitempty"`
+	Node string `json:"node,omitempty"`
+	// Host is the advertised host of an agent node at planning time.
+	Host               string    `json:"host,omitempty"`
 	Role               string    `json:"role,omitempty"`
 	NodeID             int32     `json:"nodeId,omitempty"`
 	Rack               string    `json:"rack,omitempty"`
@@ -58,9 +65,16 @@ type NodeArgs struct {
 	BootstrapServers   []string  `json:"bootstrapServers,omitempty"`
 }
 
+// HostsArgs are the arguments of the step that checks the chosen hosts of an agent cluster.
+type HostsArgs struct {
+	KafkaClusterID string     `json:"kafkaClusterId"`
+	Hosts          []NodeArgs `json:"hosts"`
+}
+
 func (m *Manager) StepKinds() map[string]ops.StepFunc {
 	return map[string]ops.StepFunc{
 		KindSetSettings:   m.stepSetSettings,
+		KindCheckHosts:    m.stepCheckHosts,
 		KindProvision:     m.stepProvision,
 		KindWaitAgent:     m.stepWaitAgent,
 		KindInstall:       m.stepInstall,
@@ -128,22 +142,54 @@ func poll(ctx context.Context, x *ops.Exec, timeout time.Duration, every time.Du
 	}
 }
 
-func (m *Manager) nodeByName(ctx context.Context, name string) (*store.Node, error) {
-	n, err := m.Store.GetNodeByName(ctx, name)
+// node returns the agent node of step arguments. Operations planned before agent nodes were
+// chosen by id address them by name, like Docker nodes.
+func (m *Manager) node(ctx context.Context, a NodeArgs) (*store.Node, error) {
+	var n *store.Node
+	var err error
+	if a.Node != "" {
+		n, err = m.Store.GetNode(ctx, a.Node)
+	} else {
+		n, err = m.Store.GetNodeByName(ctx, a.Name)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("node %s: %w", name, err)
+		return nil, fmt.Errorf("node %s: %w", a.Name, err)
 	}
 	return n, nil
 }
 
-func (m *Manager) send(ctx context.Context, name string, cmd *agentv1.Command, timeout time.Duration) (*agentv1.CommandResult, error) {
-	n, err := m.nodeByName(ctx, name)
+func (m *Manager) send(ctx context.Context, a NodeArgs, cmd *agentv1.Command, timeout time.Duration) (*agentv1.CommandResult, error) {
+	n, err := m.node(ctx, a)
 	if err != nil {
 		return nil, err
 	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return m.Gateway.Send(cctx, n.ID, cmd)
+}
+
+// checkHost checks again, when a step runs, that the chosen host of a can run its Kafka node.
+// Without needConnected an agent that is not connected passes; the next step waits for it.
+func (m *Manager) checkHost(ctx context.Context, clusterID string, a NodeArgs, kafkaClusterID string, needConnected bool) (*store.Node, error) {
+	n, err := m.Store.GetNode(ctx, a.Node)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, fmt.Errorf("host %s no longer exists", a.Name)
+	} else if err != nil {
+		return nil, err
+	}
+	if err := claimable(n, clusterID, a.Role, a.NodeID); err != nil {
+		return nil, err
+	}
+	if needConnected && !m.Gateway.Connected(n.ID) {
+		return nil, fmt.Errorf("host %s is not connected", n.Name)
+	}
+	if a.Host != "" && n.AdvertisedHost != a.Host {
+		return nil, fmt.Errorf("the advertised host of %s changed from %s to %s after planning; plan again", n.Name, a.Host, n.AdvertisedHost)
+	}
+	if err := checkStorage(n, kafkaClusterID, a.NodeID); err != nil {
+		return nil, err
+	}
+	return n, nil
 }
 
 func (m *Manager) stepSetSettings(ctx context.Context, x *ops.Exec, raw json.RawMessage) (any, error) {
@@ -173,16 +219,36 @@ func (m *Manager) stepSetSettings(ctx context.Context, x *ops.Exec, raw json.Raw
 	return map[string]any{"updated": true}, nil
 }
 
+func (m *Manager) stepCheckHosts(ctx context.Context, x *ops.Exec, raw json.RawMessage) (any, error) {
+	var a HostsArgs
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return nil, err
+	}
+	for _, h := range a.Hosts {
+		if _, err := m.checkHost(ctx, x.Cluster.ID, h, a.KafkaClusterID, true); err != nil {
+			return nil, err
+		}
+	}
+	return map[string]any{"hosts": len(a.Hosts)}, nil
+}
+
 func (m *Manager) stepProvision(ctx context.Context, x *ops.Exec, raw json.RawMessage) (any, error) {
 	a, err := args(raw)
 	if err != nil {
 		return nil, err
 	}
 	if x.Cluster.Provider != store.ProviderDocker {
-		if _, err := m.nodeByName(ctx, a.Name); err != nil {
-			return nil, fmt.Errorf("install brokerium-agent on the host first (Nodes page, join token for %s): %w", a.Name, err)
+		if a.Node == "" {
+			if _, err := m.node(ctx, a); err != nil {
+				return nil, fmt.Errorf("install brokerium-agent on the host first (Nodes page, join token for %s): %w", a.Name, err)
+			}
+			return map[string]any{"node": a.Name, "provisioned": "existing agent"}, nil
 		}
-		return map[string]any{"node": a.Name, "provisioned": "existing agent"}, nil
+		n, err := m.checkHost(ctx, x.Cluster.ID, a, settingsOf(x.Cluster).KafkaClusterID, false)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"node": n.ID, "name": n.Name, "advertisedHost": n.AdvertisedHost}, nil
 	}
 	if m.Docker == nil {
 		return nil, errors.New("docker provider is not available on this server")
@@ -196,7 +262,8 @@ func (m *Manager) stepProvision(ctx context.Context, x *ops.Exec, raw json.RawMe
 		return map[string]any{"container": info.ID, "reused": true}, nil
 	}
 	s := settingsOf(x.Cluster)
-	token, _, err := m.Gateway.NewJoinToken(ctx, a.Name, &x.Cluster.ID, 2*time.Hour, "brokerium")
+	token, _, err := m.Gateway.NewJoinToken(ctx, store.JoinToken{NodeName: a.Name, ClusterID: &x.Cluster.ID, CreatedBy: "brokerium"},
+		2*time.Hour)
 	if err != nil {
 		return nil, err
 	}
@@ -224,26 +291,40 @@ func (m *Manager) stepProvision(ctx context.Context, x *ops.Exec, raw json.RawMe
 	return map[string]any{"container": id, "image": image}, nil
 }
 
+// stepWaitAgent waits until the agent of the node is connected and gives the node its Kafka
+// role and id in the cluster.
 func (m *Manager) stepWaitAgent(ctx context.Context, x *ops.Exec, raw json.RawMessage) (any, error) {
 	a, err := args(raw)
 	if err != nil {
 		return nil, err
 	}
-	return poll(ctx, x, timeoutOf(a, 3*time.Minute), 2*time.Second, "agent "+a.Name+" to connect",
+	if a.Node != "" {
+		if _, err := m.node(ctx, a); err != nil {
+			return nil, err
+		}
+	}
+	var n *store.Node
+	if _, err := poll(ctx, x, timeoutOf(a, 3*time.Minute), 2*time.Second, "agent "+a.Name+" to connect",
 		func(ctx context.Context) (bool, any, error) {
-			n, err := m.Store.GetNodeByName(ctx, a.Name)
+			found, err := m.node(ctx, a)
 			if err != nil {
 				return false, nil, nil
 			}
-			if !m.Gateway.Connected(n.ID) {
+			if !m.Gateway.Connected(found.ID) {
 				return false, map[string]any{"enrolled": true}, nil
 			}
-			id := a.NodeID
-			if err := m.Store.AssignNode(ctx, n.ID, &x.Cluster.ID, a.Role, &id); err != nil {
-				return false, nil, err
-			}
-			return true, map[string]any{"node": n.ID, "connected": true}, nil
-		})
+			n = found
+			return true, nil, nil
+		}); err != nil {
+		return nil, err
+	}
+	if err := m.Store.ClaimNode(ctx, n.ID, x.Cluster.ID, a.Role, a.NodeID); errors.Is(err, store.ErrConflict) {
+		return nil, fmt.Errorf("host %s cannot become %s %d: it has another Kafka role or cluster, or another node of the cluster has id %d",
+			n.Name, a.Role, a.NodeID, a.NodeID)
+	} else if err != nil {
+		return nil, err
+	}
+	return map[string]any{"node": n.ID, "connected": true}, nil
 }
 
 func (m *Manager) stepInstall(ctx context.Context, x *ops.Exec, raw json.RawMessage) (any, error) {
@@ -255,7 +336,7 @@ func (m *Manager) stepInstall(ctx context.Context, x *ops.Exec, raw json.RawMess
 	if version == "" {
 		version = settingsOf(x.Cluster).KafkaVersion
 	}
-	res, err := m.send(ctx, a.Name, m.installCommand(version), 30*time.Minute)
+	res, err := m.send(ctx, a, m.installCommand(version), 30*time.Minute)
 	if err != nil {
 		return nil, err
 	}
@@ -280,21 +361,29 @@ func (m *Manager) quorumFor(ctx context.Context, x *ops.Exec, a NodeArgs) (strin
 	if err != nil {
 		return "", "", err
 	}
-	var names []string
+	docker := x.Cluster.Provider == store.ProviderDocker
+	var hosts, voters []string
 	for _, c := range mn.controllers {
-		names = append(names, c.Name)
+		h := hostOf(docker, c)
+		hosts = append(hosts, h)
+		voters = append(voters, fmt.Sprintf("%d@%s", *c.KafkaNodeID, net.JoinHostPort(h, "9093")))
 	}
-	if len(names) == 0 {
+	if len(hosts) == 0 {
 		return "", "", errors.New("the cluster has no managed controllers")
 	}
 	if settingsOf(x.Cluster).Quorum == "static" {
-		var voters []string
-		for _, c := range mn.controllers {
-			voters = append(voters, fmt.Sprintf("%d@%s:9093", *c.KafkaNodeID, c.Name))
-		}
 		return "static", strings.Join(voters, ","), nil
 	}
-	return "dynamic", quorumBootstrap(names), nil
+	return "dynamic", quorumBootstrap(hosts), nil
+}
+
+// advertised is the host the listeners of node n advertise: its container name on Docker, else
+// the advertised host the plan recorded or the one the node has now.
+func advertised(x *ops.Exec, a NodeArgs, n *store.Node) string {
+	if x.Cluster.Provider == store.ProviderDocker {
+		return a.Name
+	}
+	return cmp.Or(a.Host, hostOf(false, n))
 }
 
 func (m *Manager) stepConfigure(ctx context.Context, x *ops.Exec, raw json.RawMessage) (any, error) {
@@ -302,15 +391,23 @@ func (m *Manager) stepConfigure(ctx context.Context, x *ops.Exec, raw json.RawMe
 	if err != nil {
 		return nil, err
 	}
-	if n, err := m.Store.GetNodeByName(ctx, a.Name); err == nil && adopted(n) {
+	n, err := m.node(ctx, a)
+	if err != nil {
+		return nil, err
+	}
+	if adopted(n) {
 		return map[string]any{"skipped": "adopted node keeps its own server.properties"}, nil
+	}
+	host := advertised(x, a, n)
+	if err := agentcfg.ValidateHost(host); err != nil {
+		return nil, fmt.Errorf("advertised host of %s: %w", n.Name, err)
 	}
 	s := settingsOf(x.Cluster)
 	kind, quorum, err := m.quorumFor(ctx, x, a)
 	if err != nil {
 		return nil, err
 	}
-	props := renderProperties(s, x.Cluster.Provider == store.ProviderDocker, a.Role, a.Name, a.NodeID, a.Rack, kind, quorum)
+	props := renderProperties(s, x.Cluster.Provider == store.ProviderDocker, a.Role, host, a.NodeID, a.Rack, kind, quorum)
 	heap := s.BrokerHeap
 	if a.Role == RoleController {
 		heap = s.ControllerHeap
@@ -318,11 +415,11 @@ func (m *Manager) stepConfigure(ctx context.Context, x *ops.Exec, raw json.RawMe
 	if err := agentcfg.Validate(props, heap); err != nil {
 		return nil, fmt.Errorf("configuration of %s: %w", a.Name, err)
 	}
-	if _, err := m.send(ctx, a.Name, &agentv1.Command{Action: &agentv1.Command_WriteConfig{WriteConfig: &agentv1.WriteConfig{
+	if _, err := m.send(ctx, a, &agentv1.Command{Action: &agentv1.Command_WriteConfig{WriteConfig: &agentv1.WriteConfig{
 		Properties: props, HeapOpts: heap}}}, time.Minute); err != nil {
 		return nil, err
 	}
-	return map[string]any{"quorumKind": kind, "quorum": quorum}, nil
+	return map[string]any{"quorumKind": kind, "quorum": quorum, "advertisedHost": host}, nil
 }
 
 func (m *Manager) stepFormat(ctx context.Context, x *ops.Exec, raw json.RawMessage) (any, error) {
@@ -343,7 +440,7 @@ func (m *Manager) stepFormat(ctx context.Context, x *ops.Exec, raw json.RawMessa
 	if clusterID == "" {
 		return nil, errors.New("the cluster has no Kafka cluster id in its settings")
 	}
-	res, err := m.send(ctx, a.Name, &agentv1.Command{Action: &agentv1.Command_Format{Format: &agentv1.FormatStorage{
+	res, err := m.send(ctx, a, &agentv1.Command{Action: &agentv1.Command_Format{Format: &agentv1.FormatStorage{
 		ClusterId: clusterID, Mode: mode, InitialControllers: a.InitialControllers}}}, 3*time.Minute)
 	if err != nil {
 		return nil, err
@@ -356,10 +453,14 @@ func (m *Manager) stepStart(ctx context.Context, x *ops.Exec, raw json.RawMessag
 	if err != nil {
 		return nil, err
 	}
-	if _, err := m.send(ctx, a.Name, &agentv1.Command{Action: &agentv1.Command_Start{Start: &agentv1.StartKafka{Version: a.Version}}}, time.Minute); err != nil {
+	if _, err := m.send(ctx, a, &agentv1.Command{Action: &agentv1.Command_Start{Start: &agentv1.StartKafka{Version: a.Version}}}, time.Minute); err != nil {
 		return nil, err
 	}
 	return map[string]any{"started": a.Name}, nil
+}
+
+func stopKafka() *agentv1.Command {
+	return &agentv1.Command{Action: &agentv1.Command_Stop{Stop: &agentv1.StopKafka{TimeoutSeconds: 120}}}
 }
 
 func (m *Manager) stepStop(ctx context.Context, x *ops.Exec, raw json.RawMessage) (any, error) {
@@ -367,9 +468,9 @@ func (m *Manager) stepStop(ctx context.Context, x *ops.Exec, raw json.RawMessage
 	if err != nil {
 		return nil, err
 	}
-	n, err := m.Store.GetNodeByName(ctx, a.Name)
+	n, err := m.node(ctx, a)
 	if err == nil && m.Gateway.Connected(n.ID) {
-		if _, err := m.send(ctx, a.Name, &agentv1.Command{Action: &agentv1.Command_Stop{Stop: &agentv1.StopKafka{TimeoutSeconds: 120}}}, 3*time.Minute); err != nil {
+		if _, err := m.send(ctx, a, stopKafka(), 3*time.Minute); err != nil {
 			return nil, err
 		}
 		return map[string]any{"stopped": a.Name}, nil
@@ -388,22 +489,36 @@ func (m *Manager) stepRemoveNode(ctx context.Context, x *ops.Exec, raw json.RawM
 	if err != nil {
 		return nil, err
 	}
-	if x.Cluster.Provider == store.ProviderDocker && m.Docker != nil {
+	docker := x.Cluster.Provider == store.ProviderDocker
+	if docker && m.Docker != nil {
 		if err := m.Docker.Remove(ctx, a.Name, a.Name+"-data", a.Name+"-agent", a.Name+"-kafka"); err != nil {
 			return nil, err
 		}
 	}
-	if n, err := m.Store.GetNodeByName(ctx, a.Name); err == nil {
-		if x.Cluster.Provider == store.ProviderDocker {
+	detail := map[string]any{"removed": a.Name}
+	if n, err := m.node(ctx, a); err == nil {
+		switch {
+		case docker:
 			_ = m.Store.DeleteNode(ctx, n.ID)
-		} else {
-			_ = m.Store.AssignNode(ctx, n.ID, nil, "", nil)
+		case holds(n, x.Cluster.ID, a.NodeID):
+			// An agent host keeps running Kafka unless it is stopped; a host that is down is
+			// released now and stops Kafka when its agent connects again.
+			connected := m.Gateway.Connected(n.ID)
+			if connected {
+				if _, err := m.send(ctx, a, stopKafka(), 3*time.Minute); err != nil {
+					return nil, fmt.Errorf("stopping Kafka on %s: %w", n.Name, err)
+				}
+			}
+			if err := m.Store.ReleaseNode(ctx, n.ID, x.Cluster.ID, a.NodeID, !connected); err != nil {
+				return nil, err
+			}
+			detail["kafkaStopped"] = connected
 		}
 	}
 	if _, err := m.stepSyncBootstrap(ctx, x, nil); err != nil {
 		return nil, fmt.Errorf("updating bootstrap servers: %w", err)
 	}
-	return map[string]any{"removed": a.Name}, nil
+	return detail, nil
 }
 
 func brokerReady(v *cluster.View, id int32) (bool, any) {
@@ -465,7 +580,14 @@ func (m *Manager) stepAddVoter(ctx context.Context, x *ops.Exec, raw json.RawMes
 	if _, ok := q.Voter(a.NodeID); ok {
 		return map[string]any{"alreadyVoter": true}, nil
 	}
-	res, err := m.send(ctx, a.Name, &agentv1.Command{Action: &agentv1.Command_Status{Status: &agentv1.GetStatus{}}}, 30*time.Second)
+	if len(q.Voters) >= maxVoters {
+		return nil, fmt.Errorf("the quorum already has %d voters; Brokerium builds quorums of at most %d", len(q.Voters), maxVoters)
+	}
+	n, err := m.node(ctx, a)
+	if err != nil {
+		return nil, err
+	}
+	res, err := m.send(ctx, a, &agentv1.Command{Action: &agentv1.Command_Status{Status: &agentv1.GetStatus{}}}, 30*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -474,11 +596,12 @@ func (m *Manager) stepAddVoter(ctx context.Context, x *ops.Exec, raw json.RawMes
 		return nil, errors.New("the node reports no directory.id; is its storage formatted?")
 	}
 	clusterID := settingsOf(x.Cluster).KafkaClusterID
+	host := advertised(x, a, n)
 	if err := x.Client.AddRaftVoter(ctx, clusterID, a.NodeID, dir,
-		[]kafka.Endpoint{{Name: "CONTROLLER", Host: a.Name, Port: 9093}}); err != nil {
+		[]kafka.Endpoint{{Name: "CONTROLLER", Host: host, Port: 9093}}); err != nil {
 		return nil, err
 	}
-	return map[string]any{"nodeId": a.NodeID, "directoryId": dir}, nil
+	return map[string]any{"nodeId": a.NodeID, "directoryId": dir, "host": host}, nil
 }
 
 func (m *Manager) stepWaitQuorum(ctx context.Context, x *ops.Exec, raw json.RawMessage) (any, error) {
@@ -580,11 +703,14 @@ func (m *Manager) stepSyncBootstrap(ctx context.Context, x *ops.Exec, raw json.R
 	if err != nil {
 		return nil, err
 	}
+	if mn.hasAdopted() {
+		return map[string]any{"skipped": "adopted nodes keep the addresses of the cluster"}, nil
+	}
 	s := settingsOf(x.Cluster)
 	var servers []string
 	for _, b := range mn.brokers {
 		if b.KafkaNodeID != nil {
-			servers = append(servers, m.brokerAddress(s, docker, b.Name, *b.KafkaNodeID))
+			servers = append(servers, m.brokerAddress(s, docker, hostOf(docker, b), *b.KafkaNodeID))
 		}
 	}
 	if len(servers) == 0 {
@@ -593,7 +719,7 @@ func (m *Manager) stepSyncBootstrap(ctx context.Context, x *ops.Exec, raw json.R
 	s.ControllerBootstrapServers = nil
 	for _, c := range mn.controllers {
 		if c.KafkaNodeID != nil {
-			s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, m.controllerAddress(s, docker, c.Name, *c.KafkaNodeID))
+			s.ControllerBootstrapServers = append(s.ControllerBootstrapServers, m.controllerAddress(s, docker, hostOf(docker, c), *c.KafkaNodeID))
 		}
 	}
 	return m.stepSetSettings(ctx, x, mustJSON(NodeArgs{BootstrapServers: servers, Settings: &s}))

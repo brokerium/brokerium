@@ -3,6 +3,9 @@
 package api
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -88,6 +91,139 @@ func TestInstallScriptPrivileges(t *testing.T) {
 			t.Errorf("the agent unit sets %s", option)
 		}
 	}
+}
+
+func TestJoinTokenRequests(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"without a name", `{}`, ""},
+		{"without a name for a cluster", `{"clusterId": "c1", "ttlMinutes": 30}`, ""},
+		{"with a name", `{"nodeName": "Kafka_17.example.com"}`, ""},
+		{"for a node to enroll again", `{"nodeId": "n1"}`, ""},
+		{"for a node with an empty cluster", `{"nodeId": "n1", "clusterId": ""}`, ""},
+		{"an invalid name", `{"nodeName": "kafka 17"}`, "nodeName must be 1-63 letters"},
+		{"a name that is too long", `{"nodeName": "` + strings.Repeat("k", 64) + `"}`, "nodeName must be 1-63 letters"},
+		{"a node id and a name", `{"nodeId": "n1", "nodeName": "kafka-17"}`, "leave nodeName and clusterId empty"},
+		{"a node id and a cluster", `{"nodeId": "n1", "clusterId": "c1"}`, "leave nodeName and clusterId empty"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var req joinTokenRequest
+			if err := json.Unmarshal([]byte(tt.body), &req); err != nil {
+				t.Fatal(err)
+			}
+			err := req.validate()
+			if (tt.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tt.want)) {
+				t.Fatalf("validate() = %v, want %q", err, tt.want)
+			}
+			if tt.want != "" {
+				rec := serve(t, (&NodesAPI{}).handleJoinToken, http.MethodPost, "/api/v1/join-tokens", tt.body)
+				if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tt.want) {
+					t.Errorf("handler answered %d %s", rec.Code, rec.Body)
+				}
+			}
+		})
+	}
+}
+
+func TestNodeUpdates(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"a name", `{"name": "kafka-17"}`, ""},
+		{"an advertised host", `{"advertisedHost": "kafka-17.example.com"}`, ""},
+		{"an IPv6 address", `{"advertisedHost": "2001:db8::17"}`, ""},
+		{"the reported host name again", `{"advertisedHost": ""}`, ""},
+		{"a rack", `{"rack": "rack-a"}`, ""},
+		{"no rack", `{"rack": ""}`, ""},
+		{"everything", `{"name": "k", "advertisedHost": "192.0.2.17", "rack": "r1"}`, ""},
+		{"nothing", `{}`, "give name, advertisedHost or rack"},
+		{"an empty name", `{"name": ""}`, "name must be 1-63 letters"},
+		{"a name with a slash", `{"name": "kafka/17"}`, "name must be 1-63 letters"},
+		{"an advertised host with a port", `{"advertisedHost": "kafka-17:9092"}`, "advertisedHost: host"},
+		{"an advertised host with an underscore", `{"advertisedHost": "kafka_17"}`, "neither a DNS name nor an IP address"},
+		{"a rack with a space", `{"rack": "rack a"}`, "use at most 64 letters, digits"},
+		{"a rack that is too long", `{"rack": "` + strings.Repeat("r", 65) + `"}`, "at most 64"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var u nodeUpdate
+			if err := json.Unmarshal([]byte(tt.body), &u); err != nil {
+				t.Fatal(err)
+			}
+			err := u.validate()
+			if (tt.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tt.want)) {
+				t.Fatalf("validate() = %v, want %q", err, tt.want)
+			}
+			if tt.want != "" {
+				rec := serve(t, (&NodesAPI{}).handleUpdate, http.MethodPatch, "/api/v1/nodes/n1", tt.body)
+				if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tt.want) {
+					t.Errorf("handler answered %d %s", rec.Code, rec.Body)
+				}
+			}
+		})
+	}
+	if rec := serve(t, (&NodesAPI{}).handleUpdate, http.MethodPatch, "/api/v1/nodes/n1", `{"role": "broker"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("an unknown field: %d", rec.Code)
+	}
+}
+
+func TestNodeUpdateApply(t *testing.T) {
+	t.Parallel()
+	str := func(s string) *string { return &s }
+	tests := []struct {
+		name     string
+		hostname string
+		role     string
+		update   nodeUpdate
+		want     store.Node
+		err      string
+	}{
+		{"name and rack", "kafka-1", "", nodeUpdate{Name: str("broker-a"), Rack: str("r2")},
+			store.Node{Name: "broker-a", AdvertisedHost: "old.example.com", Rack: "r2"}, ""},
+		{"advertised host", "kafka-1", "broker", nodeUpdate{AdvertisedHost: str("kafka-1.example.com")},
+			store.Node{Name: "kafka-1", AdvertisedHost: "kafka-1.example.com", Rack: "r1"}, ""},
+		{"back to the reported host name", "kafka-1", "broker", nodeUpdate{AdvertisedHost: str("")},
+			store.Node{Name: "kafka-1", AdvertisedHost: "kafka-1", Rack: "r1"}, ""},
+		{"a reported host name that cannot be advertised", "kafka_1", "", nodeUpdate{AdvertisedHost: str("")},
+			store.Node{Name: "kafka-1", AdvertisedHost: "kafka_1", Rack: "r1"}, ""},
+		{"a node that runs Kafka and reported a host name that cannot be advertised", "kafka_1", "controller",
+			nodeUpdate{AdvertisedHost: str("")}, store.Node{}, "the node runs Kafka"},
+		{"no rack", "kafka-1", "", nodeUpdate{Rack: str("")}, store.Node{Name: "kafka-1", AdvertisedHost: "old.example.com"}, ""},
+	}
+	for _, tt := range tests {
+		n := &store.Node{Name: "kafka-1", Hostname: tt.hostname, Role: tt.role, AdvertisedHost: "old.example.com", Rack: "r1"}
+		err := tt.update.apply(n)
+		if (tt.err == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tt.err)) {
+			t.Errorf("%s: %v, want %q", tt.name, err, tt.err)
+			continue
+		}
+		if err != nil {
+			continue
+		}
+		if n.Name != tt.want.Name || n.AdvertisedHost != tt.want.AdvertisedHost || n.Rack != tt.want.Rack {
+			t.Errorf("%s: %q %q %q, want %q %q %q", tt.name, n.Name, n.AdvertisedHost, n.Rack, tt.want.Name, tt.want.AdvertisedHost, tt.want.Rack)
+		}
+	}
+}
+
+// serve calls a handler of a route with a JSON body.
+func serve(t *testing.T, h http.HandlerFunc, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc(method+" "+strings.Replace(path, "/n1", "/{id}", 1), h)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
+	return rec
 }
 
 func TestCertificateState(t *testing.T) {

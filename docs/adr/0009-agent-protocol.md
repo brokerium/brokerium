@@ -12,7 +12,9 @@ the agent can do on a Kafka host.
 
 - The agent always connects **out** to the server; hosts need no inbound ports.
 - Enrollment: the agent calls `Enroll` over TLS with a single-use join token and a CSR; the
-  server's internal CA signs a client certificate bound to the node id.
+  server's internal CA signs a client certificate bound to the node id. How enrolled nodes are
+  named and chosen for the nodes of a cluster, which earlier followed the host names
+  `<cluster>-c<id>` and `<cluster>-b<id>`, is decided in ADR 0018.
 - Operation: the agent opens a bidirectional `Connect` stream with mTLS. The server sends typed
   commands; the agent answers with results and sends periodic status reports.
 - The command set is closed: install a Kafka version (SHA-512 verified), write configuration,

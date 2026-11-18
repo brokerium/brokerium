@@ -27,17 +27,17 @@ case. Only one operation runs per cluster. Each step and its result are in the a
 | Move partitions | Your own target replica lists, with the same preview and execution. |
 | Elect preferred leaders | Moves leadership back to the first replica. |
 | Cordon broker | Excludes a broker from new replicas (KIP-1066, Kafka 4.3+). |
-| Drain / decommission broker | Cordons, moves every replica away, then (decommission) stops the node and unregisters the broker. |
+| Drain / decommission broker | Cordons, moves every replica away, then (decommission) stops the node, releases its agent host and unregisters the broker. |
 | Unregister broker | Removes a dead broker's registration. |
-| Add brokers | Provisions brokers on agents or Docker, waits for them, rebalances onto them. |
-| Replace broker | For a lost broker: the same id on an empty disk (followers re-replicate), or a new id with its replicas moved over and the old id unregistered. |
-| Add / remove controller | Grows or shrinks a dynamic quorum one voter at a time. |
+| Add brokers | Starts brokers on agent hosts you choose or in new Docker containers, waits for them, rebalances onto them. |
+| Replace broker | For a lost broker: the same id on an empty disk, on its host or another one (followers re-replicate), or a new id on another host with its replicas moved over and the old id unregistered. |
+| Add / remove controller | Grows or shrinks a dynamic quorum one voter at a time; a new controller runs on an agent host you choose. |
 | Migrate quorum | Moves a static quorum to a dynamic one (`kraft.version` 1, Kafka 4.1+). Irreversible. |
 | Rolling restart | Restarts nodes one at a time, controllers first and the quorum leader last. |
 | Rolling upgrade | Downloads the release on every node, then restarts them one at a time on it. Warns about known defects (KAFKA-20979 in 4.1.0 to 4.3.1) and checks Java 17+. |
 | Finalize upgrade | Raises `metadata.version` and other features. Irreversible. |
 | Scale node pool | Strimzi broker pools, see [clusters](clusters.md#strimzi). |
-| Create / delete cluster nodes | Docker lab clusters and agent hosts. |
+| Create / delete cluster nodes | Creates the nodes of a cluster on agent hosts you choose ([agent clusters](clusters.md#agent-clusters)) or in Docker; deletes Docker lab clusters. |
 
 The runbooks in [docs/runbooks](../runbooks/) show the same procedures with the Kafka CLI, and
 [test/e2e](../../test/e2e) runs every scenario against the lab.

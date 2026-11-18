@@ -68,15 +68,15 @@ func New(st *store.Store, ca *CA, box *secrets.Box, log *slog.Logger) *Gateway {
 	return &Gateway{Store: st, CA: ca, Box: box, Log: log, CertLifetime: DefaultCertLifetime, sessions: map[string]*session{}}
 }
 
-// NewJoinToken creates a single-use token for a node name.
-func (g *Gateway) NewJoinToken(ctx context.Context, nodeName string, clusterID *string, ttl time.Duration, by string) (string, time.Time, error) {
+// NewJoinToken creates a single-use token valid for ttl. t sets the node name, the cluster and
+// the node to enroll again, and who creates the token.
+func (g *Gateway) NewJoinToken(ctx context.Context, t store.JoinToken, ttl time.Duration) (string, time.Time, error) {
 	secret, hash := auth.NewToken()
-	expires := time.Now().Add(ttl)
-	if err := g.Store.CreateJoinToken(ctx, &store.JoinToken{TokenHash: hash, NodeName: nodeName, ClusterID: clusterID,
-		CreatedBy: by, ExpiresAt: expires}); err != nil {
+	t.TokenHash, t.ExpiresAt = hash, time.Now().Add(ttl)
+	if err := g.Store.CreateJoinToken(ctx, &t); err != nil {
 		return "", time.Time{}, err
 	}
-	return strings.Join([]string{TokenPrefix, secret, g.CA.Fingerprint()}, "."), expires, nil
+	return strings.Join([]string{TokenPrefix, secret, g.CA.Fingerprint()}, "."), t.ExpiresAt, nil
 }
 
 // Serve starts the gRPC server on addr until ctx ends.
@@ -125,7 +125,7 @@ func (g *Gateway) Enroll(ctx context.Context, req *agentv1.EnrollRequest) (*agen
 	if err != nil {
 		return nil, status.Error(codes.PermissionDenied, "join token is invalid, used or expired")
 	}
-	node, err := g.enrolledNode(ctx, tok)
+	node, err := enrolledNode(ctx, g.Store, tok, req.GetHostname())
 	if err != nil {
 		return nil, err
 	}
@@ -140,18 +140,50 @@ func (g *Gateway) Enroll(ctx context.Context, req *agentv1.EnrollRequest) (*agen
 	return &agentv1.EnrollResponse{NodeId: node.ID, NodeName: node.Name, CertDer: cert.DER, CaCertDer: g.CA.DER}, nil
 }
 
-// enrolledNode returns the node of a join token, creating it at its first enrollment.
-func (g *Gateway) enrolledNode(ctx context.Context, tok *store.JoinToken) (*store.Node, error) {
-	node, err := g.Store.GetNodeByName(ctx, tok.NodeName)
-	if errors.Is(err, store.ErrNotFound) {
-		node = &store.Node{Name: tok.NodeName, ClusterID: tok.ClusterID, Status: json.RawMessage("{}")}
-		if err := g.Store.CreateNode(ctx, node); err != nil {
+// nodeRegistry is the part of the store that enrollment finds and creates nodes in.
+type nodeRegistry interface {
+	GetNode(ctx context.Context, id string) (*store.Node, error)
+	GetNodeByName(ctx context.Context, name string) (*store.Node, error)
+	CreateNode(ctx context.Context, n *store.Node) error
+}
+
+// enrolledNode returns the node a join token enrolls: the node of its node id, the node of its
+// name (created at the first enrollment), or a new node named after the reported host name,
+// numbered when that name is taken.
+func enrolledNode(ctx context.Context, nodes nodeRegistry, tok *store.JoinToken, hostname string) (*store.Node, error) {
+	switch {
+	case tok.NodeID != nil:
+		node, err := nodes.GetNode(ctx, *tok.NodeID)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, status.Error(codes.PermissionDenied, "the node of this join token no longer exists")
+		} else if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}
-	} else if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return node, nil
+	case tok.NodeName != "":
+		node, err := nodes.GetNodeByName(ctx, tok.NodeName)
+		if errors.Is(err, store.ErrNotFound) {
+			node = &store.Node{Name: tok.NodeName, ClusterID: tok.ClusterID, Status: json.RawMessage("{}")}
+			if err := nodes.CreateNode(ctx, node); err != nil {
+				return nil, status.Error(codes.Internal, err.Error())
+			}
+		} else if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		return node, nil
 	}
-	return node, nil
+	base := NodeNameFromHost(hostname)
+	for n := 1; n <= 1000; n++ {
+		node := &store.Node{Name: numberedName(base, n), ClusterID: tok.ClusterID, Status: json.RawMessage("{}")}
+		err := nodes.CreateNode(ctx, node)
+		if err == nil {
+			return node, nil
+		}
+		if !errors.Is(err, store.ErrConflict) {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+	}
+	return nil, status.Errorf(codes.ResourceExhausted, "no free node name for host %q", hostname)
 }
 
 // RenewCertificate signs a new certificate for the node of the calling certificate. The calling
@@ -238,6 +270,9 @@ func (g *Gateway) serve(node *store.Node, stream agentStream, first *agentv1.Age
 	g.sessions[node.ID] = s
 	g.mu.Unlock()
 	g.Log.Info("agent connected", "node", node.Name, "transport", node.Transport)
+	if node.KafkaStopPending {
+		go g.stopReleased(node)
+	}
 	defer func() {
 		s.close()
 		g.mu.Lock()
@@ -279,6 +314,23 @@ func (g *Gateway) serve(node *store.Node, stream agentStream, first *agentv1.Age
 		}
 	}()
 	return <-errCh
+}
+
+// stopReleased stops Kafka on a node that left its cluster while its agent was not connected, so
+// that the host does not run a Kafka node again that another host may have taken over.
+func (g *Gateway) stopReleased(n *store.Node) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	stop := &agentv1.Command{Action: &agentv1.Command_Stop{Stop: &agentv1.StopKafka{TimeoutSeconds: 120}}}
+	if _, err := g.Send(ctx, n.ID, stop); err != nil {
+		g.Log.Warn("stopping Kafka on a released node", "node", n.Name, "error", err)
+		return
+	}
+	if err := g.Store.KafkaStopped(ctx, n.ID); err != nil {
+		g.Log.Warn("recording the stop of Kafka", "node", n.Name, "error", err)
+		return
+	}
+	g.Log.Info("stopped Kafka on a released node", "node", n.Name)
 }
 
 func (g *Gateway) handle(ctx context.Context, s *session, in *agentv1.AgentMessage) {
@@ -345,8 +397,8 @@ func (g *Gateway) adopt(ctx context.Context, nodeID string, st *agentv1.NodeStat
 		return
 	}
 	id := meta.GetNodeId()
-	if err := g.Store.AssignNode(ctx, nodeID, n.ClusterID, role, &id); err != nil {
-		g.Log.Warn("adopting node", "node", n.Name, "error", err)
+	if err := g.Store.ClaimNode(ctx, nodeID, *n.ClusterID, role, id); err != nil {
+		g.Log.Warn("adopting node", "node", n.Name, "kafkaNodeId", id, "error", err)
 		return
 	}
 	g.Log.Info("adopted node", "node", n.Name, "kafkaNodeId", id, "role", role)

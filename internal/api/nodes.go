@@ -3,19 +3,21 @@
 package api
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
+	"github.com/brokerium/brokerium/internal/agentcfg"
 	"github.com/brokerium/brokerium/internal/agentgw"
 	"github.com/brokerium/brokerium/internal/provider/strimzi"
 	"github.com/brokerium/brokerium/internal/store"
 )
 
-var nodeNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,62}$`)
+const nodeNameRule = "1-63 letters, digits, '.', '_' and '-'"
 
 // NodePooler lists the node pools of Strimzi clusters.
 type NodePooler interface {
@@ -44,6 +46,7 @@ func (a *NodesAPI) Register(s *Server) {
 	s.Route("GET /api/v1/clusters/{id}/node-pools", store.RoleViewer, a.handleNodePools)
 	s.Route("GET /api/v1/nodes", store.RoleViewer, a.handleList)
 	s.Route("POST /api/v1/join-tokens", store.RoleOperator, a.handleJoinToken)
+	s.Route("PATCH /api/v1/nodes/{id}", store.RoleOperator, a.handleUpdate)
 	s.Route("DELETE /api/v1/nodes/{id}", store.RoleOperator, a.handleDelete)
 	s.mux.HandleFunc("GET /api/v1/agent/install.sh", a.handleInstallScript)
 }
@@ -113,16 +116,35 @@ func (a *NodesAPI) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]NodeView, 0, len(nodes))
 	for _, n := range nodes {
-		out = append(out, NodeView{Node: n, Connected: a.Gateway.Connected(n.ID),
-			CertificateState: certificateState(n, time.Now(), a.CertificateWarning)})
+		out = append(out, a.view(n))
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{"nodes": out})
 }
 
+func (a *NodesAPI) view(n *store.Node) NodeView {
+	return NodeView{Node: n, Connected: a.Gateway.Connected(n.ID), CertificateState: certificateState(n, time.Now(), a.CertificateWarning)}
+}
+
+// joinTokenRequest creates a join token for a new node, named nodeName or after the host name
+// the agent reports, or for enrolling the existing node nodeId again.
 type joinTokenRequest struct {
 	NodeName   string  `json:"nodeName"`
 	ClusterID  *string `json:"clusterId"`
 	TTLMinutes int     `json:"ttlMinutes"`
+	NodeID     string  `json:"nodeId"`
+}
+
+func (req *joinTokenRequest) validate() error {
+	if req.ClusterID != nil && *req.ClusterID == "" {
+		req.ClusterID = nil
+	}
+	switch {
+	case req.NodeID != "" && (req.NodeName != "" || req.ClusterID != nil):
+		return errors.New("nodeId enrolls an existing node again, which keeps its name and cluster; leave nodeName and clusterId empty")
+	case req.NodeName != "" && !agentgw.ValidNodeName(req.NodeName):
+		return errors.New("nodeName must be " + nodeNameRule)
+	}
+	return nil
 }
 
 func (a *NodesAPI) handleJoinToken(w http.ResponseWriter, r *http.Request) {
@@ -130,24 +152,118 @@ func (a *NodesAPI) handleJoinToken(w http.ResponseWriter, r *http.Request) {
 	if !Decode(w, r, &req) {
 		return
 	}
-	if !nodeNameRe.MatchString(req.NodeName) {
-		WriteError(w, http.StatusBadRequest, "bad_request", "nodeName must be lowercase letters, digits, dots and dashes")
+	if err := req.validate(); err != nil {
+		WriteError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
-	if req.ClusterID != nil && *req.ClusterID == "" {
-		req.ClusterID = nil
+	tok := store.JoinToken{NodeName: req.NodeName, ClusterID: req.ClusterID, CreatedBy: UserFrom(r.Context()).Username}
+	clusterID, target, detail := deref(req.ClusterID), req.NodeName, map[string]any{}
+	if req.NodeID != "" {
+		n, err := a.srv.Store.GetNode(r.Context(), req.NodeID)
+		if err != nil {
+			WriteStoreError(w, err)
+			return
+		}
+		tok.NodeID = &n.ID
+		clusterID, target, detail["nodeId"] = deref(n.ClusterID), n.Name, n.ID
 	}
 	ttl := time.Duration(req.TTLMinutes) * time.Minute
 	if ttl <= 0 || ttl > 7*24*time.Hour {
 		ttl = time.Hour
 	}
-	token, expires, err := a.Gateway.NewJoinToken(r.Context(), req.NodeName, req.ClusterID, ttl, UserFrom(r.Context()).Username)
-	a.srv.Audit(r, "node.join-token", deref(req.ClusterID), req.NodeName, map[string]any{"ttlMinutes": int(ttl.Minutes())}, err)
+	detail["ttlMinutes"] = int(ttl.Minutes())
+	token, expires, err := a.Gateway.NewJoinToken(r.Context(), tok, ttl)
+	a.srv.Audit(r, "node.join-token", clusterID, target, detail, err)
 	if err != nil {
 		WriteStoreError(w, err)
 		return
 	}
 	WriteJSON(w, http.StatusCreated, map[string]any{"token": token, "expiresAt": expires, "command": a.installCommand(token)})
+}
+
+// nodeUpdate changes the name, advertised host or rack of a node; absent fields stay.
+type nodeUpdate struct {
+	Name           *string `json:"name,omitempty"`
+	AdvertisedHost *string `json:"advertisedHost,omitempty"`
+	Rack           *string `json:"rack,omitempty"`
+}
+
+func (u nodeUpdate) validate() error {
+	switch {
+	case u.Name == nil && u.AdvertisedHost == nil && u.Rack == nil:
+		return errors.New("give name, advertisedHost or rack")
+	case u.Name != nil && !agentgw.ValidNodeName(*u.Name):
+		return errors.New("name must be " + nodeNameRule)
+	}
+	if u.AdvertisedHost != nil && *u.AdvertisedHost != "" {
+		if err := agentcfg.ValidateHost(*u.AdvertisedHost); err != nil {
+			return fmt.Errorf("advertisedHost: %w", err)
+		}
+	}
+	if u.Rack != nil {
+		return agentcfg.ValidateRack(*u.Rack)
+	}
+	return nil
+}
+
+// apply changes n; an empty advertised host goes back to the host name the agent reported. A
+// node that runs Kafka keeps an advertised host that its listeners can advertise.
+func (u nodeUpdate) apply(n *store.Node) error {
+	if u.Name != nil {
+		n.Name = *u.Name
+	}
+	if u.AdvertisedHost != nil {
+		n.AdvertisedHost = cmp.Or(*u.AdvertisedHost, n.Hostname)
+		if n.Role != "" {
+			if err := agentcfg.ValidateHost(n.AdvertisedHost); err != nil {
+				return fmt.Errorf("advertisedHost: the node runs Kafka and the host name its agent reported cannot be advertised: %w", err)
+			}
+		}
+	}
+	if u.Rack != nil {
+		n.Rack = *u.Rack
+	}
+	return nil
+}
+
+func (a *NodesAPI) handleUpdate(w http.ResponseWriter, r *http.Request) {
+	var req nodeUpdate
+	if !Decode(w, r, &req) {
+		return
+	}
+	if err := req.validate(); err != nil {
+		WriteError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	n, err := a.srv.Store.GetNode(r.Context(), r.PathValue("id"))
+	if err != nil {
+		WriteStoreError(w, err)
+		return
+	}
+	if n.ClusterID != nil && ((req.Name != nil && *req.Name != n.Name) || req.AdvertisedHost != nil) {
+		c, err := a.srv.Store.GetCluster(r.Context(), *n.ClusterID)
+		if err == nil && c.Provider == store.ProviderDocker {
+			WriteError(w, http.StatusBadRequest, "bad_request",
+				"nodes of Docker clusters are named after their containers, which their listeners advertise")
+			return
+		}
+	}
+	before := n.Name
+	if err := req.apply(n); err != nil {
+		WriteError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	err = a.srv.Store.UpdateNodeDetails(r.Context(), n)
+	a.srv.Audit(r, "node.update", deref(n.ClusterID), before, req, err)
+	switch {
+	case errors.Is(err, store.ErrConflict):
+		WriteError(w, http.StatusConflict, "conflict", fmt.Sprintf("a node named %s already exists", n.Name))
+		return
+	case err != nil:
+		WriteStoreError(w, err)
+		return
+	}
+	WriteJSON(w, http.StatusOK, a.view(n))
 }
 
 // installCommand is the command that installs the agent on a host. sudo drops the proxy
