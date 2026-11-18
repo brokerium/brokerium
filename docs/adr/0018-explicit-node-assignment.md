@@ -50,7 +50,8 @@ are independent of each other.
   the host must not run the node next to the host that took it over. Deleting the registration
   of a cluster releases its hosts as well and leaves Kafka running on them.
 - The role `combined`, broker and controller in one process, is allowed by the schema;
-  operations refuse it until it is supported.
+  operations refuse it until it is supported. [ADR 0021](0021-combined-nodes.md) adds that
+  support.
 
 ## Consequences
 

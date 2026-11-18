@@ -51,10 +51,11 @@ api -d '{"type": "bootstrap-cluster", "params": {"version": "4.3.1", "nodes": [
   https://brokerium.example.com/api/v1/clusters/<cluster id>/operations
 ```
 
-- Choose one to five controllers and at least one broker. Combined broker and controller nodes
-  are not supported yet.
-- Node ids default to 1, 2, ... for controllers and 101, 102, ... for brokers in the order of
-  the list; `nodeId` sets one explicitly (unique, at least 0).
+- Choose one to five voters and at least one broker: a host has the role `controller`,
+  `broker` or `combined` (broker and controller in one process, see
+  [combined nodes](#combined-nodes)), which counts as both.
+- Node ids default to 1, 2, ... for controllers and combined nodes and 101, 102, ... for
+  brokers in the order of the list; `nodeId` sets one explicitly (unique, at least 0).
 - `rack` defaults to the rack of the host; `quorum` is `dynamic` (default) or `static`.
 - The plan lists the hosts with their node ids, racks and advertised hosts. Confirm it with
   `POST /api/v1/operations/<operation id>/confirm`. Afterwards the cluster connects to the
@@ -81,6 +82,51 @@ plan it again with the same hosts: a host whose broker is not registered, or who
 not a voter, continues that node. After a failed creation, delete the cluster registration, stop
 Kafka on its hosts (`sudo systemctl stop brokerium-kafka.service`) and clear their data
 directories before you choose them again.
+
+## Combined nodes
+
+A combined node runs the broker and the controller in one Kafka process
+(`process.roles=broker,controller`), with the client listener on port 9092 and the controller
+listener on port 9093 of its advertised host. It is a voter of the quorum like a controller
+(initial controllers, quorum bootstrap servers, static voters) and hosts partitions like a
+broker. Apache Kafka recommends combined nodes only for small and test clusters: a busy broker
+slows the quorum down, both roles fail and restart together, and the controllers cannot be
+scaled apart from the brokers. Choose dedicated controllers for production clusters.
+
+- Agent clusters: give a host the role `combined` in `bootstrap-cluster`; it gets the next id
+  from the voter range (1, 2, ...) and the broker rack of the host.
+- Docker clusters: `{"controllers": 2, "combined": 1, "brokers": 2}`. Voters get the ids from 1,
+  controllers before combined nodes, and brokers the ids from 101. With `combined`, a count of
+  0 means none, so `{"combined": 3}` is a cluster of three combined nodes. Combined containers
+  are named `<cluster>-cb<id>` and publish their client listener on
+  `localhost:<port base + node id>` and their controller listener on
+  `localhost:<port base + 900 + node id>`.
+- The plan of the cluster warns about combined nodes. They run with the broker heap.
+- Rolling restarts, upgrades and quorum migrations restart combined nodes with the controllers,
+  the quorum leader last, then the brokers. Each restart of a combined node also waits until its
+  broker is back and every replica is in sync.
+- `add-broker` and `add-controller` add dedicated brokers and controllers.
+
+Brokerium refuses `replace-broker`, `drain-broker` (with or without `decommission`) and
+`remove-controller` on a combined node, with a message that names the node: each would stop,
+replace or empty one role while the other one keeps running, and a replacement would give a
+voter a new directory id. A cluster outgrows its combined nodes this way:
+
+1. Add dedicated controllers with `add-controller` (a quorum has at most five voters) and
+   dedicated brokers with `add-broker`.
+2. Cordon the combined node (`cordon-broker`) and move its replicas to the dedicated brokers with
+   `move-partitions`. The node then holds no data but still votes.
+3. To take it out of the cluster, use the Kafka tools: remove it from the quorum
+   (`kafka-metadata-quorum.sh --bootstrap-controller <controller>:9093 remove-controller
+   --controller-id <id> --controller-directory-id <directory id>`, see the
+   [controller quorum runbook](../runbooks/controller-quorum.md)), stop its agent and Kafka on the
+   host (`sudo systemctl stop brokerium-agent.service brokerium-kafka.service`), delete the node
+   on the Nodes page and unregister its broker with `unregister-broker`. Clear the data directory
+   of the host before it runs another node. Docker clusters keep their combined containers until
+   their nodes are deleted.
+
+Adopted nodes ([adopting running nodes](install.md#adopting-running-nodes)) with
+`process.roles=broker,controller` become combined nodes.
 
 ## Amazon MSK
 

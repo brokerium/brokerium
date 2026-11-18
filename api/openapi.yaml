@@ -1925,6 +1925,7 @@ components:
         drain-broker:
           type: object
           required: [brokerId]
+          description: Refused for combined nodes of agent and Docker clusters.
           properties:
             brokerId: { type: integer }
             decommission: { type: boolean }
@@ -1937,6 +1938,7 @@ components:
         remove-controller:
           type: object
           required: [nodeId]
+          description: Refused for combined nodes of agent and Docker clusters.
           properties:
             nodeId: { type: integer }
         finalize-upgrade:
@@ -1966,28 +1968,42 @@ components:
           type: object
           description: >-
             Agent clusters take `nodes`, the chosen hosts; Docker clusters take `controllers`,
-            `brokers`, `racks` and `portBase`. A host can be chosen when its agent is connected, it
-            has no Kafka role, it belongs to no cluster or this one, and its storage is empty or
-            holds the same node; plans name the host they refuse. Node ids default to 1, 2, ... for
-            controllers and 101, 102, ... for brokers in the given order. The cluster connects to
-            the advertised hosts of its brokers afterwards.
+            `combined`, `brokers`, `racks` and `portBase`. A host can be chosen when its agent is
+            connected, it has no Kafka role, it belongs to no cluster or this one, and its storage
+            is empty or holds the same node; plans name the host they refuse. Node ids default to
+            1, 2, ... for controllers and combined nodes (in Docker clusters controllers first)
+            and 101, 102, ... for brokers in the given order. Combined nodes run broker and
+            controller in one process: they are voters and brokers, and the plan warns about them.
+            The cluster connects to the advertised hosts of its brokers afterwards.
           properties:
             nodes:
               type: array
-              description: "Agent clusters: one to five controllers and at least one broker."
+              description: >-
+                Agent clusters: one to five voters (controller or combined) and at least one
+                broker (broker or combined).
               items:
                 type: object
                 required: [node, role]
                 properties:
                   node: { type: string, description: Id of the agent node. }
-                  role:
-                    type: string
-                    enum: [controller, broker]
-                    description: "`combined` is refused until it is supported."
+                  role: { type: string, enum: [controller, broker, combined] }
                   nodeId: { type: integer, minimum: 0, description: Unique within the cluster. }
-                  rack: { type: string, description: "Brokers; defaults to the rack of the node." }
-            controllers: { type: integer, minimum: 1, maximum: 5, description: "Docker clusters." }
-            brokers: { type: integer, minimum: 1, description: "Docker clusters." }
+                  rack: { type: string, description: "Brokers and combined nodes; defaults to the rack of the node." }
+            controllers:
+              type: integer
+              minimum: 0
+              maximum: 5
+              description: "Docker clusters; 3 when 0 and `combined` is 0. At most 5 together with `combined`."
+            combined:
+              type: integer
+              minimum: 0
+              maximum: 5
+              description: "Docker clusters: combined nodes, named `<cluster>-cb<id>`."
+            brokers:
+              type: integer
+              minimum: 0
+              maximum: 9
+              description: "Docker clusters; 3 when 0 and `combined` is 0."
             version: { type: string }
             racks: { type: array, items: { type: string }, description: "Docker clusters." }
             quorum: { type: string, enum: [dynamic, static] }
@@ -2017,7 +2033,7 @@ components:
           description: >-
             For `same-id` on an agent cluster, `node` defaults to the host of the broker (the same
             host with an empty disk); another free host takes over the id. `new-id` on an agent
-            cluster requires `node`. Docker clusters take no `node`.
+            cluster requires `node`. Docker clusters take no `node`. Refused for combined nodes.
           properties:
             brokerId: { type: integer }
             mode: { type: string, enum: [new-id, same-id] }
@@ -2036,6 +2052,9 @@ components:
           type: object
         rolling-restart:
           type: object
+          description: >-
+            Controllers and combined nodes first with the quorum leader last, then brokers; a
+            combined node also waits until its replicas are in sync.
           properties:
             nodeIds: { type: array, items: { type: integer } }
         rolling-upgrade:
