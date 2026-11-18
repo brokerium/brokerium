@@ -92,6 +92,7 @@ Environment=KAFKA_HEAP_OPTS=%s
 Environment=LOG_DIR=%s
 ExecStart=%s %s
 KillSignal=SIGTERM
+SuccessExitStatus=143
 TimeoutStopSec=120
 Restart=on-failure
 LimitNOFILE=1000000
