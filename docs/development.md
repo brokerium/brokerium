@@ -111,11 +111,14 @@ The Strimzi lab uses its own kubeconfig in `.data/` and never touches `~/.kube/c
 
 The Enterprise scenarios have the build tags `e2e` and `enterprise`. They sign license keys with
 the test key, so they need a server built with `-tags enterprise,licensetest` and the lab cluster
-beta registered as `beta`:
+beta registered as `beta`. `TestEnterpriseMonitoring` serves a fake Prometheus on the loopback
+interface, so the server must run on the same host; with `BROKERIUM_E2E_METRICS_TOKEN` set to the
+`BROKERIUM_METRICS_TOKEN` of the server it also scrapes `GET /metrics`:
 
 ```bash
 go build -tags enterprise,licensetest -o bin/brokerium-server-enterprise ./cmd/brokerium-server
-go test -tags e2e,enterprise -count=1 -run TestEnterprise ./test/e2e
+BROKERIUM_METRICS_TOKEN=e2e-metrics-token ./bin/brokerium-server-enterprise
+BROKERIUM_E2E_METRICS_TOKEN=e2e-metrics-token go test -tags e2e,enterprise -count=1 -run TestEnterprise ./test/e2e
 ```
 
 In CI, the `e2e` workflow runs on pull requests, nightly and on demand, in three parallel jobs:
@@ -131,7 +134,7 @@ Pull requests skip the jobs their changes do not need, for example changes of th
 the dashboard or the Helm chart, and the job `e2e`, the required check, passes when every other
 job passed or was skipped. Each Community scenario belongs to one job (`API_SCENARIOS`,
 `PROXY_SCENARIOS` and `DOCKER_SCENARIOS` in the workflow), and the `api` job fails for a scenario
-that is in none of them. The `e2e-strimzi` workflow runs `TestStrimzi` on a kind cluster nightly,
+that is in none of them; the `enterprise` job does the same for `ENTERPRISE_SCENARIOS`. The `e2e-strimzi` workflow runs `TestStrimzi` on a kind cluster nightly,
 on demand and on pull requests that change the Strimzi support.
 
 ## Lab
@@ -169,7 +172,8 @@ A tag `vX.Y.Z` publishes a release:
   `bvaliev/brokerium-agent:X.Y.Z-lab`.
 
 The tag sets the chart version and `appVersion`. The `helm` workflow checks every change to the
-chart: lint, schema validation of each networking mode and an install on kind.
+chart: lint, schema validation of each networking mode and of the monitoring values (with the
+ServiceMonitor CRD of the Prometheus Operator) and an install on kind.
 
 Between releases the `CI` workflow publishes the images of `main` as `edge` and the lab node image
 as `bvaliev/brokerium-agent:lab` every night and when it is run by hand on `main`. The install of

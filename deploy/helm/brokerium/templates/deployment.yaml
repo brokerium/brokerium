@@ -1,6 +1,9 @@
 {{/* SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0 */}}
+{{- include "brokerium.checkMonitoring" . }}
 {{- $name := include "brokerium.fullname" . }}
 {{- $secret := include "brokerium.secretName" . }}
+{{- $prometheus := .Values.monitoring.prometheus }}
+{{- $prometheusFiles := and $prometheus.url (or $prometheus.passwordSecret.name $prometheus.tokenSecret.name $prometheus.caSecret.name) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -92,6 +95,32 @@ spec:
             - name: BROKERIUM_LICENSE
               valueFrom: { secretKeyRef: { name: {{ . }}, key: {{ $.Values.license.secretKey }} } }
             {{- end }}
+            {{- with $prometheus }}
+            {{- if .url }}
+            - name: BROKERIUM_PROMETHEUS_URL
+              value: {{ .url | quote }}
+            {{- with .username }}
+            - name: BROKERIUM_PROMETHEUS_USERNAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .passwordSecret.name }}
+            - name: BROKERIUM_PROMETHEUS_PASSWORD_FILE
+              value: /etc/brokerium/prometheus/password
+            {{- end }}
+            {{- if .tokenSecret.name }}
+            - name: BROKERIUM_PROMETHEUS_TOKEN_FILE
+              value: /etc/brokerium/prometheus/token
+            {{- end }}
+            {{- if .caSecret.name }}
+            - name: BROKERIUM_PROMETHEUS_CA_FILE
+              value: /etc/brokerium/prometheus/ca.crt
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.metrics.enabled }}
+            - name: BROKERIUM_METRICS_TOKEN_FILE
+              value: /etc/brokerium/metrics/token
+            {{- end }}
           readinessProbe:
             httpGet: { path: /readyz, port: http }
             periodSeconds: 5
@@ -107,9 +136,41 @@ spec:
           volumeMounts:
             - { name: data, mountPath: /var/lib/brokerium }
             - { name: tmp, mountPath: /tmp }
+            {{- if $prometheusFiles }}
+            - { name: prometheus, mountPath: /etc/brokerium/prometheus, readOnly: true }
+            {{- end }}
+            {{- if .Values.metrics.enabled }}
+            - { name: metrics-token, mountPath: /etc/brokerium/metrics, readOnly: true }
+            {{- end }}
       volumes:
         - { name: data, emptyDir: {} }
         - { name: tmp, emptyDir: {} }
+        {{- if $prometheusFiles }}
+        - name: prometheus
+          projected:
+            sources:
+              {{- with $prometheus.passwordSecret }}
+              {{- if .name }}
+              - secret: { name: {{ .name }}, items: [{ key: {{ .key }}, path: password }] }
+              {{- end }}
+              {{- end }}
+              {{- with $prometheus.tokenSecret }}
+              {{- if .name }}
+              - secret: { name: {{ .name }}, items: [{ key: {{ .key }}, path: token }] }
+              {{- end }}
+              {{- end }}
+              {{- with $prometheus.caSecret }}
+              {{- if .name }}
+              - secret: { name: {{ .name }}, items: [{ key: {{ .key }}, path: ca.crt }] }
+              {{- end }}
+              {{- end }}
+        {{- end }}
+        {{- if .Values.metrics.enabled }}
+        - name: metrics-token
+          secret:
+            secretName: {{ include "brokerium.metricsTokenSecret" . }}
+            items: [{ key: {{ include "brokerium.metricsTokenKey" . }}, path: token }]
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}

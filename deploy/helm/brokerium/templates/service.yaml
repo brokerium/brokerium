@@ -3,7 +3,9 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "brokerium.fullname" . }}
-  labels: {{- include "brokerium.labels" . | nindent 4 }}
+  labels:
+    {{- include "brokerium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
   {{- with .Values.service.annotations }}
   annotations: {{- toYaml . | nindent 4 }}
   {{- end }}

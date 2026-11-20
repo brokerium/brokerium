@@ -152,6 +152,11 @@ Release assets contain `brokerium-server-<os>-<arch>` with the dashboard built i
 | `BROKERIUM_DEBUG` | `0` | `1` logs every API request. |
 | `BROKERIUM_LICENSE` | none | License key of Brokerium Enterprise; takes precedence over a key added on the **License** page. The Community edition ignores it. |
 | `BROKERIUM_LICENSE_FILE` | none | File that contains the license key, for example a mounted Secret; used when `BROKERIUM_LICENSE` is empty. |
+| `BROKERIUM_PROMETHEUS_URL` | none | Prometheus that the Monitoring tab queries (Enterprise); takes precedence over the data source of the **Monitoring** page ([details](monitoring.md#data-source)). |
+| `BROKERIUM_PROMETHEUS_USERNAME`, `BROKERIUM_PROMETHEUS_PASSWORD_FILE` | none | Basic authentication of that Prometheus: the username and a file with the password. |
+| `BROKERIUM_PROMETHEUS_TOKEN_FILE` | none | File with a bearer token for that Prometheus, instead of basic authentication. |
+| `BROKERIUM_PROMETHEUS_CA_FILE` | none | File with the PEM CA certificates of that Prometheus. |
+| `BROKERIUM_METRICS_TOKEN`, `BROKERIUM_METRICS_TOKEN_FILE` | none | Bearer token, or a file that holds it, of `GET /metrics` (Enterprise); without one the endpoint is off ([details](monitoring.md#the-metrics-endpoint)). |
 
 ## Agents on virtual machines and bare metal
 
