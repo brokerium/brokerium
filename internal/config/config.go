@@ -65,6 +65,28 @@ type Server struct {
 	// take precedence over the key stored through the dashboard.
 	License     string
 	LicenseFile string
+	// Prometheus is the data source of the monitoring feature of Brokerium Enterprise; set, it
+	// takes precedence over the one stored through the dashboard.
+	Prometheus Prometheus
+	// MetricsToken, or the content of MetricsTokenFile, is the bearer token of GET /metrics of
+	// Brokerium Enterprise; without one the endpoint is off.
+	MetricsToken     string
+	MetricsTokenFile string
+}
+
+// Prometheus is the Prometheus HTTP API that the monitoring feature queries. The files hold
+// the password of basic authentication, a bearer token and a CA certificate in PEM.
+type Prometheus struct {
+	URL          string
+	Username     string
+	PasswordFile string
+	TokenFile    string
+	CAFile       string
+}
+
+// Set reports whether any Prometheus setting is present.
+func (p Prometheus) Set() bool {
+	return p != Prometheus{}
 }
 
 // LoadServer reads BROKERIUM_* environment variables and applies defaults suitable for the lab.
@@ -96,6 +118,15 @@ func LoadServer() (Server, error) {
 		WorkerInterval:        envDuration("BROKERIUM_WORKER_INTERVAL", time.Second),
 		License:               strings.TrimSpace(os.Getenv("BROKERIUM_LICENSE")),
 		LicenseFile:           os.Getenv("BROKERIUM_LICENSE_FILE"),
+		Prometheus: Prometheus{
+			URL:          strings.TrimSpace(os.Getenv("BROKERIUM_PROMETHEUS_URL")),
+			Username:     os.Getenv("BROKERIUM_PROMETHEUS_USERNAME"),
+			PasswordFile: os.Getenv("BROKERIUM_PROMETHEUS_PASSWORD_FILE"),
+			TokenFile:    os.Getenv("BROKERIUM_PROMETHEUS_TOKEN_FILE"),
+			CAFile:       os.Getenv("BROKERIUM_PROMETHEUS_CA_FILE"),
+		},
+		MetricsToken:     strings.TrimSpace(os.Getenv("BROKERIUM_METRICS_TOKEN")),
+		MetricsTokenFile: os.Getenv("BROKERIUM_METRICS_TOKEN_FILE"),
 	}
 	if c.AgentCertLifetime < time.Minute {
 		return c, errors.New("BROKERIUM_AGENT_CERT_LIFETIME must be at least 1m")

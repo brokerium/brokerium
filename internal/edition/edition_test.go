@@ -30,8 +30,10 @@ func TestCatalog(t *testing.T) {
 		}
 		seen[f.ID] = true
 	}
-	if f, ok := Lookup(MessageTools); !ok || f.Title != "Message tools" {
-		t.Errorf("Lookup(%q) = %+v, %v", MessageTools, f, ok)
+	for id, title := range map[string]string{MessageTools: "Message tools", Monitoring: "Monitoring"} {
+		if f, ok := Lookup(id); !ok || f.Title != title {
+			t.Errorf("Lookup(%q) = %+v, %v", id, f, ok)
+		}
 	}
 	if _, ok := Lookup("nope"); ok {
 		t.Error("Lookup found an unknown feature")

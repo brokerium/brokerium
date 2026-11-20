@@ -29,12 +29,17 @@ type Feature struct {
 	Description string `json:"description"`
 }
 
-// MessageTools is the id of the message tools feature.
-const MessageTools = "message-tools"
+// Ids of the Enterprise features.
+const (
+	MessageTools = "message-tools"
+	Monitoring   = "monitoring"
+)
 
 // Catalog lists the features of Brokerium Enterprise.
 var Catalog = []Feature{
 	{ID: MessageTools, Title: "Message tools", Description: "Delete records and empty topics, search, export and copy messages."},
+	{ID: Monitoring, Title: "Monitoring", Description: "Charts of broker, topic and JVM metrics from your Prometheus " +
+		"on every cluster, and a Prometheus endpoint with the health, lag and traffic of all clusters."},
 }
 
 // Lookup returns the catalog entry of a feature.

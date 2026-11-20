@@ -14,11 +14,14 @@ import (
 
 	"github.com/brokerium/brokerium/ee/licensing"
 	"github.com/brokerium/brokerium/ee/messagetools"
+	"github.com/brokerium/brokerium/ee/monitoring"
 	"github.com/brokerium/brokerium/internal/api"
 	"github.com/brokerium/brokerium/internal/cluster"
 	"github.com/brokerium/brokerium/internal/config"
 	"github.com/brokerium/brokerium/internal/edition"
+	"github.com/brokerium/brokerium/internal/metrics"
 	"github.com/brokerium/brokerium/internal/ops"
+	"github.com/brokerium/brokerium/internal/secrets"
 	"github.com/brokerium/brokerium/internal/store"
 )
 
@@ -28,6 +31,8 @@ type Deps struct {
 	Store    *store.Store
 	Clusters *cluster.Service
 	Engine   *ops.Engine
+	Box      *secrets.Box
+	Sampler  *metrics.Sampler
 	Log      *slog.Logger
 }
 
@@ -48,13 +53,22 @@ func Setup(ctx context.Context, d Deps) ([]api.Extension, error) {
 	edition.SetManager(m)
 	go m.Run(ctx, evaluateEvery)
 	d.Engine.Register(messagetools.OperationTypes(), messagetools.StepKinds())
-	return []api.Extension{featureRoutes{feature: edition.MessageTools, routes: messagetools.Routes}}, nil
+	mon, err := monitoring.New(monitoring.Deps{Config: d.Config, Store: d.Store, Box: d.Box, Clusters: d.Clusters,
+		Sampler: d.Sampler, Log: d.Log})
+	if err != nil {
+		return nil, fmt.Errorf("monitoring: %w", err)
+	}
+	return []api.Extension{
+		featureRoutes{feature: edition.MessageTools, routes: messagetools.Routes},
+		featureRoutes{feature: edition.Monitoring, routes: mon.Routes},
+		mon.MetricsEndpoint(),
+	}, nil
 }
 
 // featureRoutes registers the routes of an Enterprise feature behind its license check.
 type featureRoutes struct {
 	feature string
-	routes  func(s *api.Server) []messagetools.Route
+	routes  func(s *api.Server) []api.Route
 }
 
 func (f featureRoutes) Register(s *api.Server) {

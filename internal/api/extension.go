@@ -14,6 +14,19 @@ import (
 
 // Helpers for extensions in other packages, such as the features of Brokerium Enterprise.
 
+// Route is an HTTP route of an extension and the minimum role of its users.
+type Route struct {
+	Pattern string
+	Role    string
+	Handler http.HandlerFunc
+}
+
+// Handle registers a handler that authenticates its requests itself instead of with a session,
+// such as an endpoint that Prometheus scrapes with a bearer token.
+func (s *Server) Handle(pattern string, h http.Handler) {
+	s.mux.Handle(pattern, h)
+}
+
 // Capable answers 403 when the cluster of the request lacks the capability; otherwise it returns
 // the Kafka client and the view of the cluster.
 func (s *Server) Capable(w http.ResponseWriter, r *http.Request, capability string) (*kafka.Client, *cluster.View, bool) {
