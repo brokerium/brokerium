@@ -165,11 +165,14 @@ voter a new directory id. A cluster outgrows its combined nodes this way:
 3. To take it out of the cluster, use the Kafka tools: remove it from the quorum
    (`kafka-metadata-quorum.sh --bootstrap-controller <controller>:9093 remove-controller
    --controller-id <id> --controller-directory-id <directory id>`, see the
-   [controller quorum runbook](../runbooks/controller-quorum.md)), stop its agent and Kafka on the
-   host (`sudo systemctl stop brokerium-agent.service brokerium-kafka.service`), delete the node
-   on the Nodes page and unregister its broker with `unregister-broker`. Clear the data directory
-   of the host before it runs another node. Docker clusters keep their combined containers until
-   their nodes are deleted.
+   [controller quorum runbook](../runbooks/controller-quorum.md)), stop Kafka on the host
+   (`sudo systemctl stop brokerium-kafka.service`) and unregister its broker with
+   `unregister-broker`. Then delete the node on the Nodes page. Brokerium deletes a combined node
+   only once its cluster no longer has its node id as a registered broker, a voter or an
+   observer; a stopped node stays an observer for a few minutes. Deleting the node stops its
+   agent: remove it with the [uninstall script](install.md#remove-an-agent), or install the host
+   again with a new join token and clear its data directory before it runs another node. Docker
+   clusters keep their combined containers until their nodes are deleted.
 
 Adopted nodes ([adopting running nodes](install.md#adopting-running-nodes)) with
 `process.roles=broker,controller` become combined nodes.

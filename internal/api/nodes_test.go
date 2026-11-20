@@ -3,12 +3,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"os/exec"
-	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -53,18 +53,107 @@ func TestInstallCommand(t *testing.T) {
 	}
 }
 
-func TestInstallScriptSyntax(t *testing.T) {
+func TestUninstallCommand(t *testing.T) {
 	t.Parallel()
-	sh, err := exec.LookPath("sh")
-	if err != nil {
-		t.Skip("no sh")
+	tests := []struct {
+		api  NodesAPI
+		want string
+	}{
+		{NodesAPI{PublicURL: "https://brokerium.example.com/"},
+			"curl -fsSL https://brokerium.example.com/api/v1/agent/uninstall.sh | sudo sh -s --"},
+		{NodesAPI{PublicURL: "https://b", Proxy: "http://proxy.corp:3128", NoProxy: "localhost"},
+			"HTTPS_PROXY='http://proxy.corp:3128' NO_PROXY='localhost' curl -fsSL https://b/api/v1/agent/uninstall.sh | sudo sh -s --"},
 	}
-	path := filepath.Join(t.TempDir(), "install.sh")
-	if err := os.WriteFile(path, []byte(installScript), 0o600); err != nil {
-		t.Fatal(err)
+	for _, tt := range tests {
+		if got := tt.api.uninstallCommand(); got != tt.want {
+			t.Errorf("uninstallCommand =\n%s\nwant\n%s", got, tt.want)
+		}
 	}
-	if out, err := exec.Command(sh, "-n", path).CombinedOutput(); err != nil {
-		t.Fatalf("sh -n: %v: %s", err, out)
+}
+
+// nodeStore keeps nodes like the store.
+type nodeStore map[string]*store.Node
+
+func (m nodeStore) GetNode(_ context.Context, id string) (*store.Node, error) {
+	if n, ok := m[id]; ok {
+		return n, nil
+	}
+	return nil, store.ErrNotFound
+}
+
+func (m nodeStore) DeleteNode(_ context.Context, id string) error {
+	if _, ok := m[id]; !ok {
+		return store.ErrNotFound
+	}
+	delete(m, id)
+	return nil
+}
+
+// endedSessions records the nodes whose sessions were ended.
+type endedSessions []string
+
+func (s *endedSessions) NodeDeleted(id string) { *s = append(*s, id) }
+
+func TestDeleteNode(t *testing.T) {
+	t.Parallel()
+	cluster := "c1"
+	kafkaID := func(id int32) *int32 { return &id }
+	inCluster := func(known bool, err error) memberCheck {
+		return func(context.Context, string, int32) (bool, error) { return known, err }
+	}
+	tests := []struct {
+		name      string
+		node      store.Node
+		inCluster memberCheck
+		// refused is part of the refusal; empty when the node is deleted.
+		refused string
+	}{
+		{"an unassigned node", store.Node{}, nil, ""},
+		{"a node reserved for a cluster", store.Node{ClusterID: &cluster}, nil, ""},
+		{"a broker", store.Node{ClusterID: &cluster, Role: "broker", KafkaNodeID: kafkaID(101)}, nil,
+			"runs broker 101 of a cluster; decommission it first with drain-broker"},
+		{"a controller whose agent is not connected", store.Node{ClusterID: &cluster, Role: "controller", KafkaNodeID: kafkaID(1)}, nil,
+			"decommission it first with remove-controller"},
+		{"a broker without a Kafka node id", store.Node{ClusterID: &cluster, Role: "broker"}, nil, "runs broker of a cluster"},
+		{"a combined node without a Kafka node id", store.Node{ClusterID: &cluster, Role: "combined"}, nil,
+			"its cluster cannot be asked about it"},
+		{"a combined node in its cluster", store.Node{ClusterID: &cluster, Role: "combined", KafkaNodeID: kafkaID(1)},
+			inCluster(true, nil), "Brokerium does not decommission combined nodes"},
+		{"a combined node whose cluster cannot be checked", store.Node{ClusterID: &cluster, Role: "combined", KafkaNodeID: kafkaID(1)},
+			inCluster(false, errors.New("connection refused")), "connection refused"},
+		{"a combined node that left its cluster", store.Node{ClusterID: &cluster, Role: "combined", KafkaNodeID: kafkaID(1)},
+			inCluster(false, nil), ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			n := tt.node
+			n.ID, n.Name = "n1", "kafka-1"
+			nodes, ended := nodeStore{"n1": &n, "n2": {ID: "n2", Name: "kafka-2"}}, &endedSessions{}
+			got, err := deleteNode(context.Background(), nodes, ended, tt.inCluster, "n1")
+			if got == nil || got.ID != "n1" {
+				t.Fatalf("deleteNode returned node %v", got)
+			}
+			var inUse *nodeInUseError
+			if tt.refused == "" {
+				if err != nil {
+					t.Fatalf("deleteNode = %v, want the node deleted", err)
+				}
+				if _, ok := nodes["n1"]; ok || !slices.Equal(*ended, []string{"n1"}) {
+					t.Errorf("record kept %v, sessions ended %v; want the record deleted and the session of n1 ended", ok, *ended)
+				}
+				return
+			}
+			if !errors.As(err, &inUse) || !strings.Contains(err.Error(), tt.refused) {
+				t.Fatalf("deleteNode = %v, want a refusal with %q", err, tt.refused)
+			}
+			if _, ok := nodes["n1"]; !ok || len(*ended) != 0 {
+				t.Errorf("a refused node: record kept %v, sessions ended %v", ok, *ended)
+			}
+		})
+	}
+	if n, err := deleteNode(context.Background(), nodeStore{}, &endedSessions{}, nil, "n1"); n != nil || !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("deleting an unknown node: %v %v, want ErrNotFound", n, err)
 	}
 }
 

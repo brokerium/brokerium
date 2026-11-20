@@ -92,7 +92,7 @@ the lab scenarios with the Kafka CLI, code skeleton, CI and the first container 
   change needs ([ADR 0020](adr/0020-ci-by-need.md)), with the Enterprise features in the
   end-to-end scenarios; Go 1.27.4.
 
-## Phase 12: v0.3.2 (next)
+## Phase 12: v0.3.2 (done, 2026-11-20)
 
 - Fixes: `log.dirs` from the data directory of the agent, merged cluster settings, the `USER`
   resource type in ACLs, one default Kafka version, a check of the running Kafka process after
@@ -102,7 +102,7 @@ the lab scenarios with the Kafka CLI, code skeleton, CI and the first container 
   ([ADR 0016](adr/0016-editions-and-license-keys.md)).
 - Node.js 26 LTS for the dashboard build.
 
-## Phase 13: v0.4.0
+## Phase 13: v0.4.0 (next)
 
 From 0.4.0 new features are part of Brokerium Enterprise; items marked (Community) are fixes and
 corrections of existing features.

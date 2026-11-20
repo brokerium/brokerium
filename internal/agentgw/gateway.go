@@ -37,16 +37,29 @@ const TokenPrefix = "brk1"
 // ErrNotConnected is returned when a command targets an offline agent.
 var ErrNotConnected = errors.New("agent is not connected")
 
+var (
+	// errNodeDeleted answers agents and join tokens of nodes that do not exist. Agents stop on it.
+	errNodeDeleted = status.Error(codes.NotFound, "the node was deleted in Brokerium")
+	errReplaced    = errors.New("session replaced by a newer connection")
+)
+
 type session struct {
-	nodeID  string
-	send    chan *agentv1.ServerMessage
-	done    chan struct{}
-	once    sync.Once
+	nodeID string
+	send   chan *agentv1.ServerMessage
+	done   chan struct{}
+	once   sync.Once
+	// reason is what the stream ends with once done is closed by the server.
+	reason  error
 	mu      sync.Mutex
 	waiters map[string]chan *agentv1.CommandResult
 }
 
-func (s *session) close() { s.once.Do(func() { close(s.done) }) }
+func (s *session) end(reason error) {
+	s.once.Do(func() {
+		s.reason = reason
+		close(s.done)
+	})
+}
 
 // Gateway serves the agent protocol and dispatches commands to connected agents.
 type Gateway struct {
@@ -61,12 +74,16 @@ type Gateway struct {
 
 	mu       sync.Mutex
 	sessions map[string]*session
-	seq      uint64
+	// deleted are the nodes deleted since the server started. Their agents may have
+	// authenticated just before the deletion; their sessions are refused.
+	deleted map[string]bool
+	seq     uint64
 }
 
 // New creates a gateway.
 func New(st *store.Store, ca *CA, box *secrets.Box, log *slog.Logger) *Gateway {
-	return &Gateway{Store: st, CA: ca, Box: box, Log: log, CertLifetime: DefaultCertLifetime, sessions: map[string]*session{}}
+	return &Gateway{Store: st, CA: ca, Box: box, Log: log, CertLifetime: DefaultCertLifetime, sessions: map[string]*session{},
+		deleted: map[string]bool{}}
 }
 
 // NewJoinToken creates a single-use token valid for ttl. t sets the node name, the cluster and
@@ -156,7 +173,7 @@ func enrolledNode(ctx context.Context, nodes nodeRegistry, tok *store.JoinToken,
 	case tok.NodeID != nil:
 		node, err := nodes.GetNode(ctx, *tok.NodeID)
 		if errors.Is(err, store.ErrNotFound) {
-			return nil, status.Error(codes.PermissionDenied, "the node of this join token no longer exists")
+			return nil, errNodeDeleted
 		} else if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}
@@ -219,8 +236,11 @@ func (g *Gateway) authenticate(ctx context.Context) (*store.Node, *x509.Certific
 	}
 	leaf := info.State.PeerCertificates[0]
 	node, err := g.Store.GetNode(ctx, leaf.Subject.CommonName)
-	if err != nil {
-		return nil, nil, status.Error(codes.PermissionDenied, "unknown node")
+	if errors.Is(err, store.ErrNotFound) {
+		g.Log.Warn("rejected agent session", "nodeId", leaf.Subject.CommonName, "error", "the node was deleted")
+		return nil, nil, errNodeDeleted
+	} else if err != nil {
+		return nil, nil, status.Error(codes.Unavailable, "looking up the node: "+err.Error())
 	}
 	if node.Transport == store.TransportInsecure {
 		return nil, nil, status.Error(codes.PermissionDenied, "the node was enrolled again with the insecure transport")
@@ -265,8 +285,12 @@ func (g *Gateway) serve(node *store.Node, stream agentStream, first *agentv1.Age
 	s := &session{nodeID: node.ID, send: make(chan *agentv1.ServerMessage, 16), done: make(chan struct{}),
 		waiters: map[string]chan *agentv1.CommandResult{}}
 	g.mu.Lock()
+	if g.deleted[node.ID] {
+		g.mu.Unlock()
+		return errNodeDeleted
+	}
 	if old, ok := g.sessions[node.ID]; ok {
-		old.close()
+		old.end(errReplaced)
 	}
 	g.sessions[node.ID] = s
 	g.mu.Unlock()
@@ -275,7 +299,7 @@ func (g *Gateway) serve(node *store.Node, stream agentStream, first *agentv1.Age
 		go g.stopReleased(node)
 	}
 	defer func() {
-		s.close()
+		s.end(nil)
 		g.mu.Lock()
 		if g.sessions[node.ID] == s {
 			delete(g.sessions, node.ID)
@@ -297,7 +321,7 @@ func (g *Gateway) serve(node *store.Node, stream agentStream, first *agentv1.Age
 					return
 				}
 			case <-s.done:
-				errCh <- errors.New("session replaced by a newer connection")
+				errCh <- s.reason
 				return
 			case <-stream.Context().Done():
 				return
@@ -440,6 +464,20 @@ func (g *Gateway) Connected(nodeID string) bool {
 	defer g.mu.Unlock()
 	_, ok := g.sessions[nodeID]
 	return ok
+}
+
+// NodeDeleted ends the session of a node whose record was deleted. Its stream ends with
+// NotFound, on which agents with mutual TLS stop; agents of the insecure transport connect
+// again and stop on the signed answer to their session hello.
+func (g *Gateway) NodeDeleted(nodeID string) {
+	g.mu.Lock()
+	g.deleted[nodeID] = true
+	s, ok := g.sessions[nodeID]
+	delete(g.sessions, nodeID)
+	g.mu.Unlock()
+	if ok {
+		s.end(errNodeDeleted)
+	}
 }
 
 // Send delivers a command and waits for its result.

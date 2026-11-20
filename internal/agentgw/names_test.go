@@ -100,8 +100,8 @@ func TestEnrolledNode(t *testing.T) {
 		{"a named token creates the node", store.JoinToken{NodeName: "broker-a", ClusterID: &cluster}, "kafka-1", "broker-a", &cluster, codes.OK},
 		{"a named token enrolls the node of that name again", store.JoinToken{NodeName: "kafka-1"}, "other", "kafka-1", nil, codes.OK},
 		{"a node id enrolls that node again", store.JoinToken{NodeID: &existing}, "reinstalled", "kafka-1", nil, codes.OK},
-		{"the node of the node id is gone", store.JoinToken{NodeID: func() *string { s := "gone"; return &s }()}, "kafka-1", "", nil,
-			codes.PermissionDenied},
+		{"the node of the node id was deleted", store.JoinToken{NodeID: func() *string { s := "gone"; return &s }()}, "kafka-1", "", nil,
+			codes.NotFound},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

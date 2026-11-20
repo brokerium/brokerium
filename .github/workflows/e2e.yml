@@ -27,7 +27,7 @@ env:
   BROKERIUM_AGENT_IMAGE: bvaliev/brokerium-agent:lab
   # Every Community scenario runs in one job; the api job fails for a scenario without a job.
   # TestStrimzi runs in e2e-strimzi.yml and TestAgentVMs against the VM lab (deploy/lab/vm).
-  API_SCENARIOS: TestMultiClusterOverview|TestDataPlane|TestSecureConnections|TestUsersRolesAudit|TestLicenseCommunity|TestControllersDirect|TestAgentCertificateRenewal
+  API_SCENARIOS: TestMultiClusterOverview|TestDataPlane|TestSecureConnections|TestUsersRolesAudit|TestLicenseCommunity|TestControllersDirect|TestAgentCertificateRenewal|TestNodeDeletion
   PROXY_SCENARIOS: TestInsecureAgentBehindProxy
   DOCKER_SCENARIOS: TestScaleOutAndBalance|TestNodeLifecycle|TestMigrateStaticQuorum|TestRollingUpgrade|TestCombinedNodes
   ZOOKEEPER_SCENARIOS: TestZooKeeperClusters
@@ -142,6 +142,8 @@ jobs:
           controllers=$(api "localhost:8080/api/v1/clusters/$id" | jq -r '.cluster.settings.controllerBootstrapServers | join(",")')
           echo "BROKERIUM_E2E_CONTROLLERS=$controllers" >> "$GITHUB_ENV"
       - name: Scenarios
+        env:
+          BROKERIUM_E2E_INSECURE_GATEWAY: localhost:8444
         run: go test -tags e2e -count=1 -timeout 20m -v -run "^($API_SCENARIOS)$" ./test/e2e
       # OpenResty terminates TLS with a self-signed certificate and passes gRPC in plaintext to the
       # insecure agent listener; two lab agents enroll through it with the insecure transport.
