@@ -7,12 +7,15 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 	"net"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/brokerium/brokerium/internal/agentcfg"
 	"github.com/brokerium/brokerium/internal/store"
 )
 
@@ -29,6 +32,18 @@ func runsController(role string) bool { return role == RoleController || role ==
 
 // runsBroker reports whether nodes of the role host partitions: brokers and combined nodes.
 func runsBroker(role string) bool { return role == RoleBroker || role == RoleCombined }
+
+// DefaultKafkaVersion is the Kafka release of new clusters when the plan names none.
+const DefaultKafkaVersion = "4.4.0"
+
+// unrecordedKafkaVersion is the Kafka version of clusters whose settings record none, for
+// example clusters with adopted nodes. It stays what Brokerium assumed for them before, so that
+// new nodes of such a cluster get the release its nodes run.
+const unrecordedKafkaVersion = "4.3.1"
+
+// defaultDataDir is the Kafka data directory of Docker nodes and of agents that do not report
+// theirs.
+const defaultDataDir = "/var/lib/kafka/data"
 
 // Settings of a cluster whose nodes Brokerium manages, stored in clusters.settings.
 type Settings struct {
@@ -51,7 +66,7 @@ func settingsOf(c *store.Cluster) Settings {
 	raw, _ := json.Marshal(c.Settings)
 	_ = json.Unmarshal(raw, &s)
 	if s.KafkaVersion == "" {
-		s.KafkaVersion = "4.3.1"
+		s.KafkaVersion = unrecordedKafkaVersion
 	}
 	if s.Quorum == "" {
 		s.Quorum = "dynamic"
@@ -79,6 +94,101 @@ func (s Settings) toMap() map[string]any {
 	var m map[string]any
 	_ = json.Unmarshal(raw, &m)
 	return m
+}
+
+// Port bases of Docker clusters: their nodes publish ports from the base up to base + 999.
+const (
+	minPortBase = 1024
+	maxPortBase = 65535 - 999
+)
+
+// ValidateSettings checks the keys of cluster settings that Brokerium reads and keeps the others
+// as they are. Saved settings hold portBase 0 for clusters without published ports and racks
+// null for none.
+func ValidateSettings(settings map[string]any) error {
+	for _, key := range []string{"brokerHeap", "controllerHeap"} {
+		v, ok := settings[key]
+		if !ok {
+			continue
+		}
+		heap, isString := v.(string)
+		if !isString {
+			return fmt.Errorf("settings.%s: must be a string such as \"-Xms1g -Xmx1g\"", key)
+		}
+		if err := agentcfg.ValidateHeap(heap); err != nil {
+			return fmt.Errorf("settings.%s: %w", key, err)
+		}
+	}
+	if v, ok := settings["kafkaVersion"]; ok {
+		if version, _ := v.(string); !versionRe.MatchString(version) {
+			return fmt.Errorf("settings.kafkaVersion: must be a Kafka release such as %s", DefaultKafkaVersion)
+		}
+	}
+	if v, ok := settings["quorum"]; ok && v != "static" && v != "dynamic" {
+		return errors.New("settings.quorum: must be static or dynamic")
+	}
+	rf, err := countSetting(settings, "replicationFactor")
+	if err != nil {
+		return err
+	}
+	minISR, err := countSetting(settings, "minIsr")
+	if err != nil {
+		return err
+	}
+	if rf == 0 {
+		rf = settingsOf(&store.Cluster{}).ReplicationFactor
+	}
+	if minISR > rf {
+		return fmt.Errorf("settings.minIsr: %d is more than the replication factor %d", minISR, rf)
+	}
+	if v, ok := settings["racks"]; ok && v != nil {
+		racks, isList := v.([]any)
+		if !isList {
+			return errors.New("settings.racks: must be a list of rack names")
+		}
+		for i, r := range racks {
+			rack, isString := r.(string)
+			if !isString || rack == "" {
+				return fmt.Errorf("settings.racks[%d]: must be a rack name", i)
+			}
+			if err := agentcfg.ValidateRack(rack); err != nil {
+				return fmt.Errorf("settings.racks[%d]: %w", i, err)
+			}
+		}
+	}
+	if v, ok := settings["portBase"]; ok {
+		if base, isInt := wholeNumber(v); !isInt || (base != 0 && (base < minPortBase || base > maxPortBase)) {
+			return fmt.Errorf("settings.portBase: must be 0 or from %d to %d", minPortBase, maxPortBase)
+		}
+	}
+	return nil
+}
+
+// countSetting reads a setting that counts replicas; it is 0 when the key is absent.
+func countSetting(settings map[string]any, key string) (int, error) {
+	v, ok := settings[key]
+	if !ok {
+		return 0, nil
+	}
+	n, isInt := wholeNumber(v)
+	if !isInt || n < 1 {
+		return 0, fmt.Errorf("settings.%s: must be a whole number of at least 1", key)
+	}
+	return n, nil
+}
+
+// wholeNumber reads an integer from a decoded JSON value.
+func wholeNumber(v any) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		if n != math.Trunc(n) || math.Abs(n) > math.MaxInt32 {
+			return 0, false
+		}
+		return int(n), true
+	case int:
+		return n, true
+	}
+	return 0, false
 }
 
 // NodeName is the container name of a node of a Docker cluster: <cluster>-c<id> for a
@@ -181,16 +291,32 @@ func controllerPort(s Settings, role string, id int32) int {
 	return s.PortBase + int(id)
 }
 
+// dataDirOf is the log.dirs of node n: the Kafka data directory its agent reports, else
+// defaultDataDir. Docker nodes keep their data volume at defaultDataDir.
+func dataDirOf(docker bool, n *store.Node) (string, error) {
+	var st struct {
+		KafkaDataDir string `json:"kafkaDataDir"`
+	}
+	if docker || json.Unmarshal(n.Status, &st) != nil || st.KafkaDataDir == "" {
+		return defaultDataDir, nil
+	}
+	if err := agentcfg.ValidateDataDir(st.KafkaDataDir); err != nil {
+		return "", fmt.Errorf("the agent of %s reports a data directory Brokerium cannot configure: %w", n.Name, err)
+	}
+	return st.KafkaDataDir, nil
+}
+
 // renderProperties builds server.properties for a node. host is the container name of a Docker
-// node and the advertised host of an agent node. quorum is either a bootstrap server list
-// (dynamic) or a voters string (static). Docker lab nodes get a second client listener published
-// on localhost; agent nodes have one, advertised on their host. Combined nodes have the client
-// listeners of a broker and the controller listener of a controller.
-func renderProperties(s Settings, docker bool, role, host string, id int32, rack, quorumKind, quorum string) map[string]string {
+// node and the advertised host of an agent node, dataDir its Kafka data directory. quorum is
+// either a bootstrap server list (dynamic) or a voters string (static). Docker lab nodes get a
+// second client listener published on localhost; agent nodes have one, advertised on their host.
+// Combined nodes have the client listeners of a broker and the controller listener of a
+// controller.
+func renderProperties(s Settings, docker bool, role, host, dataDir string, id int32, rack, quorumKind, quorum string) map[string]string {
 	p := map[string]string{
 		"node.id":                          strconv.Itoa(int(id)),
 		"controller.listener.names":        "CONTROLLER",
-		"log.dirs":                         "/var/lib/kafka/data",
+		"log.dirs":                         dataDir,
 		"num.partitions":                   "6",
 		"default.replication.factor":       strconv.Itoa(s.ReplicationFactor),
 		"min.insync.replicas":              strconv.Itoa(s.MinISR),

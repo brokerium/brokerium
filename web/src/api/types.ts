@@ -85,6 +85,12 @@ export interface Issue {
 
 export type HealthStatus = 'ok' | 'warning' | 'critical' | 'unreachable' | 'unknown';
 
+/**
+ * kraft: every broker runs KRaft; zookeeper: every broker runs ZooKeeper; migration: otherwise,
+ * or a broker has zookeeper.metadata.migration.enable. Empty while no broker could be told.
+ */
+export type KafkaMode = 'kraft' | 'zookeeper' | 'migration' | '';
+
 export interface Health {
   status: HealthStatus;
   issues: Issue[];
@@ -103,8 +109,15 @@ export interface Health {
   voters: number;
   votersLagging: number;
   diskUsedPercentMax: number;
+  /** Empty on ZooKeeper-based clusters. */
   metadataVersion: string;
   kraftVersion: number;
+  mode: KafkaMode;
+  /** Quorum leader, or the controller broker of a ZooKeeper-based cluster; -1 when none or unknown. */
+  controller: number;
+  /** Distinct Kafka versions of the brokers, oldest first. */
+  versions: string[] | null;
+  mixedVersions: boolean;
 }
 
 export interface Capabilities {
@@ -188,6 +201,16 @@ export interface Broker {
   replicas: number;
   leaders: number;
   preferredLeaders: number;
+  /**
+   * Exact release from the agent ("4.3.1"), else estimated from ApiVersions ("3.5", "3.4 to 3.5",
+   * "4.4 or later"); empty when unknown.
+   */
+  version: string;
+  versionExact: boolean;
+  mode: KafkaMode;
+  processRoles?: string;
+  zookeeperConnect?: string;
+  interBrokerProtocolVersion?: string;
 }
 
 export interface Partition {
@@ -248,6 +271,10 @@ export interface Snapshot {
   collectedAt: string;
   durationMs: number;
   clusterId: string;
+  mode: KafkaMode;
+  mixedVersions: boolean;
+  /** Controller named by Metadata: meaningful on ZooKeeper-based clusters only. */
+  controllerId: number;
   brokers: Broker[];
   quorum?: Quorum;
   features: Feature[];
@@ -523,6 +550,18 @@ export interface QuotaEntry {
 
 // ---------------------------------------------------------------- nodes and agents
 
+/** A Kafka broker or controller JVM on an agent host. */
+export interface KafkaProcess {
+  pid: number;
+  /** Epoch milliseconds; 0 when unknown. */
+  startTimeMs: number;
+  /** From the kafka-clients jar on the classpath; empty when unknown. */
+  version: string;
+  /** The classpath holds jars of several Kafka versions. */
+  mixedVersions: boolean;
+  user: string;
+}
+
 export interface NodeStatus {
   running?: boolean;
   activeVersion?: string;
@@ -534,6 +573,14 @@ export interface NodeStatus {
   pid?: number;
   lastExit?: string;
   processRoles?: string;
+  javaVersion?: string;
+  adopted?: boolean;
+  /** The Kafka data directory, rendered as log.dirs. */
+  kafkaDataDir?: string;
+  /** The Kafka process the agent runs (pid 0 when none); agents before 0.3.2 do not report it. */
+  kafkaProcess?: KafkaProcess;
+  /** Kafka processes on the host that the agent does not run. */
+  foreignKafka?: KafkaProcess[];
 }
 
 export interface AgentNode {
@@ -639,6 +686,20 @@ export interface ServerInfo {
   date: string;
   edition: Edition;
   providers: { docker: ProviderAvailability };
+  /** Kafka release of new clusters when the plan names none. */
+  defaultKafkaVersion: string;
+}
+
+/** A license or notice file of the server, named as in /licenses of the container images. */
+export interface LegalFile {
+  name: string;
+  title: string;
+  text: string;
+}
+
+/** GET /notices: LICENSE, LICENSE-enterprise in Enterprise builds, NOTICE and THIRD_PARTY_NOTICES. */
+export interface Notices {
+  files: LegalFile[];
 }
 
 export interface ApiErrorBody {

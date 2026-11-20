@@ -20,6 +20,7 @@ internal/webui/dist/*
 /.data/
 /deploy/lab/.state/
 /deploy/lab/.certs/
+/deploy/lab/kafka/dist/
 *.local
 .env
 .env.*

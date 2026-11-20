@@ -22,13 +22,14 @@ import { Outlet, useMatch, useNavigate, useParams } from 'react-router';
 import { clusterTabs } from '@ee';
 import { useCluster, useRefreshCluster } from '../../api/clusters';
 import { isApiError } from '../../api/errors';
-import { FlavorBadge, HealthBadge, ProviderBadge } from '../../components/badges';
+import { FlavorBadge, HealthBadge, ModeBadge, ProviderBadge } from '../../components/badges';
 import { CopyText } from '../../components/CopyText';
 import { OperationPlannerProvider } from '../../components/operations/OperationPlanner';
 import { PageHeader } from '../../components/PageHeader';
 import { PageLoader, QueryError } from '../../components/QueryState';
 import { RelativeTime } from '../../components/RelativeTime';
 import { type ClusterTab, isClusterTab, visibleClusterTabs } from '../../lib/capabilities';
+import { versionsLabel } from '../../lib/kafkaMode';
 import { ClusterContext, type ClusterContextValue } from './clusterContext';
 
 const TAB_META: Record<ClusterTab, { label: string; icon: ComponentType<{ size?: number }> }> = {
@@ -73,6 +74,7 @@ export default function ClusterLayout() {
   const { cluster, caps, view: v } = ctx;
   const tabs = visibleClusterTabs(caps);
   const health = v.health;
+  const versions = versionsLabel(health.versions);
   const tabBadge = (t: ClusterTab): number | null => {
     switch (t) {
       case 'brokers':
@@ -97,6 +99,7 @@ export default function ClusterLayout() {
               <HealthBadge status={health.status} size="md" />
               <ProviderBadge provider={cluster.provider} size="md" />
               <FlavorBadge flavor={cluster.flavor} size="md" />
+              <ModeBadge mode={health.mode} size="md" />
             </Group>
           }
           description={
@@ -104,6 +107,11 @@ export default function ClusterLayout() {
               <Text span size="sm" c="dimmed">
                 {cluster.bootstrapServers.join(', ')}
               </Text>
+              {versions && (
+                <Text span size="sm" c={health.mixedVersions ? 'yellow.8' : 'dimmed'}>
+                  Kafka {versions}
+                </Text>
+              )}
               {cluster.kafkaClusterId && (
                 <Group gap={4} component="span">
                   <Text span size="sm" c="dimmed">

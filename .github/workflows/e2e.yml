@@ -1,11 +1,12 @@
 name: e2e
 
-# Lab scenarios against a real server and PostgreSQL in three parallel jobs: api (scenarios against
+# Lab scenarios against a real server and PostgreSQL in four parallel jobs: api (scenarios against
 # the lab cluster beta and a small Docker cluster, then agents behind a TLS-terminating proxy),
-# docker-clusters (scenarios that create Docker clusters with the Docker provider) and enterprise
-# (the scenarios of Brokerium Enterprise against beta). Runs on pull requests, nightly and on
-# demand. Pull requests run only the jobs their changes need; the job e2e, a required check,
-# passes when every job succeeded or was skipped.
+# docker-clusters (scenarios that create Docker clusters with the Docker provider), zookeeper (the
+# ZooKeeper-based lab clusters delta and epsilon) and enterprise (the scenarios of Brokerium
+# Enterprise against beta). Runs on pull requests, nightly and on demand. Pull requests run only
+# the jobs their changes need; the job e2e, a required check, passes when every job succeeded or
+# was skipped.
 on:
   pull_request:
   workflow_dispatch:
@@ -26,9 +27,10 @@ env:
   BROKERIUM_AGENT_IMAGE: bvaliev/brokerium-agent:lab
   # Every Community scenario runs in one job; the api job fails for a scenario without a job.
   # TestStrimzi runs in e2e-strimzi.yml and TestAgentVMs against the VM lab (deploy/lab/vm).
-  API_SCENARIOS: TestMultiClusterOverview|TestDataPlane|TestSecureConnections|TestUsersRolesAudit|TestLicenseCommunity|TestControllersDirect|TestAgentCertificateRenewal
+  API_SCENARIOS: TestMultiClusterOverview|TestDataPlane|TestSecureConnections|TestUsersRolesAudit|TestLicenseCommunity|TestControllersDirect|TestAgentCertificateRenewal|TestNodeDeletion
   PROXY_SCENARIOS: TestInsecureAgentBehindProxy
   DOCKER_SCENARIOS: TestScaleOutAndBalance|TestNodeLifecycle|TestMigrateStaticQuorum|TestRollingUpgrade|TestCombinedNodes
+  ZOOKEEPER_SCENARIOS: TestZooKeeperClusters
   OTHER_SCENARIOS: TestStrimzi|TestAgentVMs
   # The scenarios of the Enterprise build (tags e2e,enterprise); the enterprise job fails for one
   # without a job.
@@ -62,13 +64,14 @@ jobs:
             files=$(git diff --name-only "$BASE" HEAD)
             while read -r file; do
               case "$file" in
-                "" | docs/* | *.md | web/* | ee/* | deploy/helm/* | deploy/docker/hub/* | api/openapi.yaml | LICENSE | NOTICE) ;;
+                "" | docs/* | *.md | web/* | ee/* | deploy/helm/* | deploy/docker/hub/* | api/openapi.yaml | LICENSE | NOTICE | \
+                  THIRD_PARTY_NOTICES | internal/tools/*) ;;
                 .github/workflows/e2e.yml) community=true ;;
                 .github/*) ;;
                 *) community=true ;;
               esac
               case "$file" in
-                *.md | ee/LICENSE) ;;
+                *.md | ee/LICENSE | internal/tools/*) ;;
                 ee/* | internal/* | cmd/* | test/e2e/* | go.mod | go.sum | Makefile | .mise.toml | .github/workflows/e2e.yml)
                   enterprise=true ;;
               esac
@@ -98,7 +101,7 @@ jobs:
         run: |
           scenarios=$(go test -tags e2e -list . ./test/e2e)
           missing=$(grep '^Test' <<< "$scenarios" |
-            grep -vxE "$API_SCENARIOS|$PROXY_SCENARIOS|$DOCKER_SCENARIOS|$OTHER_SCENARIOS" || true)
+            grep -vxE "$API_SCENARIOS|$PROXY_SCENARIOS|$DOCKER_SCENARIOS|$ZOOKEEPER_SCENARIOS|$OTHER_SCENARIOS" || true)
           if [ -n "$missing" ]; then
             echo "::error::Scenarios that no job of e2e.yml runs: $(tr '\n' ' ' <<< "$missing")"
             exit 1
@@ -107,8 +110,12 @@ jobs:
         run: |
           make lab-certs
           docker compose -f deploy/lab/compose.yaml --profile beta up -d --wait postgres beta-c1 beta-b1
+      # The image distributes Apache Kafka, so it keeps the license files of Kafka next to ours.
       - name: Agent image for Docker clusters
-        run: docker build -f deploy/docker/agent-lab.Dockerfile --build-arg VERSION=ci -t "$BROKERIUM_AGENT_IMAGE" .
+        run: |
+          docker build -f deploy/docker/agent-lab.Dockerfile --build-arg VERSION=ci -t "$BROKERIUM_AGENT_IMAGE" .
+          docker run --rm --entrypoint ls "$BROKERIUM_AGENT_IMAGE" /opt/kafka/LICENSE /opt/kafka/NOTICE /opt/kafka/licenses \
+            /licenses/LICENSE /licenses/NOTICE /licenses/THIRD_PARTY_NOTICES > /dev/null
       # The scenarios use the API only, so the server is built without the dashboard.
       - name: Build
         run: go build -o bin/brokerium-server ./cmd/brokerium-server
@@ -124,7 +131,8 @@ jobs:
           api -d '{"username":"admin","password":"brokerium-admin"}' localhost:8080/api/v1/auth/login > /dev/null
           api -d '{"name":"beta","bootstrapServers":["localhost:29101"]}' localhost:8080/api/v1/clusters > /dev/null
           id=$(api -d '{"name":"ci-small","provider":"docker","skipTest":true,"bootstrapServers":[]}' localhost:8080/api/v1/clusters | jq -r .cluster.id)
-          op=$(api -d '{"type":"bootstrap-cluster","params":{"controllers":1,"brokers":1,"racks":["r1"]}}' "localhost:8080/api/v1/clusters/$id/operations" | jq -r .id)
+          # 4.3.1 is the release of the lab node image, so the nodes start without a download.
+          op=$(api -d '{"type":"bootstrap-cluster","params":{"controllers":1,"brokers":1,"racks":["r1"],"version":"4.3.1"}}' "localhost:8080/api/v1/clusters/$id/operations" | jq -r .id)
           api -d '{}' "localhost:8080/api/v1/operations/$op/confirm" > /dev/null
           for _ in $(seq 1 120); do
             status=$(api "localhost:8080/api/v1/operations/$op" | jq -r .status)
@@ -137,6 +145,8 @@ jobs:
           controllers=$(api "localhost:8080/api/v1/clusters/$id" | jq -r '.cluster.settings.controllerBootstrapServers | join(",")')
           echo "BROKERIUM_E2E_CONTROLLERS=$controllers" >> "$GITHUB_ENV"
       - name: Scenarios
+        env:
+          BROKERIUM_E2E_INSECURE_GATEWAY: localhost:8444
         run: go test -tags e2e -count=1 -timeout 20m -v -run "^($API_SCENARIOS)$" ./test/e2e
       # OpenResty terminates TLS with a self-signed certificate and passes gRPC in plaintext to the
       # insecure agent listener; two lab agents enroll through it with the insecure transport.
@@ -282,6 +292,66 @@ jobs:
           name: e2e-docker-clusters-logs
           path: server.log
 
+  zookeeper:
+    name: zookeeper
+    needs: changes
+    if: needs.changes.outputs.community == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: jdx/mise-action@v5.2.8
+        with:
+          install: true
+          install_args: go
+      # The brokers of delta run an image built from the Kafka 3.5.2 release; the tarball is cached
+      # in the build context, and the build checks it against the checksum in compose.yaml.
+      - name: Cached Kafka 3.5.2
+        id: kafka-release
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: deploy/lab/kafka/dist
+          key: lab-kafka-3.5.2
+      - name: Download Kafka 3.5.2
+        if: steps.kafka-release.outputs.cache-hit != 'true'
+        run: |
+          file=kafka_2.13-3.5.2.tgz
+          mkdir -p deploy/lab/kafka/dist
+          curl -fsSL --connect-timeout 20 --speed-limit 102400 --speed-time 30 --retry 2 -o "deploy/lab/kafka/dist/$file" \
+            "https://archive.apache.org/dist/kafka/3.5.2/$file"
+          sum=$(docker compose -f deploy/lab/compose.yaml --profile delta config --format json |
+            jq -r '.services["delta-b1"].build.args.KAFKA_SHA512')
+          echo "$sum  deploy/lab/kafka/dist/$file" | sha512sum -c -
+      - name: Cache Kafka 3.5.2
+        if: steps.kafka-release.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: deploy/lab/kafka/dist
+          key: lab-kafka-3.5.2
+      - name: Lab (PostgreSQL, delta and epsilon)
+        run: |
+          docker compose -f deploy/lab/compose.yaml --profile delta --profile epsilon up -d --wait \
+            postgres delta-zk delta-b1 delta-b2 delta-b3 epsilon-zk epsilon-b1 epsilon-b2 epsilon-b3
+      - name: Build
+        run: go build -o bin/brokerium-server ./cmd/brokerium-server
+      - name: Start the server
+        run: |
+          nohup ./bin/brokerium-server > server.log 2>&1 &
+          for _ in $(seq 1 60); do curl -fs localhost:8080/readyz && break; sleep 1; done
+      - name: Scenarios
+        run: go test -tags e2e -count=1 -timeout 15m -v -run "^($ZOOKEEPER_SCENARIOS)$" ./test/e2e
+      - name: Diagnostics
+        if: failure()
+        run: |
+          tail -n 200 server.log
+          docker compose -f deploy/lab/compose.yaml --profile delta --profile epsilon ps -a
+          docker compose -f deploy/lab/compose.yaml --profile delta --profile epsilon logs --tail 50 2>&1 || true
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: e2e-zookeeper-logs
+          path: server.log
+
   enterprise:
     name: enterprise
     needs: changes
@@ -338,7 +408,7 @@ jobs:
 
   e2e:
     name: e2e
-    needs: [changes, api, docker-clusters, enterprise]
+    needs: [changes, api, docker-clusters, zookeeper, enterprise]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -347,7 +417,8 @@ jobs:
         env:
           RESULTS: >-
             changes=${{ needs.changes.result }} api=${{ needs.api.result }}
-            docker-clusters=${{ needs.docker-clusters.result }} enterprise=${{ needs.enterprise.result }}
+            docker-clusters=${{ needs.docker-clusters.result }} zookeeper=${{ needs.zookeeper.result }}
+            enterprise=${{ needs.enterprise.result }}
         run: |
           echo "$RESULTS"
           for result in $RESULTS; do

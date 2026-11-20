@@ -77,10 +77,15 @@ export function useCreateJoinToken() {
   });
 }
 
+/** DELETE /nodes/{id}: the agent stops; the command removes it from its host. */
+export interface DeletedNode {
+  uninstallCommand: string;
+}
+
 export function useDeleteNode() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.del<void>(`/nodes/${encodeURIComponent(id)}`),
+    mutationFn: (id: string) => api.del<DeletedNode>(`/nodes/${encodeURIComponent(id)}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: nodeKeys.all }),
     meta: { errorTitle: 'Could not remove the node' },
   });

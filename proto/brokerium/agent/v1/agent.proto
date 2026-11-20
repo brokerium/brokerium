@@ -15,7 +15,9 @@ service AgentService {
   // transport).
   rpc Enroll(EnrollRequest) returns (EnrollResponse);
   // Connect is the long-lived command stream: the server sends commands, the agent answers
-  // with results and periodic status reports.
+  // with results and periodic status reports. A stream of a node that does not exist, because it
+  // was deleted, ends with NOT_FOUND; the insecure transport first answers the session hello
+  // with NodeDeleted.
   rpc Connect(stream AgentMessage) returns (stream ServerMessage);
   // RenewCertificate signs a new client certificate for the node of the calling mTLS client
   // certificate. Agents call it after two thirds of the lifetime of their certificate.
@@ -135,7 +137,18 @@ message ServerMessage {
     SessionAccept session_accept = 2;
     // Insecure transport: every later message. It carries a ServerMessage with a command.
     SignedMessage signed = 3;
+    // Insecure transport: the answer to the session hello of a node that was deleted.
+    NodeDeleted node_deleted = 4;
   }
+}
+
+// NodeDeleted tells an agent of the insecure transport that its node no longer exists, so that it
+// stops instead of connecting again. The status NOT_FOUND alone could come from anyone on the
+// path to the server.
+message NodeDeleted {
+  // ECDSA P-256 signature (ASN.1) of the CA key over the node id and the agent nonce of the
+  // session hello.
+  bytes signature = 1;
 }
 
 // Command is one typed action. There is deliberately no generic shell command.
@@ -229,4 +242,27 @@ message NodeStatus {
   string java_version = 11;
   // The node runs with an operator-owned configuration (agent --kafka-config).
   bool adopted = 12;
+  // Kafka data directory of the node: the agent setting, or the first log.dirs entry of an
+  // adopted node. The server renders it as log.dirs.
+  string kafka_data_dir = 13;
+  // The Kafka process the agent runs: its child or the main process of its unit, or a Kafka JVM
+  // below it. Empty (pid 0) when none runs; agents before 0.3.2 do not set it.
+  KafkaProcess kafka_process = 14;
+  // Kafka processes on the host that the agent does not run, for example under the operator's
+  // own unit of an adopted node.
+  repeated KafkaProcess foreign_kafka = 15;
+}
+
+// KafkaProcess is a Kafka broker or controller JVM (main class kafka.Kafka) read from /proc.
+message KafkaProcess {
+  int64 pid = 1;
+  // Unix time in milliseconds.
+  int64 start_time_ms = 2;
+  // Version of the first kafka-clients jar on the classpath, else of the first Kafka core jar;
+  // empty when the classpath names neither.
+  string version = 3;
+  // The classpath holds jars of several Kafka versions.
+  bool mixed_versions = 4;
+  // Account that runs the process.
+  string user = 5;
 }

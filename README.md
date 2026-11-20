@@ -19,7 +19,7 @@ spirit of Rancher for Kubernetes. One place to see every cluster, scale brokers 
 KRaft controllers on the fly, drain and replace nodes, rebalance data across brokers,
 upgrade Kafka versions, and manage topics, users, ACLs and messages.
 
-> **Status: alpha (v0.3.1).** Every lab scenario below runs as an automated end-to-end test,
+> **Status: alpha (v0.3.2).** Every lab scenario below runs as an automated end-to-end test,
 > but interfaces and storage formats may still change between releases. Try it on test
 > clusters before production ones.
 
@@ -77,6 +77,15 @@ flowchart LR
 - On Kubernetes Brokerium works through Strimzi; on managed services (Amazon MSK,
   Confluent Cloud, Aiven) it offers what the provider allows.
 
+## Kafka versions
+
+Brokerium works with existing clusters from Apache Kafka 3.5.0, in KRaft or ZooKeeper mode,
+and creates new clusters from Kafka 4.2.0. It detects the mode and the version of every
+broker and offers what they support: ZooKeeper-based clusters get the dashboard, the data
+plane and partition placement, while controller, node and version management need KRaft;
+cordoning and draining brokers need Kafka 4.3. Details are in
+[Kafka versions and modes](docs/guide/clusters.md#kafka-versions-and-modes).
+
 ## Quick start
 
 **Kubernetes (Helm):**
@@ -96,7 +105,7 @@ docker run -d --name brokerium-db --network brokerium -e POSTGRES_USER=brokerium
 docker run -d --name brokerium --network brokerium -p 8080:8080 -p 8443:8443 \
   -v brokerium-data:/var/lib/brokerium -e BROKERIUM_ADMIN_PASSWORD=change-me \
   -e BROKERIUM_DATABASE_URL='postgres://brokerium:brokerium@brokerium-db:5432/brokerium?sslmode=disable' \
-  bvaliev/brokerium-server:0.3.1
+  bvaliev/brokerium-server:0.3.2
 ```
 
 Open http://localhost:8080, sign in as `admin`, then **Add cluster** to connect an existing
@@ -137,7 +146,8 @@ make dev         # Brokerium server on http://localhost:8080
 Brokerium is **source-available** under the
 [PolyForm Shield License 1.0.0](LICENSE): free to use, including in production,
 but you may not use it to build a competing product. Read the plain-language
-summary in [LICENSING.md](LICENSING.md).
+summary in [LICENSING.md](LICENSING.md). The third-party software in Brokerium and its
+licenses are listed in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
 
 Contributions are welcome under the [CLA](CLA.md); see [CONTRIBUTING.md](CONTRIBUTING.md).
 

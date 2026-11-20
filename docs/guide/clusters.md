@@ -11,14 +11,46 @@ cluster cannot support are not shown.
 | `strimzi` | the Strimzi operator on Kubernetes | Kafka-protocol features plus node pool scaling with rebalancing, rolling restarts and upgrades through the operator |
 | `docker` | the Docker provider (Docker installation, labs) | everything, with nodes as containers on the server's Docker host |
 
+## Kafka versions and modes
+
+Brokerium works with existing clusters from Apache Kafka 3.5.0, in KRaft or ZooKeeper mode, and
+creates clusters (`bootstrap-cluster` for agent and Docker clusters) from Kafka 4.2.0.
+
+On every snapshot it asks each broker for its ApiVersions. The protocol versions name the release:
+`3.5`, `3.4 to 3.5` when they do not decide, `4.4 or later` for releases newer than Brokerium
+knows. A broker that offers the inter-broker APIs of ZooKeeper mode (LeaderAndIsr) runs in
+ZooKeeper mode. Every five minutes Brokerium also reads the configuration of each broker:
+`process.roles`, `zookeeper.connect`, `zookeeper.metadata.migration.enable` and
+`inter.broker.protocol.version`. On hosts with `brokerium-agent` the agent reports the exact
+release, for example `4.3.1`. The mode of the cluster is
+
+- `kraft` when every broker runs KRaft,
+- `zookeeper` when every broker runs ZooKeeper,
+- `migration` otherwise, or when a broker has `zookeeper.metadata.migration.enable=true`.
+
+The dashboard shows the mode in the cluster header and on the overview, and the version of each
+broker on the **Brokers** tab, with a warning when the brokers run different releases. Brokers
+before Kafka 3.5 appear as a warning in the health of the cluster.
+
+| Feature | Needs |
+| --- | --- |
+| Health, topics, configurations, ACLs, SCRAM users, quotas, groups, messages, rebalancing, partition moves, leader elections | Any supported mode. ZooKeeper-based clusters get their controller broker from Metadata, and `no_controller` is critical when there is none. |
+| Controller quorum, broker unregistration, feature finalization, node operations | KRaft mode. ZooKeeper and migration mode offer none of them, and no quorum migration either. |
+| Cordoning, `drain-broker` | Every broker on Kafka 4.3 or later (KIP-1066). |
+| `migrate-quorum` | Kafka 4.1 or later on every node; its plan checks the versions again. |
+| Adding and removing controllers | A dynamic quorum. KRaft clusters on Kafka 3.3 to 3.8 have no `kraft.version` and run a static quorum. |
+
+The principal needs `DescribeConfigs` on the cluster to read the broker configurations; without
+it, the mode comes from ApiVersions alone and a migration in progress is not recognized.
+
 ## Connection profiles
 
 `PLAINTEXT`, `SSL` (with optional client certificates for mTLS), `SASL_PLAINTEXT` and
 `SASL_SSL` with `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512`, `AWS_MSK_IAM` or `OAUTHBEARER`.
 Passwords, keys, tokens and kubeconfigs are write-only: they are sealed with the server's
 secret key and never returned by the API. The principal needs admin rights for the features
-you use (Describe/Alter on the cluster, topics and groups; `ClusterAction` for
-reassignments and elections).
+you use (Describe/Alter on the cluster, topics and groups; `DescribeConfigs` on the cluster
+for the broker configurations; `ClusterAction` for reassignments and elections).
 
 When no broker answers but the cluster has controller addresses
 (`settings.controllerBootstrapServers`, filled in automatically for agent and Docker
@@ -33,7 +65,10 @@ advertised host of the host, formats the storage and starts the node. A host can
 its agent is connected, it runs no Kafka node, it belongs to no other cluster (a join token for
 a cluster reserves its host for that cluster) and its Kafka data directory is empty or holds
 the data of the same node. The dashboard offers these hosts; through the API, take their ids
-from `GET /api/v1/nodes`.
+from `GET /api/v1/nodes`. Kafka stores its data in the data directory of the agent
+(`BROKERIUM_AGENT_KAFKA_DATA_DIR`, see the [installation](install.md#agents-on-virtual-machines-and-bare-metal)).
+Clusters that Brokerium creates accept clients without authentication; see
+[security](security.md#clusters-that-brokerium-creates).
 
 In the dashboard, **Add cluster → Create on hosts with agents** lists the free hosts. Give each
 host you need a role (controller, broker, or controller and broker), keep the suggested node id
@@ -66,6 +101,8 @@ api -d '{"type": "bootstrap-cluster", "params": {"version": "4.3.1", "nodes": [
 - Node ids default to 1, 2, ... for controllers and combined nodes and 101, 102, ... for
   brokers in the order of the list; `nodeId` sets one explicitly (unique, at least 0).
 - `rack` defaults to the rack of the host; `quorum` is `dynamic` (default) or `static`.
+- `version` defaults to the Kafka release the server gives new clusters, `defaultKafkaVersion`
+  in `GET /api/v1/server`; the dashboard proposes it too.
 - The plan lists the hosts with their node ids, racks and advertised hosts. Confirm it with
   `POST /api/v1/operations/<operation id>/confirm`. Afterwards the cluster connects to the
   advertised hosts of its brokers.
@@ -128,11 +165,14 @@ voter a new directory id. A cluster outgrows its combined nodes this way:
 3. To take it out of the cluster, use the Kafka tools: remove it from the quorum
    (`kafka-metadata-quorum.sh --bootstrap-controller <controller>:9093 remove-controller
    --controller-id <id> --controller-directory-id <directory id>`, see the
-   [controller quorum runbook](../runbooks/controller-quorum.md)), stop its agent and Kafka on the
-   host (`sudo systemctl stop brokerium-agent.service brokerium-kafka.service`), delete the node
-   on the Nodes page and unregister its broker with `unregister-broker`. Clear the data directory
-   of the host before it runs another node. Docker clusters keep their combined containers until
-   their nodes are deleted.
+   [controller quorum runbook](../runbooks/controller-quorum.md)), stop Kafka on the host
+   (`sudo systemctl stop brokerium-kafka.service`) and unregister its broker with
+   `unregister-broker`. Then delete the node on the Nodes page. Brokerium deletes a combined node
+   only once its cluster no longer has its node id as a registered broker, a voter or an
+   observer; a stopped node stays an observer for a few minutes. Deleting the node stops its
+   agent: remove it with the [uninstall script](install.md#remove-an-agent), or install the host
+   again with a new join token and clear its data directory before it runs another node. Docker
+   clusters keep their combined containers until their nodes are deleted.
 
 Adopted nodes ([adopting running nodes](install.md#adopting-running-nodes)) with
 `process.roles=broker,controller` become combined nodes.
@@ -182,7 +222,9 @@ Brokerium runs in the same Kubernetes cluster (Helm value `rbac.strimzi`). Strim
 **Add cluster → Create in Docker** builds a cluster from the lab node image as containers on the
 server's Docker host, for evaluations, labs and tests. Give it the numbers of controllers, brokers
 and combined nodes (broker and controller in one process). **Settings → Delete
-cluster nodes** removes the containers and volumes again.
+cluster nodes** removes the containers and volumes again. The form proposes the Kafka release the
+server gives new clusters; the lab node image ships Kafka 4.3.1, and the agents in the nodes
+download any other release (from `BROKERIUM_KAFKA_MIRROR` first).
 
 The dashboard offers it only when the server offers Docker clusters, which
 `BROKERIUM_DOCKER_PROVIDER` decides

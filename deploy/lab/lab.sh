@@ -14,7 +14,7 @@
 #   cli <tool> [args...]      run a Kafka CLI tool in the tools container, e.g.
 #                             cli kafka-topics.sh --bootstrap-server alpha-b1:9092 --list
 #   exec <service> [cmd...]   run a command inside a lab container
-#   quorum [cluster]          describe the KRaft quorum (default: alpha)
+#   quorum [cluster]          describe the KRaft quorum (default: alpha; not delta and epsilon)
 #   load [cluster] [records]  create demo topics and produce records (default: alpha 200000)
 #   dist [cluster]            replicas and leaders per broker (user topics)
 #   urp [cluster]             under-replicated partitions
@@ -23,7 +23,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-ALL_PROFILES=(alpha alpha-scale alpha-quorum alpha-replace beta gamma tools)
+ALL_PROFILES=(alpha alpha-scale alpha-quorum alpha-replace beta gamma delta epsilon tools)
 KAFKA_BIN=/opt/kafka/bin
 
 compose() {
@@ -37,13 +37,15 @@ bootstrap() {
     alpha) echo "alpha-b1:9092,alpha-b2:9092" ;;
     beta) echo "beta-b1:9092" ;;
     gamma) echo "gamma-b1:9092" ;;
+    delta) echo "delta-b1:9092,delta-b2:9092" ;;
+    epsilon) echo "epsilon-b1:9092,epsilon-b2:9092" ;;
     *) echo "unknown cluster: $1" >&2; exit 1 ;;
   esac
 }
 
 replication_factor() {
   case "$1" in
-    alpha) echo 3 ;;
+    alpha | delta | epsilon) echo 3 ;;
     *) echo 1 ;;
   esac
 }

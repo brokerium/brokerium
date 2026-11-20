@@ -2,7 +2,13 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { affectedByKafka20979, compareKafkaVersions, parseKafkaVersion } from './kafkaVersion';
+import {
+  affectedByKafka20979,
+  compareKafkaVersions,
+  kafkaVersionError,
+  newClusterVersionError,
+  parseKafkaVersion,
+} from './kafkaVersion';
 
 describe('parseKafkaVersion', () => {
   it('parses release versions', () => {
@@ -19,6 +25,35 @@ describe('parseKafkaVersion', () => {
   it('compares versions numerically', () => {
     expect(compareKafkaVersions([4, 10, 0], [4, 9, 9])).toBeGreaterThan(0);
     expect(compareKafkaVersions([4, 3, 1], [4, 3, 1])).toBe(0);
+  });
+});
+
+describe('kafkaVersionError', () => {
+  it('accepts releases', () => {
+    expect(kafkaVersionError('4.4.0', '4.4.0')).toBeUndefined();
+  });
+
+  it('gives the default release of the server as the example', () => {
+    expect(kafkaVersionError('', '4.4.0')).toBe('A release such as 4.4.0');
+    expect(kafkaVersionError('latest', undefined)).toBe('A release version, x.y.z');
+  });
+});
+
+describe('newClusterVersionError', () => {
+  it.each([
+    ['4.2.0', undefined],
+    ['4.4.0', undefined],
+    [' 4.3.1 ', undefined],
+    ['4.1.2', 'New clusters run Kafka 4.2.0 or later'],
+    ['3.9.2', 'New clusters run Kafka 4.2.0 or later'],
+    ['4.3', 'A release such as 4.4.0'],
+    ['latest', 'A release such as 4.4.0'],
+  ])('%s -> %s', (version, expected) => {
+    expect(newClusterVersionError(version, '4.4.0')).toBe(expected);
+  });
+
+  it('names the release format before the server answered', () => {
+    expect(newClusterVersionError('', undefined)).toBe('A release version, x.y.z');
   });
 });
 

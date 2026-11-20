@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	agentv1 "github.com/brokerium/brokerium/proto/brokerium/agent/v1"
@@ -51,7 +52,7 @@ func newUnitKafka(t *testing.T, root bool) (*Kafka, *commands) {
 	k := newKafka(cfg)
 	cmds := &commands{}
 	k.root, k.run, k.systemctl = root, cmds.run, "/usr/bin/systemctl"
-	k.unitFile = filepath.Join(t.TempDir(), kafkaUnit)
+	k.unitFile, k.proc = filepath.Join(t.TempDir(), kafkaUnit), fstest.MapFS{}
 	k.javaOnce.Do(func() {})
 	for _, v := range []string{"4.3.1", "4.4.0"} {
 		k.state.Installed[v] = filepath.Join(cfg.KafkaDir, v)
@@ -109,12 +110,35 @@ func TestStopStatusAndWipeWithoutRoot(t *testing.T) {
 	if got, want := cmds.take(), []string{sudo("stop")}; !slices.Equal(got, want) {
 		t.Errorf("Stop ran %q, want %q", got, want)
 	}
-	if st := k.Status(); !st.GetRunning() {
-		t.Error("an active unit must report Kafka as running")
+	cmds.reply = func(_ string, args []string) ([]byte, error) {
+		if slices.Contains(args, "MainPID") {
+			return []byte("4242\n"), nil
+		}
+		return nil, nil
 	}
-	if got, want := cmds.take(), []string{"/usr/bin/systemctl is-active --quiet " + kafkaUnit}; !slices.Equal(got, want) {
+	release := kafkaArgs(jars(filepath.Join(k.currentLink(), "libs"), "kafka-clients-4.3.1.jar"))
+	proc := newFakeProc(1763625600)
+	proc.add(4242, 1, 500, "54321", release...)
+	proc.add(4300, 1, 600, "54322", kafkaArgs(jars("/opt/kafka/libs", "kafka-clients-4.2.0.jar"))...)
+	k.proc = proc.fs
+	st := k.Status()
+	if !st.GetRunning() || st.GetPid() != 4242 {
+		t.Errorf("Status reports running %v with pid %d, want the active unit with its main process 4242", st.GetRunning(), st.GetPid())
+	}
+	if p := st.GetKafkaProcess(); p.GetPid() != 4242 || p.GetVersion() != "4.3.1" {
+		t.Errorf("Kafka process of the agent %+v", p)
+	}
+	if f := st.GetForeignKafka(); len(f) != 1 || f[0].GetPid() != 4300 || f[0].GetUser() != "54322" {
+		t.Errorf("foreign Kafka processes %+v", f)
+	}
+	if st.GetKafkaDataDir() != k.cfg.KafkaDataDir {
+		t.Errorf("data directory %q, want %q", st.GetKafkaDataDir(), k.cfg.KafkaDataDir)
+	}
+	if got, want := cmds.take(), []string{"/usr/bin/systemctl is-active --quiet " + kafkaUnit,
+		"/usr/bin/systemctl show -p MainPID --value " + kafkaUnit}; !slices.Equal(got, want) {
 		t.Errorf("Status ran %q, want %q", got, want)
 	}
+	cmds.reply = nil
 	for _, name := range []string{"meta.properties", "topic-0/00000000000000000000.log"} {
 		path := filepath.Join(k.cfg.KafkaDataDir, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o770); err != nil {

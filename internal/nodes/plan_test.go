@@ -259,6 +259,10 @@ func TestBootstrapAgentRefusals(t *testing.T) {
 		{"a cluster with Kafka nodes", nil, host("old", "old-1", runs("c1", RoleBroker, 101)), two(ctl("n1"), brk("n2")), "the cluster already has Kafka nodes"},
 		{"a Strimzi cluster", &store.Cluster{ID: "c1", Provider: store.ProviderStrimzi}, nil, two(ctl("n1"), brk("n2")), "only Docker and agent clusters"},
 		{"an invalid version", nil, nil, bootstrapParams{Version: "4.3", Nodes: []hostChoice{ctl("n1"), brk("n2")}}, `invalid version "4.3"`},
+		{"a version before 4.2.0", nil, nil, bootstrapParams{Version: "4.1.2", Nodes: []hostChoice{ctl("n1"), brk("n2")}},
+			"new clusters run Kafka 4.2.0 or later, not 4.1.2"},
+		{"a Docker cluster on 3.9", &store.Cluster{ID: "c1", Name: "lab", Provider: store.ProviderDocker}, nil,
+			bootstrapParams{Version: "3.9.2"}, "new clusters run Kafka 4.2.0 or later, not 3.9.2"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -305,6 +309,44 @@ func TestBootstrapDocker(t *testing.T) {
 	if _, err := (&Manager{}).bootstrapPlan(p, fleet{}, bootstrapParams{Nodes: []hostChoice{{Node: "n1", Role: RoleBroker}}}, nil); err == nil ||
 		!strings.Contains(err.Error(), "give controllers, combined and brokers instead of nodes") {
 		t.Errorf("nodes on a Docker cluster: %v", err)
+	}
+}
+
+func TestKafkaVersionDefaults(t *testing.T) {
+	t.Parallel()
+	installed := func(steps []ops.StepSpec) []string {
+		var out []string
+		for _, s := range stepsOf(KindInstall, steps) {
+			out = append(out, s.Args.(NodeArgs).Version)
+		}
+		return out
+	}
+	p := plannerFor(&store.Cluster{ID: "c1", Name: "lab", Provider: store.ProviderDocker}, nil)
+	for _, tt := range []struct {
+		version, want string
+	}{
+		{"", DefaultKafkaVersion},
+		{"4.3.1", "4.3.1"},
+	} {
+		planned, err := (&Manager{}).bootstrapPlan(p, fleet{}, bootstrapParams{Controllers: 1, Brokers: 1, Version: tt.version}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		saved := planned.Steps[0].Args.(NodeArgs).Settings.KafkaVersion
+		if got := installed(planned.Steps); saved != tt.want || !slices.Equal(got, []string{tt.want, tt.want}) {
+			t.Errorf("version %q: saved %s, installed %v, want %s", tt.version, saved, got, tt.want)
+		}
+	}
+
+	// A cluster whose settings record no version keeps the release its nodes were created with.
+	unrecorded := agentCluster()
+	delete(unrecorded.Settings, "kafkaVersion")
+	planned, err := addBrokerPlan(plannerFor(unrecorded, runningSnapshot()), runningFleet(), addBrokerParams{Nodes: []brokerChoice{{Node: "f-1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := installed(planned.Steps); !slices.Equal(got, []string{"4.3.1"}) {
+		t.Errorf("add-broker on a cluster without a recorded version installs %v, want 4.3.1", got)
 	}
 }
 
@@ -733,6 +775,102 @@ func TestMigrateQuorumUsesAdvertisedHosts(t *testing.T) {
 	p.View.Health.KRaftVersion = 1
 	if _, err := migratePlan(p, runningFleet().managed("c1")); err == nil {
 		t.Error("a dynamic quorum was migrated again")
+	}
+}
+
+func TestMigrateQuorumNeedsKafka41(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		change func(c *store.Cluster, s *kafka.Snapshot, f *fleet)
+		want   string
+	}{
+		{"every node on 4.1 or later", func(*store.Cluster, *kafka.Snapshot, *fleet) {}, ""},
+		{"the cluster settings name 4.0.0", func(c *store.Cluster, _ *kafka.Snapshot, _ *fleet) { c.Settings["kafkaVersion"] = "4.0.0" },
+			"the cluster settings name 4.0.0"},
+		{"a broker on 4.0", func(_ *store.Cluster, s *kafka.Snapshot, _ *fleet) { s.Brokers[1].Version = "4.0" }, "broker 102 runs 4.0"},
+		{"a broker that may run 4.0", func(_ *store.Cluster, s *kafka.Snapshot, _ *fleet) { s.Brokers[1].Version = "4.0 to 4.1" },
+			"broker 102 runs 4.0 to 4.1"},
+		{"a controller on 3.9.1", func(_ *store.Cluster, _ *kafka.Snapshot, f *fleet) {
+			f.nodes[0].Status = json.RawMessage(`{"activeVersion":"3.9.1"}`)
+		}, "ctl-1 runs 3.9.1"},
+		{"a controller whose Kafka process still runs 4.0.0", func(_ *store.Cluster, _ *kafka.Snapshot, f *fleet) {
+			f.nodes[0].Status = json.RawMessage(`{"activeVersion":"4.1.0","kafkaProcess":{"pid":4711,"version":"4.0.0"}}`)
+		}, "ctl-1 runs 4.0.0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c, s, f := agentCluster(), runningSnapshot(), runningFleet()
+			for i := range s.Brokers {
+				s.Brokers[i].Version = "4.1"
+			}
+			tt.change(c, s, &f)
+			_, err := migratePlan(plannerFor(c, s), f.managed("c1"))
+			if (tt.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tt.want)) {
+				t.Fatalf("error %v, want %q", err, tt.want)
+			}
+			if err != nil && !strings.Contains(err.Error(), "needs Kafka 4.1.0 or later on every node") {
+				t.Errorf("error %v does not name the release", err)
+			}
+		})
+	}
+}
+
+// TestGatesWithoutDataIgnoreDisks checks that the health gates of restarts, upgrades and quorum
+// changes name no brokers that receive replicas, so that full disks do not stop them.
+func TestGatesWithoutDataIgnoreDisks(t *testing.T) {
+	t.Parallel()
+	mn := runningFleet().managed("c1")
+	p := plannerFor(agentCluster(), runningSnapshot())
+	restart, err := restartPlan(p, mn, restartParams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	upgrade, err := upgradePlan(p, mn, upgradeParams{Version: "4.4.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrate, err := migratePlan(p, mn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addController, err := addControllerPlan(p, runningFleet(), addControllerParams{Node: "f-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, planned := range []*ops.Planned{restart, upgrade, migrate, addController} {
+		for _, s := range stepsOf(ops.KindHealthGate, planned.Steps) {
+			if args := s.Args.(ops.HealthGateArgs); len(args.Receivers) > 0 {
+				t.Errorf("%s: gate %q names receivers %v", planned.Doc.Summary, s.Name, args.Receivers)
+			}
+		}
+	}
+}
+
+func TestReplaceExpectsTheOldBrokerFenced(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"same-id", "new-id"} {
+		planned, err := replacePlan(plannerFor(agentCluster(), runningSnapshot()), runningFleet(),
+			replaceParams{BrokerID: id32(103), Mode: mode, Node: map[string]string{"new-id": "f-2"}[mode]})
+		if err != nil {
+			t.Fatal(err)
+		}
+		gates := stepsOf(ops.KindHealthGate, planned.Steps)
+		if len(gates) == 0 {
+			t.Fatalf("%s: no health gate", mode)
+		}
+		receiving := false
+		for _, g := range gates {
+			args := g.Args.(ops.HealthGateArgs)
+			if !args.AllowUnderReplicated || !slices.Equal(args.ExpectFenced, []int32{103}) {
+				t.Errorf("%s: gate %q with %+v, want under-replicated partitions and broker 103 allowed", mode, g.Name, args)
+			}
+			receiving = receiving || slices.Equal(args.Receivers, []int32{104})
+		}
+		if mode == "new-id" && !receiving {
+			t.Errorf("no gate names the new broker 104, which receives the replicas: %+v", gates)
+		}
 	}
 }
 

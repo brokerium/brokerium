@@ -106,7 +106,7 @@ func TestInsecureAgentBehindProxy(t *testing.T) {
 	// Installing, configuring, formatting and starting Kafka are signed commands; every step
 	// waits for the authenticated result.
 	nodes := proxiedNodes(c)
-	op := c.run(id, name, "bootstrap-cluster", map[string]any{"nodes": []map[string]any{
+	op := c.run(id, name, "bootstrap-cluster", map[string]any{"version": labKafkaVersion, "nodes": []map[string]any{
 		{"node": nodes["proxied-c1"].ID, "role": "controller"},
 		{"node": nodes["proxied-b101"].ID, "role": "broker", "rack": "r1"},
 	}}, 10*time.Minute)
@@ -174,7 +174,7 @@ func checkEnrollmentProofs(t *testing.T, c *client, proxy string) {
 	if err != nil {
 		t.Fatalf("enrolling through the proxy: %v", err)
 	}
-	t.Cleanup(func() { c.must(http.StatusNoContent, "DELETE", "/api/v1/nodes/"+resp.GetNodeId(), nil, nil) })
+	t.Cleanup(func() { c.must(http.StatusOK, "DELETE", "/api/v1/nodes/"+resp.GetNodeId(), nil, nil) })
 	if _, secret, err := e.Open(resp, parts[2]); err != nil || len(secret) != agentauth.SecretSize {
 		t.Fatalf("opening the enrollment response: %v", err)
 	}

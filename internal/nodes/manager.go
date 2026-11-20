@@ -22,6 +22,7 @@ import (
 	"github.com/brokerium/brokerium/internal/agentgw"
 	"github.com/brokerium/brokerium/internal/balancer"
 	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/kafka"
 	"github.com/brokerium/brokerium/internal/ops"
 	"github.com/brokerium/brokerium/internal/provider/docker"
 	"github.com/brokerium/brokerium/internal/store"
@@ -53,6 +54,13 @@ type Manager struct {
 }
 
 var versionRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+
+// Kafka releases that node lifecycle operations need (ADR 0022): the oldest one bootstrap-cluster
+// installs, and the oldest one that migrates a static quorum to a dynamic one (KIP-853).
+const (
+	minNewClusterVersion = "4.2.0"
+	minMigrateVersion    = "4.1.0"
+)
 
 // Types lists node lifecycle operation types.
 func (m *Manager) Types() []ops.OpType {
@@ -273,7 +281,7 @@ func (m *Manager) planBootstrap(ctx context.Context, p *ops.Planner, raw json.Ra
 
 func (m *Manager) bootstrapPlan(p *ops.Planner, f fleet, params bootstrapParams, usedPortBases map[int]bool) (*ops.Planned, error) {
 	if params.Version == "" {
-		params.Version = "4.3.1"
+		params.Version = DefaultKafkaVersion
 	}
 	if params.Quorum == "" {
 		params.Quorum = "dynamic"
@@ -281,6 +289,8 @@ func (m *Manager) bootstrapPlan(p *ops.Planner, f fleet, params bootstrapParams,
 	switch {
 	case !versionRe.MatchString(params.Version):
 		return nil, fmt.Errorf("invalid version %q", params.Version)
+	case compareVersions(params.Version, minNewClusterVersion) < 0:
+		return nil, fmt.Errorf("new clusters run Kafka %s or later, not %s", minNewClusterVersion, params.Version)
 	case params.Quorum != "dynamic" && params.Quorum != "static":
 		return nil, errors.New("quorum must be dynamic or static")
 	case p.Cluster.Provider != store.ProviderDocker && p.Cluster.Provider != store.ProviderAgent:
@@ -371,6 +381,7 @@ func (m *Manager) bootstrapPlan(p *ops.Planner, f fleet, params bootstrapParams,
 		doc.Summary += " on " + describe(members)
 		doc.Details["hosts"] = hostDetails(members)
 		doc.Warnings = append(doc.Warnings, rackWarnings(nil, members)...)
+		doc.Warnings = append(doc.Warnings, foreignWarnings(memberNodes(members))...)
 	}
 	if combined > 0 {
 		doc.Warnings = append(doc.Warnings, "combined nodes run broker and controller in one process, which Apache Kafka recommends only "+
@@ -650,6 +661,7 @@ func addBrokerPlan(p *ops.Planner, f fleet, params addBrokerParams) (*ops.Planne
 	if !docker {
 		doc.Details = map[string]any{"hosts": hostDetails(members)}
 		doc.Warnings = append(resumeWarnings(members), rackWarnings(p.View.Snapshot.Brokers, members)...)
+		doc.Warnings = append(doc.Warnings, foreignWarnings(memberNodes(members))...)
 	}
 	return &ops.Planned{Doc: doc, Steps: steps}, nil
 }
@@ -803,6 +815,7 @@ func replacePlan(p *ops.Planner, f fleet, params replaceParams) (*ops.Planned, e
 			warnings = append(warnings, fmt.Sprintf("broker %d was in rack %s; host %s is in rack %s, so rebalance afterwards to restore rack-aware placement",
 				old, rack, n.Name, n.Rack))
 		}
+		warnings = append(warnings, foreignWarnings([]*store.Node{n})...)
 		var others []*store.Node
 		for _, o := range mn.nodes {
 			if oldNode == nil || o.ID != oldNode.ID {
@@ -822,8 +835,8 @@ func replacePlan(p *ops.Planner, f fleet, params replaceParams) (*ops.Planned, e
 	if !docker {
 		on = " on host " + mb.name
 	}
-	steps := []ops.StepSpec{{Name: "Check health (under-replicated partitions allowed)", Kind: ops.KindHealthGate,
-		Args: ops.HealthGateArgs{AllowUnderReplicated: true}}}
+	gate := ops.HealthGateArgs{AllowUnderReplicated: true, ExpectFenced: []int32{old}}
+	steps := []ops.StepSpec{{Name: "Check health (under-replicated partitions allowed)", Kind: ops.KindHealthGate, Args: gate}}
 	if !docker {
 		steps = append(steps, checkHostsStep(s.KafkaClusterID, []member{mb}))
 	}
@@ -864,7 +877,7 @@ func replacePlan(p *ops.Planner, f fleet, params replaceParams) (*ops.Planned, e
 	steps = append(steps, startSteps(a)...)
 	steps = append(steps, ops.StepSpec{Name: fmt.Sprintf("Wait for broker %d", id), Kind: KindWaitBroker, Args: NodeArgs{NodeID: id}})
 	if len(moves) > 0 {
-		steps = append(steps, ops.ReassignSteps(moves, 0, 0, true)...)
+		steps = append(steps, ops.ReassignStepsGated(moves, 0, 0, gate)...)
 	}
 	steps = append(steps, ops.StepSpec{Name: fmt.Sprintf("Unregister broker %d", old), Kind: ops.KindUnregisterBroker, Args: ops.BrokerArgs{BrokerID: old}})
 	if remove != nil {
@@ -976,7 +989,7 @@ func addControllerPlan(p *ops.Planner, f fleet, params addControllerParams) (*op
 	doc := ops.PlanDoc{Summary: fmt.Sprintf("Add controller %d (%s): %d -> %d voters", mb.id, mb.name, len(q.Voters), len(q.Voters)+1)}
 	if mb.node != nil {
 		doc.Details = map[string]any{"hosts": hostDetails([]member{mb})}
-		doc.Warnings = resumeWarnings([]member{mb})
+		doc.Warnings = append(resumeWarnings([]member{mb}), foreignWarnings([]*store.Node{mb.node})...)
 	}
 	if (len(q.Voters)+1)%2 == 0 {
 		doc.Warnings = append(doc.Warnings, fmt.Sprintf("%d voters tolerate as many failures as %d; add one more for an odd quorum",
@@ -1080,6 +1093,10 @@ func migratePlan(p *ops.Planner, mn managed) (*ops.Planned, error) {
 	if len(mn.controllers) == 0 {
 		return nil, errors.New("no managed controllers; adopt the nodes with brokerium-agent first")
 	}
+	if old := olderNodes(p, mn, minMigrateVersion); len(old) > 0 {
+		return nil, fmt.Errorf("migrating to a dynamic quorum needs Kafka %s or later on every node: %s",
+			minMigrateVersion, strings.Join(old, ", "))
+	}
 	docker := p.Cluster.Provider == store.ProviderDocker
 	var hosts []string
 	for _, c := range mn.controllers {
@@ -1102,7 +1119,8 @@ func migratePlan(p *ops.Planner, mn managed) (*ops.Planned, error) {
 	steps = append(steps, syncSteps(p.Cluster, mn)...)
 	return &ops.Planned{Doc: ops.PlanDoc{Summary: fmt.Sprintf(
 		"Migrate the static quorum of %d voter(s) to a dynamic quorum and restart %d node(s) one by one", len(mn.controllers), len(nodes)),
-		Irreversible: true, Warnings: []string{"kraft.version cannot be downgraded from 1 to 0"}}, Steps: steps}, nil
+		Irreversible: true, Warnings: append([]string{"kraft.version cannot be downgraded from 1 to 0"}, foreignWarnings(nodes)...)},
+		Steps: steps}, nil
 }
 
 func rackOf(p *ops.Planner, n *store.Node) string {
@@ -1142,7 +1160,7 @@ func restartPlan(p *ops.Planner, mn managed, params restartParams) (*ops.Planned
 		only[id] = true
 	}
 	steps := []ops.StepSpec{{Name: "Check cluster health", Kind: ops.KindHealthGate, Args: ops.HealthGateArgs{}}}
-	count := 0
+	var restarted []*store.Node
 	for _, n := range orderedNodes(mn, p.View.Health.QuorumLeader) {
 		if len(only) > 0 && !only[*n.KafkaNodeID] {
 			continue
@@ -1152,15 +1170,15 @@ func restartPlan(p *ops.Planner, mn managed, params restartParams) (*ops.Planned
 		steps = append(steps,
 			ops.StepSpec{Name: "Restart " + n.Name, Kind: KindRestart, Args: a},
 			ops.StepSpec{Name: "Check health after " + n.Name, Kind: ops.KindHealthGate, Args: ops.HealthGateArgs{}})
-		count++
+		restarted = append(restarted, n)
 	}
-	if count == 0 {
+	if len(restarted) == 0 {
 		return nil, errors.New("no managed nodes to restart")
 	}
 	steps = append(steps, ops.StepSpec{Name: "Elect preferred leaders", Kind: ops.KindElectPreferred, Args: ops.ReassignArgs{}})
 	steps = append(steps, syncSteps(p.Cluster, mn)...)
-	return &ops.Planned{Doc: ops.PlanDoc{Summary: fmt.Sprintf("Restart %d node(s) one at a time, controllers first and the quorum leader last", count)},
-		Steps: steps}, nil
+	return &ops.Planned{Doc: ops.PlanDoc{Summary: fmt.Sprintf("Restart %d node(s) one at a time, controllers first and the quorum leader last",
+		len(restarted)), Warnings: foreignWarnings(restarted)}, Steps: steps}, nil
 }
 
 type upgradeParams struct {
@@ -1213,6 +1231,28 @@ func adopted(n *store.Node) bool {
 		Adopted bool `json:"adopted"`
 	}
 	return json.Unmarshal(n.Status, &st) == nil && st.Adopted
+}
+
+// olderNodes names what runs a Kafka release before version: the release in the cluster
+// settings, brokers whose version in the snapshot may be older, and managed controllers whose
+// agents report an older one.
+func olderNodes(p *ops.Planner, mn managed, version string) []string {
+	var out []string
+	if v := settingsOf(p.Cluster).KafkaVersion; v != "" && compareVersions(v, version) < 0 {
+		out = append(out, "the cluster settings name "+v)
+	}
+	want, _ := kafka.ParseVersion(version)
+	for _, b := range p.View.Snapshot.Brokers {
+		if r, ok := kafka.ParseVersion(b.Version); ok && !r.AtLeast(want.Min.Major, want.Min.Minor) {
+			out = append(out, fmt.Sprintf("broker %d runs %s", b.ID, b.Version))
+		}
+	}
+	for _, n := range mn.controllers {
+		if v := cluster.AgentKafkaVersion(n); v != "" && compareVersions(v, version) < 0 {
+			out = append(out, fmt.Sprintf("%s runs %s", n.Name, v))
+		}
+	}
+	return out
 }
 
 // javaMajor returns the Java feature release reported by the node's agent, 0 when unknown.
@@ -1278,6 +1318,7 @@ func upgradePlan(p *ops.Planner, mn managed, params upgradeParams) (*ops.Planned
 			return nil, fmt.Errorf("%s runs Java %d; Kafka 4.x needs Java %d or later", n.Name, major, minJavaMajor)
 		}
 	}
+	doc.Warnings = append(doc.Warnings, foreignWarnings(nodes)...)
 	doc.Warnings = append(doc.Warnings, "metadata.version stays at the old level until you run finalize-upgrade; you can still roll back binaries before that")
 	steps := []ops.StepSpec{{Name: "Check cluster health", Kind: ops.KindHealthGate, Args: ops.HealthGateArgs{}}}
 	for _, n := range nodes {

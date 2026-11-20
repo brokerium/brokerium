@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"strings"
 	"time"
@@ -117,6 +118,11 @@ func timeoutOf(a NodeArgs, def time.Duration) time.Duration {
 	return def
 }
 
+// final marks an error of a poll check that waiting cannot resolve; poll returns it at once.
+type final struct{ error }
+
+func (f final) Unwrap() error { return f.error }
+
 func poll(ctx context.Context, x *ops.Exec, timeout time.Duration, every time.Duration, what string,
 	check func(context.Context) (bool, any, error)) (any, error) {
 	deadline := time.Now().Add(timeout)
@@ -125,6 +131,10 @@ func poll(ctx context.Context, x *ops.Exec, timeout time.Duration, every time.Du
 		ok, detail, err := check(ctx)
 		if err == nil && ok {
 			return detail, nil
+		}
+		var f final
+		if errors.As(err, &f) {
+			return detail, f.error
 		}
 		lastErr = err
 		x.Progress(map[string]any{"waitingFor": what, "detail": detail, "error": fmt.Sprint(err)})
@@ -202,7 +212,8 @@ func (m *Manager) stepSetSettings(ctx context.Context, x *ops.Exec, raw json.Raw
 		return nil, err
 	}
 	if a.Settings != nil {
-		c.Settings = a.Settings.toMap()
+		// Keys that Brokerium does not read stay.
+		maps.Copy(c.Settings, a.Settings.toMap())
 	}
 	if len(a.BootstrapServers) > 0 {
 		c.BootstrapServers = a.BootstrapServers
@@ -274,7 +285,7 @@ func (m *Manager) stepProvision(ctx context.Context, x *ops.Exec, raw json.RawMe
 	spec := docker.ContainerSpec{
 		Name: a.Name, Image: image, Hostname: a.Name, Network: m.Cfg.LabNetwork,
 		Env: []string{"BROKERIUM_AGENT_SERVER=" + m.Cfg.AgentEndpoint, "BROKERIUM_AGENT_TOKEN=" + token},
-		Volumes: map[string]string{a.Name + "-data": "/var/lib/kafka/data", a.Name + "-agent": "/var/lib/brokerium-agent",
+		Volumes: map[string]string{a.Name + "-data": defaultDataDir, a.Name + "-agent": "/var/lib/brokerium-agent",
 			a.Name + "-kafka": "/opt/brokerium/kafka"},
 		Labels: map[string]string{"brokerium.cluster": x.Cluster.Name, "brokerium.node": a.Name, "brokerium.role": a.Role},
 		Ports:  containerPorts(s, a.Role, a.NodeID),
@@ -411,12 +422,17 @@ func (m *Manager) stepConfigure(ctx context.Context, x *ops.Exec, raw json.RawMe
 	if err := agentcfg.ValidateHost(host); err != nil {
 		return nil, fmt.Errorf("advertised host of %s: %w", n.Name, err)
 	}
+	docker := x.Cluster.Provider == store.ProviderDocker
+	dataDir, err := dataDirOf(docker, n)
+	if err != nil {
+		return nil, err
+	}
 	s := settingsOf(x.Cluster)
 	kind, quorum, err := m.quorumFor(ctx, x, a)
 	if err != nil {
 		return nil, err
 	}
-	props := renderProperties(s, x.Cluster.Provider == store.ProviderDocker, a.Role, host, a.NodeID, a.Rack, kind, quorum)
+	props := renderProperties(s, docker, a.Role, host, dataDir, a.NodeID, a.Rack, kind, quorum)
 	heap := s.BrokerHeap
 	if a.Role == RoleController {
 		heap = s.ControllerHeap
@@ -428,7 +444,7 @@ func (m *Manager) stepConfigure(ctx context.Context, x *ops.Exec, raw json.RawMe
 		Properties: props, HeapOpts: heap}}}, time.Minute); err != nil {
 		return nil, err
 	}
-	return map[string]any{"quorumKind": kind, "quorum": quorum, "advertisedHost": host}, nil
+	return map[string]any{"quorumKind": kind, "quorum": quorum, "advertisedHost": host, "dataDir": dataDir}, nil
 }
 
 func (m *Manager) stepFormat(ctx context.Context, x *ops.Exec, raw json.RawMessage) (any, error) {
@@ -462,10 +478,107 @@ func (m *Manager) stepStart(ctx context.Context, x *ops.Exec, raw json.RawMessag
 	if err != nil {
 		return nil, err
 	}
-	if _, err := m.send(ctx, a, &agentv1.Command{Action: &agentv1.Command_Start{Start: &agentv1.StartKafka{Version: a.Version}}}, time.Minute); err != nil {
+	if _, err := m.hostStatus(ctx, a); err != nil {
+		return nil, err
+	}
+	if _, err := m.start(ctx, a); err != nil {
 		return nil, err
 	}
 	return map[string]any{"started": a.Name}, nil
+}
+
+// start starts Kafka on node a with the release of a, else the active one, and returns the
+// version the agent starts.
+func (m *Manager) start(ctx context.Context, a NodeArgs) (string, error) {
+	res, err := m.send(ctx, a, &agentv1.Command{Action: &agentv1.Command_Start{Start: &agentv1.StartKafka{Version: a.Version}}}, time.Minute)
+	if err != nil {
+		return "", err
+	}
+	return cmp.Or(a.Version, res.GetStatus().GetActiveVersion()), nil
+}
+
+func statusCommand() *agentv1.Command {
+	return &agentv1.Command{Action: &agentv1.Command_Status{Status: &agentv1.GetStatus{}}}
+}
+
+// hostStatus asks the agent of node a for its status and refuses a host with Kafka processes that
+// the agent does not run.
+func (m *Manager) hostStatus(ctx context.Context, a NodeArgs) (*agentv1.NodeStatus, error) {
+	res, err := m.send(ctx, a, statusCommand(), 30*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	return res.GetStatus(), foreignKafka(a.Name, res.GetStatus())
+}
+
+// foreignKafka refuses Kafka processes on a host that its agent does not run, such as the
+// operator's own unit of an adopted node: they keep the ports, so the Kafka the agent starts
+// fails while the old one goes on answering.
+func foreignKafka(node string, st *agentv1.NodeStatus) error {
+	if len(st.GetForeignKafka()) == 0 {
+		return nil
+	}
+	procs := make([]string, 0, len(st.GetForeignKafka()))
+	for _, p := range st.GetForeignKafka() {
+		procs = append(procs, fmt.Sprintf("process %d of user %s", p.GetPid(), cmp.Or(p.GetUser(), "unknown")))
+	}
+	return fmt.Errorf("%s runs Kafka that brokerium-agent does not manage (%s); stop the operator's own Kafka unit first "+
+		"(for example sudo systemctl disable --now kafka.service), then run the operation again", node, strings.Join(procs, ", "))
+}
+
+// waitNewKafka waits until the agent of node a runs a Kafka process that started after before,
+// then checks that it runs version want. Agents before 0.3.2 report no process and skip the
+// check.
+func (m *Manager) waitNewKafka(ctx context.Context, x *ops.Exec, a NodeArgs, before *agentv1.KafkaProcess, want string) (any, error) {
+	if before == nil {
+		return map[string]any{"skipped": "the agent does not report its Kafka process"}, nil
+	}
+	return poll(ctx, x, 2*time.Minute, 2*time.Second, "a new Kafka process on "+a.Name,
+		func(ctx context.Context) (bool, any, error) {
+			res, err := m.send(ctx, a, statusCommand(), 30*time.Second)
+			if err != nil {
+				return false, nil, err
+			}
+			done, detail, err := checkNewKafka(a.Name, before, res.GetStatus(), want)
+			if err != nil {
+				return false, detail, final{err}
+			}
+			return done, detail, nil
+		})
+}
+
+// startTimeSlack is how much the start time of one process may move between two reports: agents
+// add its clock ticks since boot to the boot time in whole seconds.
+const startTimeSlack = 2 * time.Second
+
+// checkNewKafka compares the Kafka process an agent reports after a start with the one before
+// it: done once another process runs, failed when that process runs another version than want or
+// a Kafka process the agent does not run is on the host. A process whose classpath names no Kafka
+// version passes.
+func checkNewKafka(node string, before *agentv1.KafkaProcess, st *agentv1.NodeStatus, want string) (bool, map[string]any, error) {
+	p := st.GetKafkaProcess()
+	detail := map[string]any{"pid": p.GetPid(), "version": p.GetVersion(), "previousPid": before.GetPid()}
+	if err := foreignKafka(node, st); err != nil {
+		return false, detail, err
+	}
+	switch {
+	case p.GetPid() == 0:
+		detail["lastExit"] = st.GetLastExit()
+		return false, detail, nil
+	case p.GetPid() == before.GetPid() && p.GetStartTimeMs() <= before.GetStartTimeMs()+startTimeSlack.Milliseconds():
+		return false, detail, nil
+	}
+	if p.GetMixedVersions() {
+		detail["mixedVersions"] = true
+	}
+	if p.GetVersion() != "" && want != "" && p.GetVersion() != want {
+		err := fmt.Errorf("%s runs Kafka %s in process %d after the start, not %s", node, p.GetVersion(), p.GetPid(), want)
+		if p.GetMixedVersions() {
+			err = fmt.Errorf("%w; its classpath holds jars of several Kafka versions, check CLASSPATH in the environment of Kafka", err)
+		}
+		return false, detail, err
+	}
+	return true, detail, nil
 }
 
 func stopKafka() *agentv1.Command {
@@ -596,7 +709,7 @@ func (m *Manager) stepAddVoter(ctx context.Context, x *ops.Exec, raw json.RawMes
 	if err != nil {
 		return nil, err
 	}
-	res, err := m.send(ctx, a, &agentv1.Command{Action: &agentv1.Command_Status{Status: &agentv1.GetStatus{}}}, 30*time.Second)
+	res, err := m.send(ctx, a, statusCommand(), 30*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -671,6 +784,10 @@ func (m *Manager) stepRestart(ctx context.Context, x *ops.Exec, raw json.RawMess
 	if err != nil {
 		return nil, err
 	}
+	before, err := m.hostStatus(ctx, a)
+	if err != nil {
+		return nil, err
+	}
 	// Re-render the configuration from the cluster settings, which also removes drift.
 	if _, err := m.stepConfigure(ctx, x, raw); err != nil {
 		return nil, err
@@ -678,14 +795,24 @@ func (m *Manager) stepRestart(ctx context.Context, x *ops.Exec, raw json.RawMess
 	if _, err := m.stepStop(ctx, x, raw); err != nil {
 		return nil, err
 	}
-	if _, err := m.stepStart(ctx, x, raw); err != nil {
+	version, err := m.start(ctx, a)
+	if err != nil {
 		return nil, err
 	}
-	return m.waitReady(ctx, x, a)
+	process, err := m.waitNewKafka(ctx, x, a, before.GetKafkaProcess(), version)
+	if err != nil {
+		return process, err
+	}
+	ready, err := m.waitReady(ctx, x, a)
+	return map[string]any{"node": a.Name, "kafkaProcess": process, "ready": ready}, err
 }
 
 func (m *Manager) stepUpgrade(ctx context.Context, x *ops.Exec, raw json.RawMessage) (any, error) {
 	a, err := args(raw)
+	if err != nil {
+		return nil, err
+	}
+	before, err := m.hostStatus(ctx, a)
 	if err != nil {
 		return nil, err
 	}
@@ -698,14 +825,19 @@ func (m *Manager) stepUpgrade(ctx context.Context, x *ops.Exec, raw json.RawMess
 	if _, err := m.stepStop(ctx, x, raw); err != nil {
 		return nil, err
 	}
-	if _, err := m.stepStart(ctx, x, raw); err != nil {
+	version, err := m.start(ctx, a)
+	if err != nil {
 		return nil, err
+	}
+	process, err := m.waitNewKafka(ctx, x, a, before.GetKafkaProcess(), version)
+	if err != nil {
+		return process, err
 	}
 	detail, err := m.waitReady(ctx, x, a)
 	if err != nil {
 		return detail, err
 	}
-	return map[string]any{"node": a.Name, "version": a.Version}, nil
+	return map[string]any{"node": a.Name, "version": a.Version, "kafkaProcess": process}, nil
 }
 
 func (m *Manager) stepSyncBootstrap(ctx context.Context, x *ops.Exec, raw json.RawMessage) (any, error) {

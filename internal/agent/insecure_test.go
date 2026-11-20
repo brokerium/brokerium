@@ -57,7 +57,7 @@ func TestConfigCheck(t *testing.T) {
 
 // proxyServer plays the server behind a TLS-terminating proxy: it enrolls the agent with a
 // proof of tokenHash, sends one signed GetStatus command per session and reports what the
-// agent answered.
+// agent answered. With connect set, connect serves the sessions instead.
 type proxyServer struct {
 	agentv1.UnimplementedAgentServiceServer
 	ca        *testCA
@@ -65,6 +65,7 @@ type proxyServer struct {
 	tokenHash string
 	secret    []byte
 	tamper    func(m *agentv1.ServerMessage)
+	connect   func(stream agentv1.AgentService_ConnectServer) error
 	results   chan *agentv1.CommandResult
 	ended     chan error
 }
@@ -81,6 +82,9 @@ func (p *proxyServer) Enroll(_ context.Context, req *agentv1.EnrollRequest) (*ag
 }
 
 func (p *proxyServer) Connect(stream agentv1.AgentService_ConnectServer) error {
+	if p.connect != nil {
+		return p.connect(stream)
+	}
 	err := p.session(stream)
 	p.ended <- err
 	return err

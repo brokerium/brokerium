@@ -49,6 +49,7 @@ func (a *NodesAPI) Register(s *Server) {
 	s.Route("PATCH /api/v1/nodes/{id}", store.RoleOperator, a.handleUpdate)
 	s.Route("DELETE /api/v1/nodes/{id}", store.RoleOperator, a.handleDelete)
 	s.mux.HandleFunc("GET /api/v1/agent/install.sh", a.handleInstallScript)
+	s.mux.HandleFunc("GET /api/v1/agent/uninstall.sh", a.handleUninstallScript)
 }
 
 // NodeView is a node with its connection state.
@@ -269,13 +270,7 @@ func (a *NodesAPI) handleUpdate(w http.ResponseWriter, r *http.Request) {
 // installCommand is the command that installs the agent on a host. sudo drops the proxy
 // variables of the caller, so they are passed to curl and to the script explicitly.
 func (a *NodesAPI) installCommand(token string) string {
-	proxy := ""
-	if a.Proxy != "" {
-		proxy = "HTTPS_PROXY=" + shellQuote(a.Proxy) + " "
-		if a.NoProxy != "" {
-			proxy += "NO_PROXY=" + shellQuote(a.NoProxy) + " "
-		}
-	}
+	proxy := a.proxyVariables()
 	server := "BROKERIUM_AGENT_SERVER=" + a.AgentEndpoint
 	if a.Transport == store.TransportInsecure {
 		server = fmt.Sprintf("BROKERIUM_AGENT_TRANSPORT=insecure BROKERIUM_AGENT_TLS=%s BROKERIUM_AGENT_SERVER=%s",
@@ -285,29 +280,158 @@ func (a *NodesAPI) installCommand(token string) string {
 		proxy, strings.TrimRight(a.PublicURL, "/"), proxy, server, token)
 }
 
+// uninstallCommand is the command that removes the agent from a host; its options follow "--".
+// The script downloads nothing, so only curl needs the proxy.
+func (a *NodesAPI) uninstallCommand() string {
+	return fmt.Sprintf("%scurl -fsSL %s/api/v1/agent/uninstall.sh | sudo sh -s --", a.proxyVariables(),
+		strings.TrimRight(a.PublicURL, "/"))
+}
+
+// proxyVariables sets HTTPS_PROXY and NO_PROXY for one command, or is empty without a proxy.
+func (a *NodesAPI) proxyVariables() string {
+	if a.Proxy == "" {
+		return ""
+	}
+	proxy := "HTTPS_PROXY=" + shellQuote(a.Proxy) + " "
+	if a.NoProxy != "" {
+		proxy += "NO_PROXY=" + shellQuote(a.NoProxy) + " "
+	}
+	return proxy
+}
+
 // shellQuote quotes s for a POSIX shell.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func (a *NodesAPI) handleDelete(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	n, err := a.srv.Store.GetNode(r.Context(), id)
-	if err != nil {
+	n, err := deleteNode(r.Context(), a.srv.Store, a.Gateway, a.stillInCluster, r.PathValue("id"))
+	var inUse *nodeInUseError
+	switch {
+	case errors.As(err, &inUse):
+		WriteError(w, http.StatusConflict, "node_in_use", err.Error())
+		return
+	case n == nil:
 		WriteStoreError(w, err)
 		return
 	}
-	if a.Gateway.Connected(id) && n.ClusterID != nil {
-		WriteError(w, http.StatusConflict, "node_in_use", "the node is connected and assigned to a cluster; decommission it first")
-		return
-	}
-	err = a.srv.Store.DeleteNode(r.Context(), id)
 	a.srv.Audit(r, "node.delete", deref(n.ClusterID), n.Name, nil, err)
 	if err != nil {
 		WriteStoreError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	WriteJSON(w, http.StatusOK, map[string]string{"uninstallCommand": a.uninstallCommand()})
+}
+
+// nodeRecords is the part of the store that deleting a node uses.
+type nodeRecords interface {
+	GetNode(ctx context.Context, id string) (*store.Node, error)
+	DeleteNode(ctx context.Context, id string) error
+}
+
+// sessionCloser ends the session of the agent of a deleted node.
+type sessionCloser interface {
+	NodeDeleted(nodeID string)
+}
+
+// memberCheck reports whether a cluster still knows Kafka node id.
+type memberCheck func(ctx context.Context, clusterID string, id int32) (bool, error)
+
+// nodeInUseError refuses to delete a node that runs a Kafka node of a cluster: the node would
+// keep running Kafka for the cluster without anyone managing it.
+type nodeInUseError struct{ reason string }
+
+func (e *nodeInUseError) Error() string { return e.reason }
+
+// deleteNode deletes the node id and ends the session of its agent. A node that runs a broker or
+// a controller is decommissioned first, which stops Kafka on it and releases it from its
+// cluster. Brokerium cannot decommission combined nodes; they are taken out of their cluster
+// with the Kafka tools, and their node is deleted once the cluster no longer knows them. The
+// node is nil when it cannot be read.
+func deleteNode(ctx context.Context, nodes nodeRecords, sessions sessionCloser, inCluster memberCheck, id string) (*store.Node, error) {
+	n, err := nodes.GetNode(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := deletable(ctx, n, inCluster); err != nil {
+		return n, err
+	}
+	if err := nodes.DeleteNode(ctx, id); err != nil {
+		return n, err
+	}
+	sessions.NodeDeleted(id)
+	return n, nil
+}
+
+// deletable refuses a node that holds a Kafka role in a cluster, unless it is a combined node
+// that the cluster no longer knows.
+func deletable(ctx context.Context, n *store.Node, inCluster memberCheck) error {
+	switch n.Role {
+	case "":
+		return nil
+	case "broker":
+		return &nodeInUseError{fmt.Sprintf("node %s runs %s of a cluster; decommission it first with drain-broker "+
+			"(decommission) or replace-broker, which stop Kafka on the host and release it", n.Name, held(n))}
+	case "controller":
+		return &nodeInUseError{fmt.Sprintf("node %s runs %s of a cluster; decommission it first with remove-controller, "+
+			"which stops Kafka on the host and releases it", n.Name, held(n))}
+	}
+	if n.ClusterID == nil || n.KafkaNodeID == nil {
+		return &nodeInUseError{fmt.Sprintf("node %s runs %s, and its cluster cannot be asked about it", n.Name, held(n))}
+	}
+	known, err := inCluster(ctx, *n.ClusterID, *n.KafkaNodeID)
+	switch {
+	case err != nil:
+		return &nodeInUseError{fmt.Sprintf("node %s runs %s; checking whether its cluster still has it failed: %v",
+			n.Name, held(n), err)}
+	case known:
+		return &nodeInUseError{fmt.Sprintf("node %s runs %s, which its cluster still has as a broker, a voter or an observer; "+
+			"Brokerium does not decommission combined nodes: take it out of the quorum, stop Kafka and unregister its broker "+
+			"first (%s). A stopped node stays an observer for a few minutes", n.Name, held(n), combinedNodesGuide)}
+	}
+	return nil
+}
+
+// held names the Kafka node that node n runs, such as "broker 101" or "combined node 1".
+func held(n *store.Node) string {
+	role := n.Role
+	if role == "combined" {
+		role = "combined node"
+	}
+	if n.KafkaNodeID == nil {
+		return role
+	}
+	return fmt.Sprintf("%s %d", role, *n.KafkaNodeID)
+}
+
+// combinedNodesGuide explains how combined nodes leave their cluster.
+const combinedNodesGuide = "https://brokerium.kaufen/docs/guide/clusters/#combined-nodes"
+
+// stillInCluster reports whether a cluster still knows Kafka node id: as a registered broker,
+// fenced or not, or as a voter or an observer of the quorum, which every running node is.
+func (a *NodesAPI) stillInCluster(ctx context.Context, clusterID string, id int32) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	client, _, err := a.srv.Clusters.Client(ctx, clusterID)
+	if err != nil {
+		return false, err
+	}
+	info, err := client.DescribeCluster(ctx, true)
+	if err != nil {
+		return false, err
+	}
+	for _, b := range info.Brokers {
+		if b.NodeID == id {
+			return true, nil
+		}
+	}
+	q, err := client.DescribeQuorum(ctx)
+	if err != nil {
+		return false, err
+	}
+	_, voter := q.Voter(id)
+	_, observer := q.Observer(id)
+	return voter || observer, nil
 }
 
 func deref(s *string) string {
@@ -317,11 +441,11 @@ func deref(s *string) string {
 	return *s
 }
 
-// installScript installs brokerium-agent as a systemd service on a Linux host.
-const installScript = `#!/bin/sh
+// installTemplate installs brokerium-agent as a systemd service on a Linux host.
+const installTemplate = `#!/bin/sh
 # SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # Installs brokerium-agent as a systemd service under its own account, brokerium-agent. Kafka runs
-# as its own unit (brokerium-kafka.service) under the kafka account, so restarting the agent never
+# as its own unit ({{.KafkaUnit}}) under the kafka account, so restarting the agent never
 # stops Kafka. The agent reaches the Kafka directories through the kafka group, and a sudo rule
 # lets it start, stop and restart that unit and nothing else. Running the script again on a host
 # whose agent runs as root moves the agent to its own account; a running Kafka keeps running.
@@ -330,7 +454,7 @@ const installScript = `#!/bin/sh
 #   BROKERIUM_AGENT_VERSION                        release tag, default: latest
 #   BROKERIUM_AGENT_URL                            download URL of the binary (air-gapped installs)
 #   BROKERIUM_AGENT_SHA256                         expected SHA-256 of that binary
-#   BROKERIUM_AGENT_KAFKA_DATA_DIR                 log.dirs of new nodes, default /var/lib/kafka/data
+#   BROKERIUM_AGENT_KAFKA_DATA_DIR                 Kafka data directory (log.dirs), default {{.DataDir}}
 #   BROKERIUM_AGENT_KAFKA_CONFIG                   adopt a running node: its server.properties
 #   BROKERIUM_AGENT_PREINSTALLED                   and its Kafka installation directory
 #   HTTPS_PROXY, NO_PROXY                          HTTP CONNECT proxy for the downloads and for the
@@ -352,10 +476,10 @@ if ! command -v sudo >/dev/null || ! command -v visudo >/dev/null || [ ! -d /etc
   exit 1
 fi
 VERSION="${BROKERIUM_AGENT_VERSION:-latest}"
-STATE=/var/lib/brokerium-agent
-KAFKA_DIR=/opt/brokerium/kafka
+STATE={{.StateDir}}
+KAFKA_DIR={{.KafkaDir}}
 LOG_DIR="$STATE/logs"
-DATA_DIR="${BROKERIUM_AGENT_KAFKA_DATA_DIR:-/var/lib/kafka/data}"
+DATA_DIR="${BROKERIUM_AGENT_KAFKA_DATA_DIR:-{{.DataDir}}}"
 KAFKA_CONFIG="${BROKERIUM_AGENT_KAFKA_CONFIG:-$STATE/server.properties}"
 for p in "$DATA_DIR" "$KAFKA_CONFIG"; do
   # Both paths go into unit files.
@@ -381,8 +505,8 @@ elif [ "$VERSION" = latest ]; then
 else
   URL="https://github.com/brokerium/brokerium/releases/download/${VERSION}/brokerium-agent-linux-${ARCH}"
 fi
-AGENT_UNIT=/etc/systemd/system/brokerium-agent.service
-KAFKA_UNIT=/etc/systemd/system/brokerium-kafka.service
+AGENT_UNIT={{.AgentUnitFile}}
+KAFKA_UNIT={{.KafkaUnitFile}}
 # On a host whose agent ran as root, the files of the agent move to its account below.
 CONVERT=1
 if grep -qx 'User=brokerium-agent' "$AGENT_UNIT" 2>/dev/null; then CONVERT=0; fi
@@ -400,10 +524,10 @@ esac
 [ -z "${BROKERIUM_AGENT_CA_FILE:-}" ] || runuser -u brokerium-agent -- test -r "$BROKERIUM_AGENT_CA_FILE" ||
   { echo "BROKERIUM_AGENT_CA_FILE $BROKERIUM_AGENT_CA_FILE is not readable by the brokerium-agent account" >&2; exit 1; }
 # sudo skips files whose names contain a dot, so the rule takes effect only once visudo accepted it.
-RULE=$(mktemp /etc/sudoers.d/.brokerium-agent.XXXXXX)
+RULE=$(mktemp {{.SudoersTemp}})
 cat > "$RULE" <<EOF
 Defaults:brokerium-agent !requiretty
-brokerium-agent ALL=(root) NOPASSWD: $SYSTEMCTL start brokerium-kafka.service, $SYSTEMCTL stop brokerium-kafka.service, $SYSTEMCTL restart brokerium-kafka.service
+brokerium-agent ALL=(root) NOPASSWD: $SYSTEMCTL start {{.KafkaUnit}}, $SYSTEMCTL stop {{.KafkaUnit}}, $SYSTEMCTL restart {{.KafkaUnit}}
 EOF
 chmod 0440 "$RULE"
 if ! visudo -cf "$RULE" >/dev/null; then
@@ -411,12 +535,12 @@ if ! visudo -cf "$RULE" >/dev/null; then
   echo "visudo rejected the sudo rule for brokerium-agent; the agent was not installed or changed" >&2
   exit 1
 fi
-mv -f "$RULE" /etc/sudoers.d/brokerium-agent
-if ! sudo -n -l -U brokerium-agent "$SYSTEMCTL" restart brokerium-kafka.service >/dev/null 2>&1; then
-  echo "sudo ignores /etc/sudoers.d/brokerium-agent (does /etc/sudoers include /etc/sudoers.d?); the agent was not installed or changed" >&2
+mv -f "$RULE" {{.SudoersFile}}
+if ! sudo -n -l -U brokerium-agent "$SYSTEMCTL" restart {{.KafkaUnit}} >/dev/null 2>&1; then
+  echo "sudo ignores {{.SudoersFile}} (does /etc/sudoers include /etc/sudoers.d?); the agent was not installed or changed" >&2
   exit 1
 fi
-curl -fsSL "$URL" -o /usr/local/bin/brokerium-agent.new
+curl -fsSL "$URL" -o {{.Binary}}.new
 if [ -n "${BROKERIUM_AGENT_URL:-}" ]; then
   WANT="${BROKERIUM_AGENT_SHA256:-}"
 else
@@ -424,18 +548,18 @@ else
   WANT=$(curl -fsSL "${URL%/*}/SHA256SUMS" | awk -v f="brokerium-agent-linux-${ARCH}" '$2 == f {print $1}')
   [ -n "$WANT" ] || { echo "no checksum for brokerium-agent-linux-${ARCH} in the release" >&2; exit 1; }
 fi
-if [ -n "$WANT" ] && [ "$(sha256sum /usr/local/bin/brokerium-agent.new | cut -d' ' -f1)" != "$WANT" ]; then
-  rm -f /usr/local/bin/brokerium-agent.new
+if [ -n "$WANT" ] && [ "$(sha256sum {{.Binary}}.new | cut -d' ' -f1)" != "$WANT" ]; then
+  rm -f {{.Binary}}.new
   echo "checksum mismatch for $URL" >&2
   exit 1
 fi
-chmod 0755 /usr/local/bin/brokerium-agent.new
+chmod 0755 {{.Binary}}.new
 # Only the agent restarts. If a later step fails, it starts again with the unit systemd has loaded.
 if [ -f "$AGENT_UNIT" ]; then
-  systemctl stop brokerium-agent.service
-  trap 'systemctl start brokerium-agent.service' EXIT
+  systemctl stop {{.AgentUnit}}
+  trap 'systemctl start {{.AgentUnit}}' EXIT
 fi
-mv /usr/local/bin/brokerium-agent.new /usr/local/bin/brokerium-agent
+mv {{.Binary}}.new {{.Binary}}
 # The agent state holds its private key (mode 0600); kafka only traverses it to read
 # server.properties.
 install -d -m 0711 -o brokerium-agent -g brokerium-agent "$STATE"
@@ -477,7 +601,7 @@ umask 077
   [ -z "${BROKERIUM_AGENT_CA_FILE:-}" ] || echo "BROKERIUM_AGENT_CA_FILE=${BROKERIUM_AGENT_CA_FILE}"
   [ -z "$PROXY" ] || echo "HTTPS_PROXY=${PROXY}"
   [ -z "$PROXY" ] || [ -z "$NOPROXY" ] || echo "NO_PROXY=${NOPROXY}"
-} > /etc/brokerium-agent.env
+} > {{.EnvFile}}
 umask 022
 cat > "$KAFKA_UNIT" <<EOF
 [Unit]
@@ -510,10 +634,12 @@ Wants=network-online.target
 User=brokerium-agent
 Group=brokerium-agent
 SupplementaryGroups=kafka
-EnvironmentFile=/etc/brokerium-agent.env
-ExecStart=/usr/local/bin/brokerium-agent run
+EnvironmentFile={{.EnvFile}}
+ExecStart={{.Binary}} run
 Restart=always
 RestartSec=5
+# The agent exits with {{.ExitNodeDeleted}} once its node was deleted in Brokerium.
+RestartPreventExitStatus={{.ExitNodeDeleted}}
 # sudo has to gain root for the Kafka unit: keep NoNewPrivileges off and add no option implying it.
 NoNewPrivileges=no
 ProtectSystem=full
@@ -525,7 +651,7 @@ ReadWritePaths=$STATE $KAFKA_DIR $DATA_DIR
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable --now brokerium-agent.service
+systemctl enable --now {{.AgentUnit}}
 trap - EXIT
 echo "brokerium-agent installed; it runs as brokerium-agent and enrolls with the server on first start."
 `

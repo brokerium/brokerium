@@ -15,9 +15,16 @@ import (
 
 // Snapshot is a point-in-time view of a cluster collected over the Kafka protocol.
 type Snapshot struct {
-	CollectedAt   time.Time      `json:"collectedAt"`
-	DurationMs    int64          `json:"durationMs"`
-	ClusterID     string         `json:"clusterId"`
+	CollectedAt time.Time `json:"collectedAt"`
+	DurationMs  int64     `json:"durationMs"`
+	ClusterID   string    `json:"clusterId"`
+	// Mode is kraft, zookeeper or migration (see Summarize); empty when no broker could be told.
+	Mode string `json:"mode"`
+	// MixedVersions is set when the brokers run different Kafka releases.
+	MixedVersions bool `json:"mixedVersions"`
+	// ControllerID is the controller named by Metadata: the active controller of a
+	// ZooKeeper-based cluster, -1 for none. KRaft brokers name any broker instead (KIP-590).
+	ControllerID  int32          `json:"controllerId"`
 	Brokers       []Broker       `json:"brokers"`
 	Quorum        *Quorum        `json:"quorum,omitempty"`
 	Features      []Feature      `json:"features"`
@@ -45,6 +52,18 @@ type Broker struct {
 	Replicas         int      `json:"replicas"`
 	Leaders          int      `json:"leaders"`
 	PreferredLeaders int      `json:"preferredLeaders"`
+	// Version is the Kafka release of the broker: the one its agent reports, else the estimate
+	// from its ApiVersions such as "3.5", "3.4 to 3.5" or "4.4 or later"; empty when unknown.
+	Version string `json:"version"`
+	// VersionExact is set when an agent reported the version.
+	VersionExact bool `json:"versionExact"`
+	// Mode is kraft, zookeeper or migration (zookeeper.metadata.migration.enable); empty when
+	// unknown.
+	Mode string `json:"mode"`
+	// Settings from the broker configuration, empty when not set or not read.
+	ProcessRoles               string `json:"processRoles,omitempty"`
+	ZooKeeperConnect           string `json:"zookeeperConnect,omitempty"`
+	InterBrokerProtocolVersion string `json:"interBrokerProtocolVersion,omitempty"`
 }
 
 // LogDir is one log directory of a broker.
@@ -153,7 +172,12 @@ func (c *Client) Snapshot(ctx context.Context, opts SnapshotOptions) (*Snapshot,
 	if err != nil {
 		return nil, fmt.Errorf("metadata: %w", err)
 	}
-	s := &Snapshot{CollectedAt: start, ClusterID: md.Cluster}
+	s := &Snapshot{CollectedAt: start, ClusterID: md.Cluster, ControllerID: md.Controller}
+	apis := c.brokerAPIs(ctx, md.Brokers.NodeIDs())
+	zookeeper := false
+	for _, a := range apis {
+		zookeeper = zookeeper || a.ZooKeeper
+	}
 
 	var (
 		mu       sync.Mutex
@@ -178,7 +202,7 @@ func (c *Client) Snapshot(ctx context.Context, opts SnapshotOptions) (*Snapshot,
 	}
 	topicNames := md.Topics.Names()
 	run("describe cluster", func() (err error) { info, err = c.DescribeCluster(ctx, true); return })
-	if opts.SkipQuorum {
+	if opts.SkipQuorum || zookeeper {
 		s.Skipped = append(s.Skipped, PartQuorum)
 	} else {
 		run("describe quorum", func() (err error) { s.Quorum, err = c.DescribeQuorum(ctx); return })
@@ -229,6 +253,12 @@ func (c *Client) Snapshot(ctx context.Context, opts SnapshotOptions) (*Snapshot,
 		br.Alive = true
 		if b.Rack != nil {
 			br.Rack = *b.Rack
+		}
+		if a, ok := apis[b.NodeID]; ok {
+			br.Version, br.Mode = a.Version, ModeKRaft
+			if a.ZooKeeper {
+				br.Mode = ModeZooKeeper
+			}
 		}
 	}
 
@@ -350,6 +380,7 @@ func (c *Client) Snapshot(ctx context.Context, opts SnapshotOptions) (*Snapshot,
 		return a.Topic < b.Topic || (a.Topic == b.Topic && a.Partition < b.Partition)
 	})
 	s.Groups = groups
+	s.Summarize()
 	s.FillEmpty()
 	sort.Strings(s.Errors)
 	s.DurationMs = time.Since(start).Milliseconds()
@@ -382,8 +413,12 @@ func (c *Client) ShareGroupNames(ctx context.Context) map[string]bool {
 	if err != nil {
 		return out
 	}
-	for name := range listed {
-		out[name] = true
+	// Brokers before Kafka 3.8 (ListGroups v5) drop the type filter and list every group, without
+	// a type.
+	for name, g := range listed {
+		if g.GroupType == GroupTypeShare {
+			out[name] = true
+		}
 	}
 	return out
 }

@@ -2,6 +2,7 @@
 
 import {
   ActionIcon,
+  Alert,
   Checkbox,
   Group,
   Menu,
@@ -37,6 +38,7 @@ import { HostMultiSelect, HostSelect } from '../../components/nodes/HostSelect';
 import { usePlanner } from '../../components/operations/plannerContext';
 import { diskUsedPercent } from '../../lib/distribution';
 import { formatBytes, formatNumber, formatPercent } from '../../lib/format';
+import { brokersByVersion, modeLabel } from '../../lib/kafkaMode';
 import { diskUsageColor } from '../../lib/status';
 import { BrokerConfigsDrawer } from './BrokerConfigsDrawer';
 import { useClusterContext } from './clusterContext';
@@ -91,8 +93,30 @@ function DiskUsage({ broker }: { broker: Broker }) {
   );
 }
 
+function BrokerVersion({ broker, mixed }: { broker: Broker; mixed: boolean }) {
+  if (!broker.version) {
+    return (
+      <Text size="sm" c="dimmed">
+        —
+      </Text>
+    );
+  }
+  const details = [
+    broker.versionExact ? 'Reported by brokerium-agent' : 'Estimated from the protocol versions the broker supports',
+    broker.mode && `${modeLabel(broker.mode)} mode`,
+    broker.interBrokerProtocolVersion && `inter.broker.protocol.version ${broker.interBrokerProtocolVersion}`,
+  ].filter(Boolean);
+  return (
+    <Tooltip label={details.join(' · ')} withArrow multiline maw={320}>
+      <Text size="sm" ff="monospace" c={mixed ? 'yellow.8' : undefined}>
+        {broker.version}
+      </Text>
+    </Tooltip>
+  );
+}
+
 export default function BrokersTab() {
-  const { snapshot, cluster } = useClusterContext();
+  const { snapshot, cluster, view } = useClusterContext();
   const planner = usePlanner();
   const [configBroker, setConfigBroker] = useState<number | null>(null);
   const [dialog, setDialog] = useState<BrokerDialog | null>(null);
@@ -157,14 +181,22 @@ export default function BrokersTab() {
         </Group>
       </Group>
 
+      {snapshot.mixedVersions && (
+        <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={18} />} title="Mixed Kafka versions">
+          The brokers run different Kafka versions: {brokersByVersion(brokers, view.health.versions)}. Finish or roll back
+          the upgrade before other changes.
+        </Alert>
+      )}
+
       <Paper withBorder radius="md">
-        <Table.ScrollContainer minWidth={1100}>
+        <Table.ScrollContainer minWidth={1180}>
           <Table highlightOnHover verticalSpacing="sm">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>ID</Table.Th>
                 <Table.Th>Host</Table.Th>
                 <Table.Th>Rack</Table.Th>
+                <Table.Th>Version</Table.Th>
                 <Table.Th>Status</Table.Th>
                 <Table.Th ta="right">Replicas</Table.Th>
                 <Table.Th ta="right">Leaders</Table.Th>
@@ -188,6 +220,9 @@ export default function BrokersTab() {
                       </Text>
                     </Table.Td>
                     <Table.Td>{b.rack || <Text c="dimmed">—</Text>}</Table.Td>
+                    <Table.Td>
+                      <BrokerVersion broker={b} mixed={snapshot.mixedVersions} />
+                    </Table.Td>
                     <Table.Td>
                       <BrokerStateBadges broker={b} />
                     </Table.Td>
@@ -329,7 +364,7 @@ export default function BrokersTab() {
         opened={dialog?.kind === 'restart'}
         onClose={close}
         title="Rolling restart"
-        description="Restarts nodes one at a time; each restart waits for the health gate (no offline or under-replicated partitions, quorum caught up)."
+        description="Restarts nodes one at a time; each restart waits for the health gate (no offline or under-replicated partitions, no fenced broker, quorum caught up)."
         planning={planner.pendingKey === 'rolling-restart'}
         onPlan={() =>
           planner.plan('rolling-restart', {

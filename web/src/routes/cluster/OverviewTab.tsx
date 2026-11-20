@@ -4,15 +4,42 @@ import { Alert, Anchor, Group, SimpleGrid, Stack, Table, Text, ThemeIcon } from 
 import { IconAlertTriangle, IconCircleCheck } from '@tabler/icons-react';
 import { Link } from 'react-router';
 
+import type { Broker, Health } from '../../api/types';
 import { SeverityBadge } from '../../components/badges';
 import { FeaturesTable } from '../../components/FeaturesTable';
 import { ReplicaList } from '../../components/ReplicaList';
 import { StatCard } from '../../components/StatCard';
 import { formatNumber, formatPercent } from '../../lib/format';
+import { brokerSettings, isZooKeeperBased } from '../../lib/kafkaMode';
 import { faultTolerance, kraftVersionOf, quorumKindLabel } from '../../lib/quorum';
 import { bySeverity } from '../../lib/status';
 import { useClusterContext } from './clusterContext';
 import { Section } from './common';
+
+function ZooKeeperController({ health, brokers }: { health: Health; brokers: Broker[] }) {
+  const zookeeper = brokerSettings(brokers, (b) => b.zookeeperConnect);
+  const protocols = brokerSettings(brokers, (b) => b.interBrokerProtocolVersion);
+  return (
+    <Stack gap="sm">
+      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+        <StatCard
+          label="Active controller"
+          value={health.controller < 0 ? 'none' : `broker ${health.controller}`}
+          color={health.controller < 0 ? 'red' : undefined}
+        />
+        <StatCard label="inter.broker.protocol.version" value={protocols.join(', ') || '—'} />
+      </SimpleGrid>
+      {zookeeper.length > 0 && (
+        <Text size="sm">
+          ZooKeeper{' '}
+          <Text span size="sm" ff="monospace">
+            {zookeeper.join(', ')}
+          </Text>
+        </Text>
+      )}
+    </Stack>
+  );
+}
 
 export default function OverviewTab() {
   const { view, snapshot, clusterId } = useClusterContext();
@@ -20,6 +47,7 @@ export default function OverviewTab() {
   const issues = [...(h.issues ?? [])].sort(bySeverity);
   const quorum = snapshot?.quorum;
   const base = `/clusters/${encodeURIComponent(clusterId)}`;
+  const zookeeperController = !quorum && isZooKeeperBased(h.mode);
 
   return (
     <Stack gap="md">
@@ -80,7 +108,7 @@ export default function OverviewTab() {
         </Section>
 
         <Section
-          title="Controller quorum"
+          title={zookeeperController ? 'Controller' : 'Controller quorum'}
           actions={
             quorum ? (
               <Anchor component={Link} to={`${base}/controllers`} size="sm">
@@ -89,7 +117,9 @@ export default function OverviewTab() {
             ) : undefined
           }
         >
-          {quorum ? (
+          {zookeeperController ? (
+            <ZooKeeperController health={h} brokers={snapshot?.brokers ?? []} />
+          ) : quorum ? (
             <SimpleGrid cols={{ base: 2, sm: 3 }} spacing="sm">
               <StatCard label="Leader" value={quorum.leaderId < 0 ? 'none' : quorum.leaderId} color={quorum.leaderId < 0 ? 'red' : undefined} />
               <StatCard label="Epoch" value={formatNumber(quorum.leaderEpoch)} />
@@ -118,9 +148,11 @@ export default function OverviewTab() {
         </Section>
       </SimpleGrid>
 
-      <Section title="Features" description={`metadata.version ${h.metadataVersion || 'unknown'}`}>
-        <FeaturesTable features={snapshot?.features ?? []} />
-      </Section>
+      {!(zookeeperController && (snapshot?.features.length ?? 0) === 0) && (
+        <Section title="Features" description={`metadata.version ${h.metadataVersion || 'unknown'}`}>
+          <FeaturesTable features={snapshot?.features ?? []} />
+        </Section>
+      )}
 
       {snapshot && snapshot.reassignments.length > 0 && (
         <Section title="Ongoing reassignments" description={`${snapshot.reassignments.length} partitions are moving`}>

@@ -133,6 +133,25 @@ describe('cluster tabs', () => {
     expect(tabs).toContain('topics');
   });
 
+  it('keeps the data plane and placement of ZooKeeper-based clusters', () => {
+    const zookeeper = caps({
+      cordon: false,
+      unregisterBrokers: false,
+      describeQuorum: false,
+      removeVoters: false,
+      finalizeFeatures: false,
+    });
+    const tabs = visibleClusterTabs(zookeeper);
+    expect(tabs).not.toContain('controllers');
+    expect(tabs).not.toContain('upgrade');
+    expect(tabs).toEqual(expect.arrayContaining(['brokers', 'topics', 'distribution', 'groups', 'security', 'operations']));
+    expect(operationAvailability('rebalance', zookeeper).allowed).toBe(true);
+    expect(operationAvailability('elect-leaders', zookeeper).allowed).toBe(true);
+    expect(operationAvailability('drain-broker', zookeeper).reason).toContain('broker cordoning');
+    expect(operationAvailability('unregister-broker', zookeeper).allowed).toBe(false);
+    expect(operationAvailability('finalize-upgrade', zookeeper).allowed).toBe(false);
+  });
+
   it('lists only the security sections the cluster supports', () => {
     expect(securitySections(caps({ manageScram: false }))).toEqual(['acls', 'quotas']);
   });

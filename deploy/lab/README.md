@@ -13,11 +13,29 @@ Local Kafka clusters in Docker for developing and testing Brokerium. Requires Do
 | `alpha-replace` | broker 106 | joins alpha | `localhost:19106` |
 | `beta` | controller 1, broker 101 | dynamic, `--standalone` | `localhost:29101` |
 | `gamma` | controllers 1-3, broker 101 | static, stock image entrypoint | `localhost:39101` |
+| `delta` | ZooKeeper `delta-zk`, brokers 101-103 (racks a, b, c) on Kafka 3.5.2 | ZooKeeper mode | `localhost:61101-61103` |
+| `epsilon` | ZooKeeper `epsilon-zk`, brokers 101-103 (racks a, b, c) on Kafka 3.9.2 | ZooKeeper mode | `localhost:62101-62103` |
 
 PostgreSQL for Brokerium always starts: `postgres://brokerium:brokerium@localhost:55432/brokerium`.
 
 Inside the Docker network brokers listen on `<service>:9092` and controllers on `<service>:9093`.
-Every cluster has its own `CLUSTER_ID` (see `compose.yaml`).
+Every KRaft cluster has its own `CLUSTER_ID` (see `compose.yaml`).
+
+## ZooKeeper-based clusters
+
+`delta` and `epsilon` run brokers in ZooKeeper mode with one ZooKeeper 3.8 each, the
+`AclAuthorizer` with `allow.everyone.if.no.acl.found=true` and `super.users=User:ANONYMOUS`,
+replication factor 3 and `min.insync.replicas` 2. Their brokers start through
+`kafka/start-zk-broker.sh`. The `apache/kafka` images start at 3.7.0, so the brokers of `delta`
+run `brokerium-lab/kafka:3.5.2`, which compose builds from the Apache release with
+`kafka/Dockerfile` and checks against the SHA-512 in `compose.yaml`. The download from
+archive.apache.org can be slow; a tarball placed in `kafka/dist/` is used instead. `epsilon`
+runs `apache/kafka:3.9.2`. Their host listeners sit above the port bases of Docker clusters
+(21000-59000).
+
+```bash
+deploy/lab/lab.sh up delta epsilon         # or: make lab-up PROFILES="delta epsilon"
+```
 
 ## Commands
 

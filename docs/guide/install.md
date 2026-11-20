@@ -4,6 +4,10 @@ Brokerium is one server (`brokerium-server`: API, dashboard, operations engine) 
 PostgreSQL database, plus an optional agent (`brokerium-agent`) on Kafka hosts you want
 Brokerium to manage at the node level.
 
+It works with existing clusters from Apache Kafka 3.5.0, in KRaft or ZooKeeper mode, and creates
+clusters from Kafka 4.2.0; what it offers depends on the mode and the versions of the brokers
+([Kafka versions and modes](clusters.md#kafka-versions-and-modes)).
+
 This guide installs the Community edition. Brokerium Enterprise installs the same way from its own
 image and binaries and needs a license key; see [Editions and license keys](enterprise.md).
 
@@ -68,7 +72,7 @@ docker run -d --name brokerium -p 8080:8080 -p 8443:8443 \
   -v brokerium-data:/var/lib/brokerium \
   -e BROKERIUM_ADMIN_PASSWORD=change-me \
   -e BROKERIUM_DATABASE_URL='postgres://brokerium:secret@db.example.com:5432/brokerium?sslmode=require' \
-  bvaliev/brokerium-server:0.3.1
+  bvaliev/brokerium-server:0.3.2
 ```
 
 Keep `/var/lib/brokerium` on a volume or set `BROKERIUM_SECRET_KEY`: the server refuses to
@@ -77,7 +81,7 @@ start when the database was sealed with another key.
 Images are published to Docker Hub as `bvaliev/brokerium-server` and `bvaliev/brokerium-agent`
 for `linux/amd64` and `linux/arm64`, and Brokerium Enterprise as
 `bvaliev/brokerium-server-enterprise` with the same tags. To build them from source, run
-`make images VERSION=0.3.1` (add `EDITION=enterprise` for the Enterprise server image).
+`make images VERSION=0.3.2` (add `EDITION=enterprise` for the Enterprise server image).
 
 #### Docker clusters
 
@@ -96,7 +100,7 @@ docker run -d --name brokerium --network brokerium-lab -p 8080:8080 -p 8443:8443
   -e BROKERIUM_ADMIN_PASSWORD=change-me \
   -e BROKERIUM_DATABASE_URL='postgres://brokerium:brokerium@brokerium-db:5432/brokerium?sslmode=disable' \
   -e BROKERIUM_DOCKER_AGENT_ENDPOINT=brokerium:8443 \
-  bvaliev/brokerium-server:0.3.1
+  bvaliev/brokerium-server:0.3.2
 ```
 
 - The server runs as the non-root user 65532, so it needs the group of the socket. On Linux that
@@ -124,6 +128,16 @@ offers them only in this setup. `GET /api/v1/server` reports whether it does and
 
 Release assets contain `brokerium-server-<os>-<arch>` with the dashboard built in, and
 `brokerium-server-enterprise-<os>-<arch>` for Brokerium Enterprise.
+
+### Licenses and notices
+
+`THIRD_PARTY_NOTICES` lists the third-party software in Brokerium, the Go modules of the binaries
+and the npm packages of the dashboard, with their versions, licenses and license texts; `NOTICE`
+reproduces their notice files. Both come with `LICENSE` (and `LICENSE-enterprise` for Brokerium
+Enterprise) in `/licenses` of every image and as assets of every release, covered by
+`SHA256SUMS`. The dashboard shows the same files on the **Licenses** page, linked at the bottom of
+the sidebar. The lab node image of Docker clusters also keeps the `LICENSE`, `NOTICE` and
+`licenses/` of Apache Kafka in `/opt/kafka`.
 
 ### Configuration
 
@@ -212,10 +226,19 @@ name, advertised host and role, and Kafka is not touched.
 
 Installer variables: `BROKERIUM_AGENT_VERSION` (release tag), `BROKERIUM_AGENT_URL` (download
 from your own mirror) with `BROKERIUM_AGENT_SHA256` (its expected checksum),
-`BROKERIUM_AGENT_KAFKA_DATA_DIR` (log.dirs, default `/var/lib/kafka/data`), and
+`BROKERIUM_AGENT_KAFKA_DATA_DIR` (the Kafka data directory, below), and
 `BROKERIUM_AGENT_TRANSPORT`, `BROKERIUM_AGENT_TLS` and `BROKERIUM_AGENT_CA_FILE` for
 [agents behind a TLS-terminating proxy](#agents-behind-a-tls-terminating-proxy). Binaries from
 GitHub releases are always checked against the `SHA256SUMS` of the release.
+
+`BROKERIUM_AGENT_KAFKA_DATA_DIR` is the directory where Kafka stores its data, by default
+`/var/lib/kafka/data`: an absolute path of letters, digits and `._/@:+-`. The script creates it
+and lets the agent write to it. The agent reports it, and Brokerium configures it as `log.dirs`
+of the Kafka node on the host, so Kafka writes where the agent formats storage, measures the disk
+and wipes data. Choose it before the host runs Kafka: when it changes later, the node is
+configured with the new, empty directory at its next restart and does not start. Agents before
+0.3.2 do not report the directory, so their nodes get `/var/lib/kafka/data`; adopted nodes keep
+the `log.dirs` of their own `server.properties`.
 
 ### What the installer sets up
 
@@ -225,9 +248,9 @@ GitHub releases are always checked against the `SHA256SUMS` of the release.
 | `brokerium-agent` | system account without login, member of `kafka` | Runs the agent. |
 | `/var/lib/brokerium-agent` | `brokerium-agent`, 0711 | Agent state: identity, client certificate and key (0600), `server.properties`, `kafka.env`. Kafka writes its logs to `logs/`. |
 | `/opt/brokerium/kafka` | `brokerium-agent:kafka`, 0755 | Kafka releases the agent installed; `current` points at the active one. |
-| `/var/lib/kafka/data` | `kafka:kafka`, 2770 | Kafka data. New files belong to the `kafka` group, through which the agent formats and wipes storage. |
+| `/var/lib/kafka/data` (`BROKERIUM_AGENT_KAFKA_DATA_DIR`) | `kafka:kafka`, 2770 | Kafka data, the `log.dirs` of the node. New files belong to the `kafka` group, through which the agent formats and wipes storage. |
 | `brokerium-kafka.service` | root | `User=kafka`, `UMask=0007`, heap options from `kafka.env`, starts the release behind `current`. `SuccessExitStatus=143`: Kafka exits with 143 after a controlled shutdown, so a stopped node is inactive, not failed. Not enabled: after a host reboot the agent starts it when Kafka was running before, and a node stopped from Brokerium stays stopped. |
-| `brokerium-agent.service` | root | `User=brokerium-agent`, `SupplementaryGroups=kafka`, `ProtectSystem=full`, `ProtectHome=yes`, `PrivateTmp=yes`. |
+| `brokerium-agent.service` | root | `User=brokerium-agent`, `SupplementaryGroups=kafka`, `ProtectSystem=full`, `ProtectHome=yes`, `PrivateTmp=yes`. `Restart=always` with `RestartPreventExitStatus=6`: an agent whose node was [deleted](#remove-an-agent) stays stopped. |
 | `/etc/sudoers.d/brokerium-agent` | root, 0440 | The sudo rule below. |
 
 The agent controls Kafka through one sudo rule (the path of `systemctl` is the one on the
@@ -405,4 +428,40 @@ configuration and never formats storage; the server binds the node to the cluste
 you. A node with `process.roles=broker,controller` becomes a
 [combined node](clusters.md#combined-nodes). The agent reads that `server.properties`
 and the `meta.properties` of the first log directory as `brokerium-agent`, so both must be
-readable for the `kafka` group or for everyone.
+readable for the `kafka` group or for everyone. Agents on the brokers of a ZooKeeper-based
+cluster report the exact Kafka release of their node; node operations need KRaft.
+
+### Remove an agent
+
+Delete the node on the **Nodes** page, or with `DELETE /api/v1/nodes/<node id>` (role operator).
+Brokerium refuses a node that runs a broker or a controller of a cluster, whether its agent is
+connected or not: decommission it first (**Decommission** or **Replace** on the **Brokers** tab,
+**Remove voter** on the **Controllers** tab), which stops Kafka on the host and releases the node. A
+combined node is deleted once it left its cluster ([combined nodes](clusters.md#combined-nodes)).
+
+Deleting the node ends the session of its agent. The agent logs that its node was deleted and
+exits with status 6, which its unit lists in `RestartPreventExitStatus`: systemd does not start it
+again and shows `brokerium-agent.service` as failed with `status=6/NOTCONFIGURED`. Every other
+failure, such as a lost connection or a server restart, still makes the agent connect again. Agents
+of the [insecure transport](#agents-behind-a-tls-terminating-proxy) stop only on an answer signed
+by the server. Kafka on the host is left as it is.
+
+The dashboard then shows the command that removes the agent from the host:
+
+```bash
+curl -fsSL https://brokerium.example.com/api/v1/agent/uninstall.sh | sudo sh -s -- --stop-kafka
+```
+
+The script removes `brokerium-agent.service`, `/usr/local/bin/brokerium-agent`, the sudo rule,
+`/etc/brokerium-agent.env`, `/var/lib/brokerium-agent` (the identity of the agent and the
+configuration and logs of Kafka) and the `brokerium-agent` account; the `kafka` account stays. It
+prints what it removed, and running it again removes what is left.
+
+| Option | Effect |
+| --- | --- |
+| `--stop-kafka` | Stops `brokerium-kafka.service` when it runs. Kafka runs from the configuration in the agent state, so without this option the script changes nothing while Kafka runs. The unit of Kafka is removed with the agent. |
+| `--remove-kafka` | Removes the Kafka releases in `/opt/brokerium/kafka`. |
+| `--delete-data` | Deletes the Kafka data directory, `BROKERIUM_AGENT_KAFKA_DATA_DIR` of `/etc/brokerium-agent.env` (default `/var/lib/kafka/data`). Once that file is gone, pass the directory after `sudo`: `sudo BROKERIUM_AGENT_KAFKA_DATA_DIR=/data/kafka sh -s -- --delete-data`. |
+
+Agents before 0.3.2 keep connecting after their node was deleted, and units written by earlier
+install scripts restart a newer agent every five seconds; the uninstall script removes both.

@@ -24,12 +24,14 @@ rules are in [CONTRIBUTING.md](../CONTRIBUTING.md).
 | `internal/config`, `internal/version` | Environment configuration, build version |
 | `internal/edition` | Edition of the build, catalog of Enterprise features, license manager interface |
 | `internal/webui` | Embedded dashboard build output |
+| `internal/tools/notices` | Generator of `THIRD_PARTY_NOTICES` and of the third-party section of `NOTICE` (`make notices`) |
+| `notices.go` | Embeds `LICENSE`, `NOTICE` and `THIRD_PARTY_NOTICES` into the server for the Licenses page |
 | `ee/` | Brokerium Enterprise server code (build tag `enterprise`): `ee.Setup`, `ee/licensing` (license keys and their manager) |
 | `web/` | React + TypeScript dashboard (Vite, Mantine, TanStack Query) |
 | `web/src/ee`, `web/src/ee-community` | Enterprise dashboard code and its Community stand-in, imported as `@ee` |
 | `api/openapi.yaml` | Public REST API description |
 | `proto/brokerium/agent/v1` | Agent protocol (generated Go code is committed) |
-| `deploy/lab` | Docker Compose lab (alpha, beta, gamma), `strimzi/` (kind + Strimzi), `vm/` (systemd hosts), `gencerts/` |
+| `deploy/lab` | Docker Compose lab (KRaft clusters alpha, beta, gamma; ZooKeeper-based delta, epsilon), `strimzi/` (kind + Strimzi), `vm/` (systemd hosts), `gencerts/` |
 | `deploy/docker`, `deploy/helm` | Images (server, agent, lab node) and their Docker Hub texts in `hub/`, Helm chart |
 | `docs/guide` | User guide: install, clusters, operations, security |
 | `docs/adr`, `docs/runbooks` | Architecture decisions, operating procedures |
@@ -44,6 +46,7 @@ activate mise in your shell.
 | --- | --- |
 | `make lab-up` | Start PostgreSQL and Kafka cluster alpha (3 controllers + 3 brokers, dynamic quorum) |
 | `make lab-up PROFILES="alpha beta gamma"` | Start more lab clusters |
+| `make lab-up PROFILES="delta epsilon"` | Start the ZooKeeper-based clusters on Kafka 3.5.2 and 3.9.2 |
 | `make lab-down` / `make lab-reset` | Stop the lab / stop and delete all lab volumes |
 | `make dev` | Run the server on the host against the lab (http://localhost:8080), with Docker clusters (`BROKERIUM_DOCKER_PROVIDER=on`) |
 | `make web-dev` | Vite dev server for the dashboard with API proxy |
@@ -52,6 +55,7 @@ activate mise in your shell.
 | `make test` | Unit tests (Go and web), the Go tests for both editions |
 | `make lint` | golangci-lint for both editions and web lint |
 | `make proto` | Regenerate the agent protocol code |
+| `make notices` | Regenerate `THIRD_PARTY_NOTICES` and the third-party section of `NOTICE` after a dependency change |
 | `make lab-certs` | Throwaway CA and certificates for the SASL and SSL listeners of beta |
 | `make images` | Build the server, agent and lab node images locally |
 | `make e2e` | End-to-end scenarios against a running lab and server |
@@ -121,20 +125,23 @@ BROKERIUM_METRICS_TOKEN=e2e-metrics-token ./bin/brokerium-server-enterprise
 BROKERIUM_E2E_METRICS_TOKEN=e2e-metrics-token go test -tags e2e,enterprise -count=1 -run TestEnterprise ./test/e2e
 ```
 
-In CI, the `e2e` workflow runs on pull requests, nightly and on demand, in three parallel jobs:
+In CI, the `e2e` workflow runs on pull requests, nightly and on demand, in four parallel jobs:
 
 - `api`: the scenarios against beta and the small Docker cluster `ci-small`, then the scenario of
   agents behind OpenResty;
 - `docker-clusters`: the scenarios that create Docker clusters. Their agents download the Kafka
   releases they install from a mirror on the runner (`BROKERIUM_KAFKA_MIRROR`), which serves
   archives cached from the Apache mirrors;
+- `zookeeper`: the scenarios against the ZooKeeper-based lab clusters delta and epsilon, which
+  they register themselves; the Kafka 3.5.2 release for the image of delta is cached;
 - `enterprise`: the Enterprise scenarios against beta.
 
 Pull requests skip the jobs their changes do not need, for example changes of the documentation,
 the dashboard or the Helm chart, and the job `e2e`, the required check, passes when every other
 job passed or was skipped. Each Community scenario belongs to one job (`API_SCENARIOS`,
-`PROXY_SCENARIOS` and `DOCKER_SCENARIOS` in the workflow), and the `api` job fails for a scenario
-that is in none of them; the `enterprise` job does the same for `ENTERPRISE_SCENARIOS`. The `e2e-strimzi` workflow runs `TestStrimzi` on a kind cluster nightly,
+`PROXY_SCENARIOS`, `DOCKER_SCENARIOS` and `ZOOKEEPER_SCENARIOS` in the workflow), and the `api`
+job fails for a scenario that is in none of them; the `enterprise` job does the same for
+`ENTERPRISE_SCENARIOS`. The `e2e-strimzi` workflow runs `TestStrimzi` on a kind cluster nightly,
 on demand and on pull requests that change the Strimzi support.
 
 ## Lab
@@ -143,7 +150,13 @@ The clusters, ports and node ids are described in [deploy/lab/README.md](../depl
 A few facts that matter while developing:
 
 - Node ids: controllers `1..5`, brokers `101..106`. The host listener of broker `N` is
-  `localhost:<cluster base port + N>` (alpha 19000, beta 29000, gamma 39000).
+  `localhost:<cluster base port + N>` (alpha 19000, beta 29000, gamma 39000, delta 61000,
+  epsilon 62000).
+- delta (Kafka 3.5.2) and epsilon (Kafka 3.9.2) run in ZooKeeper mode with one ZooKeeper and
+  brokers 101-103 each. apache/kafka images start at 3.7.0, so compose builds the image of delta
+  from the Apache release (`deploy/lab/kafka/Dockerfile`, SHA-512 pinned in `compose.yaml`); a
+  tarball in `deploy/lab/kafka/dist/` saves the slow download from archive.apache.org.
+  `TestZooKeeperClusters` registers both clusters itself.
 - The lab needs about 6 CPUs and 16 GB of memory for Docker; JVM heaps are 512 MB for brokers
   and 384 MB for controllers. Start only the profiles you need.
 - Docker clusters created by the Docker provider get their own port base and use the lab node
@@ -162,8 +175,9 @@ A few facts that matter while developing:
 A tag `vX.Y.Z` publishes a release:
 
 - the `release` workflow attaches the binaries of both editions, the Helm chart
-  `brokerium-X.Y.Z.tgz`, `SHA256SUMS` and an SBOM to the GitHub release, with the notes of the
-  matching section of `CHANGELOG.md`;
+  `brokerium-X.Y.Z.tgz`, `LICENSE`, `LICENSE-enterprise`, `NOTICE`, `THIRD_PARTY_NOTICES`,
+  `SHA256SUMS` and an SBOM to the GitHub release, with the notes of the matching section of
+  `CHANGELOG.md`;
 - it pushes the chart to `oci://ghcr.io/brokerium/charts` and runs the `helm-repo` workflow,
   which rebuilds the index of https://charts.brokerium.kaufen (GitHub Pages) from the charts of
   all releases;

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -34,7 +35,13 @@ const (
 // HealthGateArgs configure the health gate.
 type HealthGateArgs struct {
 	AllowUnderReplicated bool `json:"allowUnderReplicated,omitempty"`
-	TimeoutSeconds       int  `json:"timeoutSeconds,omitempty"`
+	// ExpectFenced are the brokers the operation stops or replaces itself: they may be fenced
+	// or offline.
+	ExpectFenced []int32 `json:"expectFenced,omitempty"`
+	// Receivers are the brokers that receive replicas in the data move after the gate: the gate
+	// stops while a volume of one of them is full. Gates without receivers ignore disks.
+	Receivers      []int32 `json:"receivers,omitempty"`
+	TimeoutSeconds int     `json:"timeoutSeconds,omitempty"`
 }
 
 // ReassignArgs are the target assignments of one batch.
@@ -118,8 +125,12 @@ func aliveBrokers(v *cluster.View) map[int32]bool {
 	return out
 }
 
-// HealthProblems lists the reasons a cluster fails the health gate.
-func HealthProblems(h cluster.Health, allowURP bool) []string {
+// HealthProblems lists the reasons a cluster fails the health gate: offline partitions,
+// partitions under min.insync.replicas or under-replicated, no controller or lagging voters,
+// fenced brokers the operation does not expect and full volumes of the brokers that receive
+// replicas next.
+func HealthProblems(v *cluster.View, args HealthGateArgs) []string {
+	h := v.Health
 	var p []string
 	if h.OfflinePartitions > 0 {
 		p = append(p, fmt.Sprintf("%d offline partition(s)", h.OfflinePartitions))
@@ -127,7 +138,7 @@ func HealthProblems(h cluster.Health, allowURP bool) []string {
 	if h.UnderMinISR > 0 {
 		p = append(p, fmt.Sprintf("%d partition(s) under min.insync.replicas", h.UnderMinISR))
 	}
-	if h.UnderReplicated > 0 && !allowURP {
+	if h.UnderReplicated > 0 && !args.AllowUnderReplicated {
 		p = append(p, fmt.Sprintf("%d under-replicated partition(s)", h.UnderReplicated))
 	}
 	if h.Voters > 0 && h.QuorumLeader < 0 {
@@ -135,6 +146,28 @@ func HealthProblems(h cluster.Health, allowURP bool) []string {
 	}
 	if h.VotersLagging > 0 {
 		p = append(p, fmt.Sprintf("%d lagging controller voter(s)", h.VotersLagging))
+	}
+	if cluster.ZooKeeperBased(h.Mode) && h.Controller < 0 {
+		p = append(p, "no active controller")
+	}
+	if v.Snapshot == nil {
+		return p
+	}
+	var down, full []string
+	for _, b := range v.Snapshot.Brokers {
+		if (b.Fenced || !b.Alive) && !slices.Contains(args.ExpectFenced, b.ID) {
+			down = append(down, fmt.Sprint(b.ID))
+		}
+		if used := cluster.DiskUsedPercent(b); used >= cluster.DiskFullPercent && slices.Contains(args.Receivers, b.ID) {
+			full = append(full, fmt.Sprintf("%d (%.0f%%)", b.ID, used))
+		}
+	}
+	if len(down) > 0 {
+		p = append(p, fmt.Sprintf("broker(s) %s fenced or offline", strings.Join(down, ", ")))
+	}
+	if len(full) > 0 {
+		p = append(p, fmt.Sprintf("broker(s) %s receive replicas next and have volumes at least %d%% full",
+			strings.Join(full, ", "), cluster.DiskFullPercent))
 	}
 	return p
 }
@@ -155,7 +188,7 @@ func stepHealthGate(ctx context.Context, x *Exec, raw json.RawMessage) (any, err
 		if err != nil {
 			problems = []string{err.Error()}
 		} else {
-			problems = HealthProblems(v.Health, args.AllowUnderReplicated)
+			problems = HealthProblems(v, args)
 			if len(v.Snapshot.Reassignments) > 0 {
 				problems = append(problems, fmt.Sprintf("%d reassignment(s) in progress", len(v.Snapshot.Reassignments)))
 			}

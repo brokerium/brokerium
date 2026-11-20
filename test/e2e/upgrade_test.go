@@ -15,7 +15,7 @@ import (
 // finalize metadata.version afterwards.
 func TestRollingUpgrade(t *testing.T) {
 	heavy(t)
-	from, to := env("BROKERIUM_E2E_UPGRADE_FROM", "4.3.1"), env("BROKERIUM_E2E_UPGRADE_TO", "4.4.0")
+	from, to := env("BROKERIUM_E2E_UPGRADE_FROM", labKafkaVersion), env("BROKERIUM_E2E_UPGRADE_TO", "4.4.0")
 	c := newClient(t)
 	name := uniqueName("e2e-upgrade-")
 	id := dockerCluster(t, c, name, map[string]any{"controllers": 3, "brokers": 3, "version": from})
