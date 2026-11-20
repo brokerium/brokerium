@@ -130,6 +130,8 @@ make dev         # Brokerium server on http://localhost:8080
 - [Security](docs/guide/security.md): users, roles, sessions, credentials, the agent channel
 - [Editions and license keys](docs/guide/enterprise.md): Community and Enterprise, adding a
   license key
+- [Monitoring](docs/guide/monitoring.md): charts from your Prometheus and a metrics endpoint
+  (Enterprise)
 - [REST API](api/openapi.yaml) (OpenAPI 3.1)
 - [Runbooks](docs/runbooks/) and the lab scenarios they automate
 - [Architecture decisions](docs/adr/) and the [roadmap](docs/ROADMAP.md)

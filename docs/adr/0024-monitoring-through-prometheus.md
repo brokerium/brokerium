@@ -20,18 +20,21 @@ metrics next to the cluster instead of storing a second copy.
   (`BROKERIUM_PROMETHEUS_USERNAME`, `BROKERIUM_PROMETHEUS_PASSWORD_FILE`,
   `BROKERIUM_PROMETHEUS_TOKEN_FILE`, `BROKERIUM_PROMETHEUS_CA_FILE`; Helm values
   `monitoring.prometheus.*`). The environment takes precedence; stored credentials are sealed like
-  cluster credentials.
+  cluster credentials in the shared table `installation_settings`.
 - **Cluster selector.** Each cluster has a PromQL label selector. By default it matches the
   exporter targets of its brokers, `instance=~"host1:9141|host2:9141"`, built from the broker
-  addresses and the exporter port (9141 unless set for the cluster). An admin can replace it, for
-  example with `job="kafka-eu"`.
+  addresses and the exporter port (9141 unless set for the cluster), plus the controllers whose
+  endpoints the quorum reports, because in KRaft the active controller and offline partitions are
+  metrics of the controllers. An admin can replace it, for example with `job="kafka-eu"`; it lives
+  in the table `cluster_monitoring`, not in the cluster settings that operators edit.
 - **Profiles.** Panels use the metric names of the JMX exporter's example configurations
   `kafka-2_0_0.yml` and `kafka-kraft-3_0_0.yml` with `lowercaseOutputName: true`, for example
   `kafka_server_brokertopicmetrics_bytesin_total`,
   `kafka_server_replicamanager_underreplicatedpartitions` and
   `kafka_network_requestmetrics_totaltimems{quantile="0.99"}`. JVM metrics differ between exporter
-  0.x (`jvm_memory_bytes_used`) and 1.x (`jvm_memory_used_bytes`); the server detects which one a
-  cluster exports and whether the KRaft metrics are present.
+  0.x (`jvm_memory_bytes_used`) and 1.x (`jvm_memory_used_bytes`), and 1.x adds `_total` to
+  counters such as the idle time of the request handlers; the server detects which one a cluster
+  exports and whether the KRaft metrics are present, and caches the answer for five minutes.
 - **Queries.** The server runs range queries for a fixed set of panels: bytes in and out,
   messages in, produce and fetch request rates and their 99th percentile, partitions, leaders,
   under-replicated and offline partitions, ISR shrinks and expands, the active controller, request
@@ -40,9 +43,10 @@ metrics next to the cluster instead of storing a second copy.
 - **Server metrics.** `GET /metrics` (Enterprise) exposes for every cluster its health and
   reachability, the problems by code and severity, consumer group lag per topic, the estimated
   rates, disk usage, and the under-replicated, offline and under-min-ISR partitions. It needs the
-  bearer token `BROKERIUM_METRICS_TOKEN` and is off without it. The Helm chart can create a
-  ServiceMonitor with that token. Prometheus then keeps the history of what only Brokerium
-  computes, such as consumer group lag.
+  bearer token `BROKERIUM_METRICS_TOKEN` or `BROKERIUM_METRICS_TOKEN_FILE` and answers 404
+  without one. Other Enterprise features add their metrics through a registry, such as the
+  problems by code and severity. The Helm chart can create a ServiceMonitor with that token.
+  Prometheus then keeps the history of what only Brokerium computes, such as consumer group lag.
 
 ## Consequences
 

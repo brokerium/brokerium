@@ -6,7 +6,16 @@
   "definitions": {
     "hostname": { "type": "string", "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?\\.)*[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
     "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
-    "stringMap": { "type": "object", "additionalProperties": { "type": "string" } }
+    "stringMap": { "type": "object", "additionalProperties": { "type": "string" } },
+    "secretKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "An entry of an existing Secret; empty name means none.",
+      "properties": {
+        "name": { "type": "string" },
+        "key": { "type": "string", "pattern": "^[-._a-zA-Z0-9]+$" }
+      }
+    }
   },
   "properties": {
     "global": { "type": "object" },
@@ -50,6 +59,55 @@
           "type": "string",
           "pattern": "^(\\s*brk-lic-1\\.[\\s\\S]+)?$",
           "description": "The license key, stored in the chart's Secret."
+        }
+      }
+    },
+    "monitoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prometheus": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Prometheus that the Monitoring tab queries; takes precedence over the data source of the dashboard.",
+          "properties": {
+            "url": {
+              "type": "string",
+              "pattern": "^(https?://[^?#]+)?$",
+              "description": "Base URL of the Prometheus HTTP API."
+            },
+            "username": { "type": "string", "description": "Username of basic authentication." },
+            "passwordSecret": { "$ref": "#/definitions/secretKey" },
+            "tokenSecret": { "$ref": "#/definitions/secretKey" },
+            "caSecret": { "$ref": "#/definitions/secretKey" }
+          }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "GET /metrics of Brokerium Enterprise with a bearer token.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "token": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "existingSecret": { "type": "string", "description": "Secret with the token in the entry key." },
+            "key": { "type": "string", "pattern": "^[-._a-zA-Z0-9]+$" },
+            "value": { "type": "string", "description": "The token, stored in the chart's Secret; empty generates one." }
+          }
+        },
+        "serviceMonitor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "interval": { "type": "string", "pattern": "^([0-9]+(ms|s|m|h))+$" },
+            "scrapeTimeout": { "type": "string", "pattern": "^(([0-9]+(ms|s|m|h))+)?$" },
+            "labels": { "$ref": "#/definitions/stringMap" }
+          }
         }
       }
     },

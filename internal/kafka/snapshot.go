@@ -128,6 +128,8 @@ type Group struct {
 	Lag          int64    `json:"lag"`
 	Topics       []string `json:"topics"`
 	Error        string   `json:"error,omitempty"`
+	// TopicLag is the lag per topic; the dashboard does not need it.
+	TopicLag map[string]int64 `json:"-"`
 }
 
 // SnapshotOptions controls optional, more expensive parts of a snapshot.
@@ -468,13 +470,17 @@ func (c *Client) groupSummaries(ctx context.Context, maxGroups int) ([]Group, er
 			if err := l.Error(); err != nil {
 				g.Error = err.Error()
 			}
+			g.TopicLag = make(map[string]int64, len(l.Lag))
 			for topic, parts := range l.Lag {
 				g.Topics = append(g.Topics, topic)
+				var lag int64
 				for _, pl := range parts {
 					if pl.Lag > 0 {
-						g.Lag += pl.Lag
+						lag += pl.Lag
 					}
 				}
+				g.Lag += lag
+				g.TopicLag[topic] = lag
 			}
 			sort.Strings(g.Topics)
 		}
@@ -516,13 +522,17 @@ func (c *Client) shareSummaries(ctx context.Context, names []string) map[string]
 				topics[t] = true
 			}
 		}
+		g.TopicLag = map[string]int64{}
 		for t, parts := range offsets[name].Offsets {
 			topics[t] = true
+			var lag int64
 			for _, o := range parts {
 				if o.Lag > 0 {
-					g.Lag += o.Lag
+					lag += o.Lag
 				}
 			}
+			g.Lag += lag
+			g.TopicLag[t] = lag
 		}
 		for t := range topics {
 			g.Topics = append(g.Topics, t)

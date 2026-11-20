@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# Chart CI: render Enterprise monitoring with a bearer token for Prometheus and the token of
+# GET /metrics from an existing Secret, without a ServiceMonitor.
+edition: enterprise
+existingSecret: brokerium
+monitoring:
+  prometheus:
+    url: http://prometheus-operated.monitoring.svc:9090/prometheus
+    tokenSecret:
+      name: prometheus-token
+metrics:
+  enabled: true
+  token:
+    existingSecret: brokerium-metrics
+    key: scrape-token

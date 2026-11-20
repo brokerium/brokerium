@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# Chart CI: render Enterprise monitoring with a Prometheus behind basic authentication and a private
+# CA, GET /metrics with a generated token and a ServiceMonitor.
+edition: enterprise
+monitoring:
+  prometheus:
+    url: https://prometheus.monitoring.svc:9090
+    username: brokerium
+    passwordSecret:
+      name: prometheus-credentials
+      key: password
+    caSecret:
+      name: prometheus-ca
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s
+    labels:
+      release: kube-prometheus-stack

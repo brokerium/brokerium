@@ -12,10 +12,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/brokerium/brokerium/internal/cluster"
 	"github.com/brokerium/brokerium/internal/config"
 	"github.com/brokerium/brokerium/internal/edition"
+	"github.com/brokerium/brokerium/internal/metrics"
 	"github.com/brokerium/brokerium/internal/ops"
 )
 
@@ -69,11 +73,13 @@ func TestSetup(t *testing.T) {
 	defer cancel()
 	log := slog.New(slog.DiscardHandler)
 	engine := ops.New(nil, nil, nil, log)
-	exts, err := Setup(ctx, Deps{Config: config.Server{License: "brk-lic-1.x.y"}, Engine: engine, Log: log})
+	deps := Deps{Config: config.Server{License: "brk-lic-1.x.y"}, Clusters: cluster.New(nil, nil, log), Engine: engine,
+		Sampler: metrics.NewSampler(time.Minute), Log: log}
+	exts, err := Setup(ctx, deps)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(exts) != 1 || !slices.ContainsFunc(engine.Types(), func(op ops.OpType) bool { return op.Type == "copy-messages" }) {
+	if len(exts) != 3 || !slices.ContainsFunc(engine.Types(), func(op ops.OpType) bool { return op.Type == "copy-messages" }) {
 		t.Errorf("Setup returned %d extensions and registered %d operation types", len(exts), len(engine.Types()))
 	}
 	m := edition.CurrentManager()
@@ -85,5 +91,9 @@ func TestSetup(t *testing.T) {
 	}
 	if edition.Name != edition.Enterprise {
 		t.Errorf("edition.Name = %s in an Enterprise build", edition.Name)
+	}
+	deps.Config.Prometheus = config.Prometheus{Username: "brokerium"}
+	if _, err := Setup(ctx, deps); err == nil || !strings.Contains(err.Error(), "BROKERIUM_PROMETHEUS_URL") {
+		t.Errorf("Setup with Prometheus credentials but no URL: %v", err)
 	}
 }

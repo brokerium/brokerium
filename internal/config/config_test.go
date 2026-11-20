@@ -175,6 +175,36 @@ func TestDefaultAgentImage(t *testing.T) {
 	}
 }
 
+func TestMonitoringSettings(t *testing.T) {
+	t.Setenv("BROKERIUM_DATA_DIR", t.TempDir())
+	t.Setenv("BROKERIUM_SECRET_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	c, err := LoadServer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Prometheus.Set() || c.MetricsToken != "" || c.MetricsTokenFile != "" {
+		t.Errorf("defaults: Prometheus %+v, token %q, token file %q", c.Prometheus, c.MetricsToken, c.MetricsTokenFile)
+	}
+	t.Setenv("BROKERIUM_PROMETHEUS_URL", " https://prometheus.example.com/ ")
+	t.Setenv("BROKERIUM_PROMETHEUS_USERNAME", "brokerium")
+	t.Setenv("BROKERIUM_PROMETHEUS_PASSWORD_FILE", "/run/secrets/password")
+	t.Setenv("BROKERIUM_PROMETHEUS_TOKEN_FILE", "/run/secrets/token")
+	t.Setenv("BROKERIUM_PROMETHEUS_CA_FILE", "/run/secrets/ca.crt")
+	t.Setenv("BROKERIUM_METRICS_TOKEN", " scrape-token\n")
+	t.Setenv("BROKERIUM_METRICS_TOKEN_FILE", "/run/secrets/metrics-token")
+	if c, err = LoadServer(); err != nil {
+		t.Fatal(err)
+	}
+	want := Prometheus{URL: "https://prometheus.example.com/", Username: "brokerium", PasswordFile: "/run/secrets/password",
+		TokenFile: "/run/secrets/token", CAFile: "/run/secrets/ca.crt"}
+	if c.Prometheus != want || !c.Prometheus.Set() {
+		t.Errorf("Prometheus = %+v, want %+v", c.Prometheus, want)
+	}
+	if c.MetricsToken != "scrape-token" || c.MetricsTokenFile != "/run/secrets/metrics-token" {
+		t.Errorf("metrics token %q, file %q", c.MetricsToken, c.MetricsTokenFile)
+	}
+}
+
 func TestKafkaMirror(t *testing.T) {
 	tests := []struct {
 		name, mirror, want string

@@ -32,6 +32,9 @@ env:
   DOCKER_SCENARIOS: TestScaleOutAndBalance|TestNodeLifecycle|TestMigrateStaticQuorum|TestRollingUpgrade|TestCombinedNodes
   ZOOKEEPER_SCENARIOS: TestZooKeeperClusters
   OTHER_SCENARIOS: TestStrimzi|TestAgentVMs
+  # The scenarios of the Enterprise build (tags e2e,enterprise); the enterprise job fails for one
+  # without a job.
+  ENTERPRISE_SCENARIOS: TestEnterpriseMessageTools|TestEnterpriseMonitoring
 
 jobs:
   changes:
@@ -361,13 +364,25 @@ jobs:
         with:
           install: true
           install_args: go
+      - name: Every Enterprise scenario has a job
+        run: |
+          scenarios=$(go test -tags e2e,enterprise -list . ./test/e2e)
+          missing=$(grep '^Test' <<< "$scenarios" |
+            grep -vxE "$API_SCENARIOS|$PROXY_SCENARIOS|$DOCKER_SCENARIOS|$OTHER_SCENARIOS|$ENTERPRISE_SCENARIOS" || true)
+          if [ -n "$missing" ]; then
+            echo "::error::Scenarios that no job of e2e.yml runs: $(tr '\n' ' ' <<< "$missing")"
+            exit 1
+          fi
       - name: Lab (PostgreSQL and beta)
         run: docker compose -f deploy/lab/compose.yaml --profile beta up -d --wait postgres beta-c1 beta-b1
       # licensetest makes the server trust the public test signing key, with which the scenarios
       # sign their license keys. The scenarios use the API only, so there is no dashboard build.
       - name: Build
         run: go build -tags enterprise,licensetest -o bin/brokerium-server-enterprise ./cmd/brokerium-server
+      # TestEnterpriseMonitoring scrapes GET /metrics with this token.
       - name: Start the server
+        env:
+          BROKERIUM_METRICS_TOKEN: e2e-metrics-token
         run: |
           nohup ./bin/brokerium-server-enterprise > server.log 2>&1 &
           for _ in $(seq 1 60); do curl -fs localhost:8080/readyz && break; sleep 1; done
@@ -377,7 +392,9 @@ jobs:
           api -d '{"username":"admin","password":"brokerium-admin"}' localhost:8080/api/v1/auth/login > /dev/null
           api -d '{"name":"beta","bootstrapServers":["localhost:29101"]}' localhost:8080/api/v1/clusters > /dev/null
       - name: Scenarios
-        run: go test -tags e2e,enterprise -count=1 -timeout 10m -v -run '^TestEnterprise' ./test/e2e
+        env:
+          BROKERIUM_E2E_METRICS_TOKEN: e2e-metrics-token
+        run: go test -tags e2e,enterprise -count=1 -timeout 10m -v -run "^($ENTERPRISE_SCENARIOS)$" ./test/e2e
       - name: Diagnostics
         if: failure()
         run: |

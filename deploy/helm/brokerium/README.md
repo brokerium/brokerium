@@ -58,6 +58,58 @@ helm upgrade --install brokerium brokerium/brokerium -n brokerium \
 Keys are verified offline and the server never reports usage. See
 [editions and license keys](https://github.com/brokerium/brokerium/blob/main/docs/guide/enterprise.md).
 
+### Monitoring
+
+With the Enterprise feature `monitoring`, the **Monitoring** tab of every cluster charts the metrics
+that your Prometheus collects from the JMX exporters of the brokers, and `GET /metrics` exposes the
+health, consumer group lag, traffic estimates and disk usage of all clusters to Prometheus. Both
+need `edition: enterprise`; see the
+[monitoring guide](https://github.com/brokerium/brokerium/blob/main/docs/guide/monitoring.md).
+
+```yaml
+edition: enterprise
+monitoring:
+  prometheus:
+    url: http://prometheus-operated.monitoring.svc:9090
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    labels:
+      release: kube-prometheus-stack
+```
+
+| Value | Default | Description |
+| --- | --- | --- |
+| `monitoring.prometheus.url` | `""` | Base URL of the Prometheus HTTP API (`BROKERIUM_PROMETHEUS_URL`). Set, it takes precedence over the data source of the **Monitoring** page, which shows it read-only. |
+| `monitoring.prometheus.username` | `""` | Username of basic authentication. |
+| `monitoring.prometheus.passwordSecret.name`, `.key` | `""`, `password` | Existing Secret with the password of basic authentication, mounted as `BROKERIUM_PROMETHEUS_PASSWORD_FILE`. |
+| `monitoring.prometheus.tokenSecret.name`, `.key` | `""`, `token` | Existing Secret with a bearer token instead, mounted as `BROKERIUM_PROMETHEUS_TOKEN_FILE`. |
+| `monitoring.prometheus.caSecret.name`, `.key` | `""`, `ca.crt` | Existing Secret with the PEM CA certificate of Prometheus, mounted as `BROKERIUM_PROMETHEUS_CA_FILE`. |
+| `metrics.enabled` | `false` | Turns on `GET /metrics` with a bearer token, mounted as `BROKERIUM_METRICS_TOKEN_FILE`. |
+| `metrics.token.existingSecret`, `.key` | `""`, `token` | Existing Secret with the token. Required with `existingSecret`. |
+| `metrics.token.value` | `""` | The token, stored in the chart's Secret as `metrics-token`; empty generates one that upgrades keep. |
+| `metrics.serviceMonitor.enabled` | `false` | Creates a ServiceMonitor (`monitoring.coreos.com/v1`) that scrapes `/metrics` of the ClusterIP service with the token. |
+| `metrics.serviceMonitor.interval`, `.scrapeTimeout` | `60s`, `""` | Scrape interval and timeout; an empty timeout uses the default of Prometheus. |
+| `metrics.serviceMonitor.labels` | `{}` | Labels that the `serviceMonitorSelector` of your Prometheus matches. |
+
+The server reads the mounted files on every use, so a replaced Secret takes effect without a
+restart. Without the Prometheus Operator, scrape the service yourself:
+
+```bash
+kubectl -n brokerium get secret brokerium -o jsonpath='{.data.metrics-token}' | base64 -d
+```
+
+```yaml
+scrape_configs:
+  - job_name: brokerium
+    metrics_path: /metrics
+    authorization:
+      credentials_file: /etc/prometheus/secrets/brokerium-metrics-token
+    static_configs:
+      - targets: [brokerium.brokerium.svc:8080]
+```
+
 ## Networking
 
 The server listens on two ports, and on a third with `agents.insecure.enabled`:

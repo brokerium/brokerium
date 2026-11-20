@@ -67,13 +67,12 @@ func testSigningKey(t *testing.T) ed25519.PrivateKey {
 	return ed25519.NewKeyFromSeed(seed)
 }
 
-// signLicense signs a license key with the key id of the test key that covers the message tools
-// for a day.
-func signLicense(t *testing.T, priv ed25519.PrivateKey) string {
+// signLicense signs a license key with the key id of the test key that covers features for a day.
+func signLicense(t *testing.T, priv ed25519.PrivateKey, features ...string) string {
 	t.Helper()
 	now := time.Now()
 	key, err := licensing.Sign(licensing.Claims{V: licensing.Version, ID: uniqueName("e2e-"), KID: "test",
-		Customer: e2eCustomer, Email: "e2e@example.com", Edition: edition.Enterprise, Features: []string{edition.MessageTools},
+		Customer: e2eCustomer, Email: "e2e@example.com", Edition: edition.Enterprise, Features: features,
 		IssuedAt: now, NotBefore: now.Add(-time.Hour), ExpiresAt: now.Add(24 * time.Hour)}, priv)
 	if err != nil {
 		t.Fatal(err)
@@ -197,11 +196,11 @@ func TestEnterpriseMessageTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status, raw := c.send("PUT", "/api/v1/license", map[string]string{"key": signLicense(t, other)}); status != http.StatusBadRequest ||
+	if status, raw := c.send("PUT", "/api/v1/license", map[string]string{"key": signLicense(t, other, edition.MessageTools)}); status != http.StatusBadRequest ||
 		errorCode(raw) != "invalid_license" {
 		t.Errorf("a key of another signing key: %d %s, want 400 invalid_license", status, raw)
 	}
-	if status, raw := c.send("PUT", "/api/v1/license", map[string]string{"key": signLicense(t, testSigningKey(t))}); status != http.StatusOK {
+	if status, raw := c.send("PUT", "/api/v1/license", map[string]string{"key": signLicense(t, testSigningKey(t), edition.MessageTools)}); status != http.StatusOK {
 		t.Fatalf("adding a key of the test key: %d %s; is the server built with -tags enterprise,licensetest?", status, raw)
 	}
 	t.Cleanup(func() { c.do("DELETE", "/api/v1/license", nil, nil) })

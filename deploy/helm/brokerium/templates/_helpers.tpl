@@ -50,6 +50,40 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- end -}}
 
+{{/* Secret and entry with the token of GET /metrics. */}}
+{{- define "brokerium.metricsTokenSecret" -}}
+{{- if .Values.metrics.token.existingSecret -}}
+{{- .Values.metrics.token.existingSecret -}}
+{{- else if .Values.existingSecret -}}
+{{- fail "metrics.token.existingSecret is required with existingSecret, which replaces the chart's Secret" -}}
+{{- else -}}
+{{- include "brokerium.fullname" . -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "brokerium.metricsTokenKey" -}}
+{{- ternary .Values.metrics.token.key "metrics-token" (ne .Values.metrics.token.existingSecret "") -}}
+{{- end -}}
+
+{{/* Checks the monitoring values, which only the Enterprise image reads. */}}
+{{- define "brokerium.checkMonitoring" -}}
+{{- with .Values.monitoring.prometheus -}}
+{{- $credentials := or .username .passwordSecret.name .tokenSecret.name .caSecret.name -}}
+{{- if and $credentials (not .url) -}}
+{{- fail "monitoring.prometheus credentials need monitoring.prometheus.url" -}}
+{{- end -}}
+{{- if and .tokenSecret.name (or .username .passwordSecret.name) -}}
+{{- fail "monitoring.prometheus.tokenSecret (bearer) cannot be combined with username and passwordSecret (basic)" -}}
+{{- end -}}
+{{- if and .passwordSecret.name (not .username) -}}
+{{- fail "monitoring.prometheus.passwordSecret needs monitoring.prometheus.username" -}}
+{{- end -}}
+{{- end -}}
+{{- if and (ne .Values.edition "enterprise") (or .Values.monitoring.prometheus.url .Values.metrics.enabled) -}}
+{{- fail "monitoring.prometheus and metrics are features of Brokerium Enterprise: set edition to enterprise" -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "brokerium.lbHostname" -}}
 {{- if .Values.loadBalancer.enabled }}{{ .Values.loadBalancer.hostname }}{{ end -}}
 {{- end -}}

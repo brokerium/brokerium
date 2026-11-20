@@ -1,0 +1,31 @@
+{{/* SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0 */}}
+{{- with .Values.metrics }}
+{{- if and .enabled .serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "brokerium.fullname" $ }}
+  labels:
+    {{- include "brokerium.labels" $ | nindent 4 }}
+    {{- with .serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "brokerium.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: server
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .serviceMonitor.interval }}
+      {{- with .serviceMonitor.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ include "brokerium.metricsTokenSecret" $ }}
+          key: {{ include "brokerium.metricsTokenKey" $ }}
+{{- end }}
+{{- end }}

@@ -52,6 +52,7 @@ tags:
   - name: users
   - name: audit
   - name: license
+  - name: monitoring
 
 paths:
   /healthz:
@@ -76,6 +77,28 @@ paths:
           content:
             text/plain:
               schema: { type: string, const: ready }
+        "503": { $ref: "#/components/responses/Error" }
+  /metrics:
+    get:
+      tags: [monitoring]
+      summary: Metrics of all clusters for Prometheus
+      description: >-
+        Brokerium Enterprise, feature `monitoring`. The Prometheus text format with the health,
+        reachability, brokers, partitions at risk, disk usage, estimated traffic, consumer group lag
+        and active operations of every cluster, plus the metrics that other Enterprise features add.
+        Needs the bearer token of `BROKERIUM_METRICS_TOKEN` or `BROKERIUM_METRICS_TOKEN_FILE`; without
+        one the endpoint answers 404, with a wrong one 401, and without a license that covers
+        `monitoring` 403 `license_required`.
+      security: [{ metricsToken: [] }]
+      responses:
+        "200":
+          description: The metrics.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
   /api/v1/version:
     get:
@@ -313,6 +336,92 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Rates" }
+  /api/v1/clusters/{id}/monitoring:
+    parameters: [{ $ref: "#/components/parameters/ClusterId" }]
+    get:
+      tags: [monitoring]
+      summary: Monitoring of a cluster
+      description: >-
+        Brokerium Enterprise, feature `monitoring`. Role: viewer. Whether a Prometheus data source
+        is configured, the selector of the cluster, the profile of its exporters (detected and
+        cached for five minutes) and the panels the Monitoring tab can show.
+      responses:
+        "200":
+          description: The monitoring of the cluster.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClusterMonitoring" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      tags: [monitoring]
+      summary: Change the selector of a cluster
+      description: >-
+        Brokerium Enterprise, feature `monitoring`. Role: admin. Replaces the selector of the
+        cluster or the port of its exporters; empty values restore the defaults. Audited as
+        `cluster.monitoring.update`.
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MonitoringSelectorRequest" }
+      responses:
+        "200":
+          description: The monitoring of the cluster with the new selector.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClusterMonitoring" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/clusters/{id}/monitoring/panels/{panel}:
+    parameters:
+      - { $ref: "#/components/parameters/ClusterId" }
+      - name: panel
+        in: path
+        required: true
+        description: A panel id from `GET /api/v1/clusters/{id}/monitoring`, for example `cluster-bytes`.
+        schema: { type: string }
+    get:
+      tags: [monitoring]
+      summary: Query a panel
+      description: >-
+        Brokerium Enterprise, feature `monitoring`. Role: viewer. Runs the fixed PromQL queries of
+        the panel with the selector of the cluster against Prometheus. Either `range` or `start`
+        with optional `end` and `step`, at most 31 days and 1000 points per series; at most 50
+        series. Answers 409 `monitoring_not_configured` without a data source, 409 `no_selector`
+        while the brokers are unknown, 502 when Prometheus fails (`prometheus_unreachable`,
+        `prometheus_refused`, `prometheus_query`, `prometheus_response`) and 504
+        `prometheus_timeout`.
+      parameters:
+        - name: range
+          in: query
+          schema: { type: string, enum: ["1h", "6h", "24h", "7d"], default: "1h" }
+        - name: start
+          in: query
+          description: RFC 3339 or Unix seconds.
+          schema: { type: string }
+        - name: end
+          in: query
+          description: RFC 3339 or Unix seconds; now by default.
+          schema: { type: string }
+        - name: step
+          in: query
+          description: Seconds or a duration such as `30s`; by default the range divided into 300 points.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The series of the panel.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PanelData" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "504": { $ref: "#/components/responses/Error" }
   /api/v1/clusters/{id}/brokers/{broker}/configs:
     parameters:
       - { $ref: "#/components/parameters/ClusterId" }
@@ -1307,6 +1416,80 @@ paths:
         "204": { description: Removed. }
         "409": { $ref: "#/components/responses/LicenseConflict" }
 
+  /api/v1/monitoring:
+    get:
+      tags: [monitoring]
+      summary: Monitoring settings of the installation
+      description: >-
+        Brokerium Enterprise, feature `monitoring`. Role: admin. The Prometheus data source without
+        its credentials and whether `GET /metrics` is on.
+      responses:
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MonitoringSettings" }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/monitoring/source:
+    put:
+      tags: [monitoring]
+      summary: Set the Prometheus data source
+      description: >-
+        Brokerium Enterprise, feature `monitoring`. Role: admin. Stores the data source with its
+        credentials sealed. A missing `password` or `token` keeps the stored one while the
+        authentication stays the same. Answers 409 `monitoring_managed_externally` when
+        `BROKERIUM_PROMETHEUS_URL` sets the source. Audited as `monitoring.source.update` without
+        credentials.
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PrometheusSourceRequest" }
+      responses:
+        "200":
+          description: The settings with the stored source.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MonitoringSettings" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [monitoring]
+      summary: Remove the stored Prometheus data source
+      description: >-
+        Brokerium Enterprise, feature `monitoring`. Role: admin. Answers 409
+        `monitoring_managed_externally` when `BROKERIUM_PROMETHEUS_URL` sets the source. Audited as
+        `monitoring.source.delete`.
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      responses:
+        "204": { description: Removed. }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/monitoring/source/test:
+    post:
+      tags: [monitoring]
+      summary: Test a Prometheus data source
+      description: >-
+        Brokerium Enterprise, feature `monitoring`. Role: admin. Runs `vector(1)` against the
+        settings of the request and asks for the version; missing credentials come from the stored
+        source. Without `url`, or when the environment sets the source, it tests the source in
+        use. Failures are reported in the result, not as an HTTP error.
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PrometheusSourceRequest" }
+      responses:
+        "200":
+          description: The result of the test.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PrometheusTestResult" }
+        "403": { $ref: "#/components/responses/Error" }
+
 components:
   securitySchemes:
     sessionCookie:
@@ -1317,6 +1500,10 @@ components:
       type: http
       scheme: bearer
       description: The session token returned by `POST /api/v1/auth/login`.
+    metricsToken:
+      type: http
+      scheme: bearer
+      description: The token of `BROKERIUM_METRICS_TOKEN` or `BROKERIUM_METRICS_TOKEN_FILE`, for `GET /metrics` only.
 
   parameters:
     CSRF:
@@ -1856,6 +2043,174 @@ components:
       properties:
         bytesInPerSec: { type: number }
         messagesInPerSec: { type: number }
+
+    MonitoringSettings:
+      type: object
+      required: [source, metricsEndpoint]
+      properties:
+        source: { $ref: "#/components/schemas/PrometheusSource" }
+        metricsEndpoint:
+          type: object
+          required: [enabled]
+          properties:
+            enabled: { type: boolean, description: "`GET /metrics` has a token." }
+            tokenSource:
+              type: string
+              enum: [environment, file]
+              description: "`BROKERIUM_METRICS_TOKEN` or `BROKERIUM_METRICS_TOKEN_FILE`."
+            error: { type: string, description: Why the token file cannot be read. }
+    PrometheusSource:
+      type: object
+      description: The data source in use, without its credentials.
+      required: [configured, origin, url, auth, username, passwordSet, tokenSet, caPem, insecureSkipVerify, timeoutSeconds]
+      properties:
+        configured: { type: boolean }
+        origin:
+          type: string
+          enum: [none, environment, database]
+          description: "`BROKERIUM_PROMETHEUS_URL` or the source stored through this API."
+        url: { type: string }
+        auth: { type: string, enum: [none, basic, bearer] }
+        username: { type: string }
+        passwordSet: { type: boolean }
+        tokenSet: { type: boolean }
+        caPem: { type: string }
+        insecureSkipVerify: { type: boolean }
+        timeoutSeconds: { type: integer }
+        updatedAt: { type: string, format: date-time }
+        updatedBy: { type: string }
+        error: { type: string, description: "Why the source cannot be used, for example an unreadable credentials file." }
+    PrometheusSourceRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          description: >-
+            Base URL of the Prometheus HTTP API, http or https, with an optional path prefix and
+            without credentials, query or fragment.
+        auth: { type: string, enum: [none, basic, bearer], default: none }
+        username: { type: string, description: For basic authentication. }
+        password: { type: string, format: password, writeOnly: true }
+        token: { type: string, format: password, writeOnly: true, description: For bearer authentication. }
+        caPem: { type: string, description: PEM certificates that sign the certificate of Prometheus. }
+        insecureSkipVerify: { type: boolean }
+        timeoutSeconds: { type: integer, minimum: 0, maximum: 300, description: "0 means 30 seconds." }
+    PrometheusTestResult:
+      type: object
+      required: [ok, durationMs]
+      properties:
+        ok: { type: boolean }
+        version: { type: string, description: "The version that Prometheus reports, if it does." }
+        durationMs: { type: integer }
+        error: { type: string }
+    MonitoringSelectorRequest:
+      type: object
+      properties:
+        selector:
+          type: string
+          description: >-
+            PromQL label matchers such as `job="kafka-eu"`, optionally in braces, without
+            `__name__`; empty restores the default selector.
+        exporterPort:
+          type: integer
+          minimum: 0
+          maximum: 65535
+          description: Port of the JMX exporter for the default selector; 0 means 9141.
+    ClusterMonitoring:
+      type: object
+      required: [source, selector, profile, panels, ranges]
+      properties:
+        source:
+          type: object
+          required: [configured, origin]
+          properties:
+            configured: { type: boolean }
+            origin: { type: string, enum: [none, environment, database] }
+            error: { type: string }
+        selector:
+          type: object
+          required: [effective, custom, default, exporterPort]
+          properties:
+            effective: { type: string, description: "The selector the panels use: custom, else default." }
+            custom: { type: string }
+            default:
+              type: string
+              description: >-
+                Matches the `instance` label host:port of the exporters on the brokers and on the
+                controllers whose endpoints the quorum reports.
+            exporterPort: { type: integer }
+            updatedAt: { type: string, format: date-time }
+            updatedBy: { type: string }
+        profile:
+          description: Null without a data source or selector.
+          oneOf:
+            - { $ref: "#/components/schemas/MonitoringProfile" }
+            - { type: "null" }
+        panels:
+          type: array
+          items: { $ref: "#/components/schemas/MonitoringPanel" }
+        ranges:
+          type: array
+          items: { type: string, enum: ["1h", "6h", "24h", "7d"] }
+    MonitoringProfile:
+      type: object
+      required: [exporter, heapMetric, kraft, brokers, detectedAt]
+      properties:
+        exporter:
+          type: string
+          enum: ["", "0.x", "1.x"]
+          description: Generation of the JMX exporter; empty when no JVM metric matches the selector.
+        heapMetric: { type: string, examples: [jvm_memory_used_bytes] }
+        kraft: { type: boolean, description: The metrics of the KRaft example configuration are present. }
+        brokers: { type: integer, description: Brokers that export replica manager metrics. }
+        detectedAt: { type: string, format: date-time }
+        error: { type: string, description: Why Prometheus could not be asked. }
+    MonitoringPanel:
+      type: object
+      required: [id, title, section, unit]
+      properties:
+        id: { type: string, examples: [broker-heap] }
+        title: { type: string }
+        section: { type: string, enum: [cluster, broker, topic] }
+        unit:
+          type: string
+          enum: [bytes, bytesPerSecond, messagesPerSecond, requestsPerSecond, perMinute, milliseconds, percent, cores, count]
+        description: { type: string }
+    PanelData:
+      type: object
+      required: [panel, unit, start, end, step, series, truncated]
+      properties:
+        panel: { type: string }
+        unit: { type: string }
+        start: { type: integer, format: int64, description: Unix seconds. }
+        end: { type: integer, format: int64, description: Unix seconds. }
+        step: { type: integer, description: Seconds between points. }
+        series:
+          type: array
+          items:
+            type: object
+            required: [name, labels, points]
+            properties:
+              name:
+                type: string
+                description: >-
+                  The broker or controller behind the instance label, the topic, the request type
+                  or the legend of the query.
+              labels:
+                type: object
+                additionalProperties: { type: string }
+              points:
+                type: array
+                description: Pairs of Unix seconds and a value; missing values are gaps.
+                items:
+                  type: array
+                  prefixItems: [{ type: number }, { type: number }]
+                  minItems: 2
+                  maxItems: 2
+        truncated: { type: boolean, description: More than 50 series matched; the first 50 are returned. }
+        warnings:
+          type: array
+          items: { type: string }
 
     MessageMatch:
       type: object

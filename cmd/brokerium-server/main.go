@@ -45,6 +45,17 @@ func main() {
 	}
 }
 
+// editionDeps are the parts of the server that the features of an edition build on.
+type editionDeps struct {
+	cfg      config.Server
+	store    *store.Store
+	clusters *cluster.Service
+	engine   *ops.Engine
+	box      *secrets.Box
+	sampler  *metrics.Sampler
+	log      *slog.Logger
+}
+
 func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -105,7 +116,8 @@ func run(log *slog.Logger) error {
 		Clusters: clusters, Log: log, Cfg: nodes.Config{AgentEndpoint: cfg.DockerAgentEndpoint, AgentImage: cfg.AgentImage,
 			LabNetwork: cfg.LabNetwork, ServerInContainer: dockerClusters.InContainer(), KafkaMirror: cfg.KafkaMirror}}
 	engine.Extend(nodeManager)
-	editionAPIs, err := setupEdition(ctx, cfg, st, clusters, engine, log)
+	editionAPIs, err := setupEdition(ctx, editionDeps{cfg: cfg, store: st, clusters: clusters, engine: engine, box: box,
+		sampler: sampler, log: log})
 	if err != nil {
 		return err
 	}

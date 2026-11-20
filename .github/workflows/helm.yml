@@ -1,8 +1,9 @@
 name: helm
 
 # Checks the Helm chart: lint, renders of every networking mode validated against the Kubernetes
-# and Gateway API schemas and by a kind API server with the Gateway API 1.5 CRDs, and an install
-# with the bundled PostgreSQL that waits until the server is ready. Runs when the chart changes.
+# and Gateway API schemas and by a kind API server with the Gateway API 1.5 CRDs and the
+# ServiceMonitor CRD of the Prometheus Operator, and an install with the bundled PostgreSQL that
+# waits until the server is ready. Runs when the chart changes.
 on:
   pull_request:
     paths:
@@ -21,6 +22,7 @@ permissions:
 env:
   CHART: deploy/helm/brokerium
   GATEWAY_API_VERSION: v1.5.0
+  PROMETHEUS_OPERATOR_VERSION: v0.95.2
   KUBECONFORM_VERSION: v0.8.0
 
 jobs:
@@ -54,6 +56,7 @@ jobs:
       - name: Validate with the API server
         run: |
           kubectl apply --server-side -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml" > /dev/null
+          kubectl apply --server-side -f "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/${PROMETHEUS_OPERATOR_VERSION}/example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml" > /dev/null
           kubectl wait --for condition=Established --timeout=60s crd --all > /dev/null
           for file in rendered/*.yaml; do
             echo "== $file"

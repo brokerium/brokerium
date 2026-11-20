@@ -35,6 +35,49 @@ license:
   # The key itself, stored in the chart's Secret; not available with existingSecret.
   key: ""
 
+monitoring:
+  # Prometheus that the Monitoring tab of every cluster queries (Brokerium Enterprise, feature
+  # monitoring). Set here, it takes precedence over the data source an administrator stores on the
+  # Monitoring page, which then shows it read-only.
+  prometheus:
+    # Base URL of the Prometheus HTTP API, for example
+    # http://prometheus-operated.monitoring.svc:9090; empty leaves the choice to the dashboard.
+    url: ""
+    # Basic authentication: the username, and an existing Secret with the password.
+    username: ""
+    passwordSecret:
+      name: ""
+      key: password
+    # Bearer authentication instead: an existing Secret with the token.
+    tokenSecret:
+      name: ""
+      key: token
+    # An existing Secret with the PEM certificate of the CA that signs the certificate of
+    # Prometheus, when the system CAs do not.
+    caSecret:
+      name: ""
+      key: ca.crt
+
+# GET /metrics with the health, lag, traffic estimates and disk usage of every cluster
+# (Brokerium Enterprise, feature monitoring). Prometheus scrapes it with a bearer token.
+metrics:
+  enabled: false
+  token:
+    # Existing Secret with the token in the entry key.
+    existingSecret: ""
+    key: token
+    # The token itself, stored in the chart's Secret; empty generates one that upgrades keep. Not
+    # available with existingSecret (the chart's).
+    value: ""
+  # A ServiceMonitor of the Prometheus Operator that scrapes /metrics with the token.
+  serviceMonitor:
+    enabled: false
+    interval: 60s
+    scrapeTimeout: ""
+    # Labels that the serviceMonitorSelector of your Prometheus matches, for example
+    # release: kube-prometheus-stack.
+    labels: {}
+
 database:
   # postgres://user:password@host:5432/brokerium?sslmode=require; ignored when postgresql.enabled.
   url: ""
