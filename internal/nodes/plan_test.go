@@ -308,6 +308,44 @@ func TestBootstrapDocker(t *testing.T) {
 	}
 }
 
+func TestKafkaVersionDefaults(t *testing.T) {
+	t.Parallel()
+	installed := func(steps []ops.StepSpec) []string {
+		var out []string
+		for _, s := range stepsOf(KindInstall, steps) {
+			out = append(out, s.Args.(NodeArgs).Version)
+		}
+		return out
+	}
+	p := plannerFor(&store.Cluster{ID: "c1", Name: "lab", Provider: store.ProviderDocker}, nil)
+	for _, tt := range []struct {
+		version, want string
+	}{
+		{"", DefaultKafkaVersion},
+		{"4.3.1", "4.3.1"},
+	} {
+		planned, err := (&Manager{}).bootstrapPlan(p, fleet{}, bootstrapParams{Controllers: 1, Brokers: 1, Version: tt.version}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		saved := planned.Steps[0].Args.(NodeArgs).Settings.KafkaVersion
+		if got := installed(planned.Steps); saved != tt.want || !slices.Equal(got, []string{tt.want, tt.want}) {
+			t.Errorf("version %q: saved %s, installed %v, want %s", tt.version, saved, got, tt.want)
+		}
+	}
+
+	// A cluster whose settings record no version keeps the release its nodes were created with.
+	unrecorded := agentCluster()
+	delete(unrecorded.Settings, "kafkaVersion")
+	planned, err := addBrokerPlan(plannerFor(unrecorded, runningSnapshot()), runningFleet(), addBrokerParams{Nodes: []brokerChoice{{Node: "f-1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := installed(planned.Steps); !slices.Equal(got, []string{"4.3.1"}) {
+		t.Errorf("add-broker on a cluster without a recorded version installs %v, want 4.3.1", got)
+	}
+}
+
 func TestAddBrokerAgentHosts(t *testing.T) {
 	t.Parallel()
 	p := plannerFor(agentCluster(), runningSnapshot())

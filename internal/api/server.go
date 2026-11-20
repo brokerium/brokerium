@@ -17,6 +17,7 @@ import (
 	"github.com/brokerium/brokerium/internal/auth"
 	"github.com/brokerium/brokerium/internal/cluster"
 	"github.com/brokerium/brokerium/internal/edition"
+	"github.com/brokerium/brokerium/internal/nodes"
 	"github.com/brokerium/brokerium/internal/provider/docker"
 	"github.com/brokerium/brokerium/internal/secrets"
 	"github.com/brokerium/brokerium/internal/store"
@@ -187,13 +188,15 @@ func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 	WriteJSON(w, http.StatusOK, map[string]string{"version": version.Version, "commit": version.Commit, "date": version.Date})
 }
 
-// ServerInfo describes the build and the edition of the server and the providers it offers.
+// ServerInfo describes the build and the edition of the server, the providers it offers and the
+// Kafka release of new clusters.
 type ServerInfo struct {
-	Version   string          `json:"version"`
-	Commit    string          `json:"commit"`
-	Date      string          `json:"date"`
-	Edition   string          `json:"edition"`
-	Providers ServerProviders `json:"providers"`
+	Version             string          `json:"version"`
+	Commit              string          `json:"commit"`
+	Date                string          `json:"date"`
+	Edition             string          `json:"edition"`
+	Providers           ServerProviders `json:"providers"`
+	DefaultKafkaVersion string          `json:"defaultKafkaVersion"`
 }
 
 // ServerProviders tells which providers can create clusters on this server.
@@ -203,7 +206,8 @@ type ServerProviders struct {
 
 func (s *Server) handleServer(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, ServerInfo{Version: version.Version, Commit: version.Commit, Date: version.Date,
-		Edition: edition.Name, Providers: ServerProviders{Docker: s.DockerClusters.Check(r.Context())}})
+		Edition: edition.Name, Providers: ServerProviders{Docker: s.DockerClusters.Check(r.Context())},
+		DefaultKafkaVersion: nodes.DefaultKafkaVersion})
 }
 
 // dockerUnavailable answers 409 docker_unavailable with the reason when the server does not

@@ -360,14 +360,27 @@ func StatusJSON(st *agentv1.NodeStatus) json.RawMessage {
 		"running": st.GetRunning(), "activeVersion": st.GetActiveVersion(), "installedVersions": st.GetInstalledVersions(),
 		"dataBytes": st.GetDataBytes(), "diskFreeBytes": st.GetDiskFreeBytes(), "hostname": st.GetHostname(),
 		"pid": st.GetPid(), "lastExit": st.GetLastExit(), "processRoles": st.GetProcessRoles(),
-		"javaVersion": st.GetJavaVersion(), "adopted": st.GetAdopted(),
+		"javaVersion": st.GetJavaVersion(), "adopted": st.GetAdopted(), "kafkaDataDir": st.GetKafkaDataDir(),
 	}
 	if meta := st.GetMeta(); meta != nil {
 		m["meta"] = map[string]any{"clusterId": meta.GetClusterId(), "nodeId": meta.GetNodeId(),
 			"directoryId": meta.GetDirectoryId(), "formatted": meta.GetFormatted()}
 	}
+	if p := st.GetKafkaProcess(); p != nil {
+		m["kafkaProcess"] = processJSON(p)
+		foreign := make([]map[string]any, 0, len(st.GetForeignKafka()))
+		for _, f := range st.GetForeignKafka() {
+			foreign = append(foreign, processJSON(f))
+		}
+		m["foreignKafka"] = foreign
+	}
 	raw, _ := json.Marshal(m)
 	return raw
+}
+
+func processJSON(p *agentv1.KafkaProcess) map[string]any {
+	return map[string]any{"pid": p.GetPid(), "startTimeMs": p.GetStartTimeMs(), "version": p.GetVersion(),
+		"mixedVersions": p.GetMixedVersions(), "user": p.GetUser()}
 }
 
 func (g *Gateway) saveStatus(ctx context.Context, nodeID string, st *agentv1.NodeStatus) {

@@ -121,7 +121,8 @@ jobs:
           api -d '{"username":"admin","password":"brokerium-admin"}' localhost:8080/api/v1/auth/login > /dev/null
           api -d '{"name":"beta","bootstrapServers":["localhost:29101"]}' localhost:8080/api/v1/clusters > /dev/null
           id=$(api -d '{"name":"ci-small","provider":"docker","skipTest":true,"bootstrapServers":[]}' localhost:8080/api/v1/clusters | jq -r .cluster.id)
-          op=$(api -d '{"type":"bootstrap-cluster","params":{"controllers":1,"brokers":1,"racks":["r1"]}}' "localhost:8080/api/v1/clusters/$id/operations" | jq -r .id)
+          # 4.3.1 is the release of the lab node image, so the nodes start without a download.
+          op=$(api -d '{"type":"bootstrap-cluster","params":{"controllers":1,"brokers":1,"racks":["r1"],"version":"4.3.1"}}' "localhost:8080/api/v1/clusters/$id/operations" | jq -r .id)
           api -d '{}' "localhost:8080/api/v1/operations/$op/confirm" > /dev/null
           for _ in $(seq 1 120); do
             status=$(api "localhost:8080/api/v1/operations/$op" | jq -r .status)

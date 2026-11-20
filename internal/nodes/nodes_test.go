@@ -19,7 +19,7 @@ import (
 func TestRenderController(t *testing.T) {
 	t.Parallel()
 	s := settingsOf(&store.Cluster{Settings: map[string]any{"portBase": 21000}})
-	p := renderProperties(s, true, RoleController, "delta-c1", 1, "", "dynamic", quorumBootstrap([]string{"delta-c1", "delta-c2"}))
+	p := renderProperties(s, true, RoleController, "delta-c1", defaultDataDir, 1, "", "dynamic", quorumBootstrap([]string{"delta-c1", "delta-c2"}))
 	want := map[string]string{
 		"node.id":                             "1",
 		"process.roles":                       "controller",
@@ -41,7 +41,7 @@ func TestRenderController(t *testing.T) {
 func TestRenderBroker(t *testing.T) {
 	t.Parallel()
 	s := settingsOf(&store.Cluster{Settings: map[string]any{"portBase": 21000, "replicationFactor": 1}})
-	p := renderProperties(s, true, RoleBroker, "delta-b101", 101, "rack-a", "static", "1@delta-c1:9093")
+	p := renderProperties(s, true, RoleBroker, "delta-b101", defaultDataDir, 101, "rack-a", "static", "1@delta-c1:9093")
 	want := map[string]string{
 		"process.roles":                    "broker",
 		"advertised.listeners":             "INTERNAL://delta-b101:9092,EXTERNAL://localhost:21101",
@@ -61,14 +61,48 @@ func TestRenderBroker(t *testing.T) {
 func TestRenderAgentNodes(t *testing.T) {
 	t.Parallel()
 	s := settingsOf(&store.Cluster{Settings: map[string]any{"portBase": 21000}})
-	broker := renderProperties(s, false, RoleBroker, "kafka-1.example.net", 101, "", "dynamic", "kafka-c1.example.net:9093")
+	broker := renderProperties(s, false, RoleBroker, "kafka-1.example.net", defaultDataDir, 101, "", "dynamic", "kafka-c1.example.net:9093")
 	if broker["listeners"] != "PLAINTEXT://0.0.0.0:9092" || broker["advertised.listeners"] != "PLAINTEXT://kafka-1.example.net:9092" ||
 		broker["inter.broker.listener.name"] != "PLAINTEXT" {
 		t.Errorf("agent broker listeners: %v / %v", broker["listeners"], broker["advertised.listeners"])
 	}
-	ctrl := renderProperties(s, false, RoleController, "kafka-c1.example.net", 1, "", "dynamic", "kafka-c1.example.net:9093")
+	ctrl := renderProperties(s, false, RoleController, "kafka-c1.example.net", defaultDataDir, 1, "", "dynamic", "kafka-c1.example.net:9093")
 	if ctrl["listeners"] != "CONTROLLER://0.0.0.0:9093" || ctrl["advertised.listeners"] != "CONTROLLER://kafka-c1.example.net:9093" {
 		t.Errorf("agent controller listeners: %v / %v", ctrl["listeners"], ctrl["advertised.listeners"])
+	}
+}
+
+func TestRenderDataDir(t *testing.T) {
+	t.Parallel()
+	s := settingsOf(&store.Cluster{})
+	tests := []struct {
+		name    string
+		docker  bool
+		status  string
+		want    string
+		wantErr bool
+	}{
+		{"agent with its data directory", false, `{"kafkaDataDir":"/data/kafka"}`, "/data/kafka", false},
+		{"agent before 0.3.2", false, `{"running":true}`, defaultDataDir, false},
+		{"agent without status", false, ``, defaultDataDir, false},
+		{"Docker node", true, `{"kafkaDataDir":"/data/kafka"}`, defaultDataDir, false},
+		{"several directories", false, `{"kafkaDataDir":"/data/a,/data/b"}`, "", true},
+		{"relative path", false, `{"kafkaDataDir":"data"}`, "", true},
+	}
+	for _, tt := range tests {
+		n := host("n", "kafka-1", status(tt.status))
+		dir, err := dataDirOf(tt.docker, n)
+		if (err != nil) != tt.wantErr || dir != tt.want {
+			t.Errorf("%s: dataDirOf = %q, %v; want %q, error %v", tt.name, dir, err, tt.want, tt.wantErr)
+			continue
+		}
+		if err != nil {
+			continue
+		}
+		p := renderProperties(s, tt.docker, RoleCombined, "kafka-1.example.com", dir, 1, "", "dynamic", "kafka-1.example.com:9093")
+		if p["log.dirs"] != tt.want {
+			t.Errorf("%s: log.dirs = %q, want %q", tt.name, p["log.dirs"], tt.want)
+		}
 	}
 }
 
@@ -148,7 +182,7 @@ func TestRenderCombined(t *testing.T) {
 			if tt.quorum == "static" {
 				quorum = "3@kafka-1.example.net:9093,4@kafka-2.example.net:9093"
 			}
-			p := renderProperties(s, tt.docker, RoleCombined, tt.host, 3, "rack-a", tt.quorum, quorum)
+			p := renderProperties(s, tt.docker, RoleCombined, tt.host, defaultDataDir, 3, "rack-a", tt.quorum, quorum)
 			common := map[string]string{
 				"node.id":                          "3",
 				"process.roles":                    "broker,controller",
@@ -266,8 +300,8 @@ func TestRenderAdvertisedHosts(t *testing.T) {
 	}
 	m := &Manager{}
 	for _, tt := range tests {
-		broker := renderProperties(s, false, RoleBroker, tt.host, 101, "rack-a", "dynamic", quorumBootstrap([]string{tt.host}))
-		ctrl := renderProperties(s, false, RoleController, tt.host, 1, "", "dynamic", quorumBootstrap([]string{tt.host}))
+		broker := renderProperties(s, false, RoleBroker, tt.host, defaultDataDir, 101, "rack-a", "dynamic", quorumBootstrap([]string{tt.host}))
+		ctrl := renderProperties(s, false, RoleController, tt.host, defaultDataDir, 1, "", "dynamic", quorumBootstrap([]string{tt.host}))
 		switch {
 		case broker["advertised.listeners"] != tt.listener:
 			t.Errorf("%s: broker advertises %q, want %q", tt.host, broker["advertised.listeners"], tt.listener)
@@ -298,7 +332,7 @@ func TestSettingsDefaults(t *testing.T) {
 	t.Parallel()
 	s := settingsOf(&store.Cluster{KafkaClusterID: "abc"})
 	if s.KafkaVersion != "4.3.1" || s.Quorum != "dynamic" || s.ReplicationFactor != 3 || s.MinISR != 2 || s.KafkaClusterID != "abc" {
-		t.Errorf("defaults %+v", s)
+		t.Errorf("defaults %+v; a cluster without a recorded version keeps 4.3.1, not the default of new clusters", s)
 	}
 	round := settingsOf(&store.Cluster{Settings: s.toMap()})
 	if round.KafkaVersion != s.KafkaVersion || round.MinISR != s.MinISR {
