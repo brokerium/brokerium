@@ -32,6 +32,7 @@ breaking changes; they are described in [CHANGELOG.md](CHANGELOG.md).
 
 ## Succession
 
-If the project or its intellectual property is transferred to a company or a new
-owner, that owner takes over the maintainer role, the trademarks and all rights
-granted under the CLA. The transfer is announced in the repository.
+If the maintainer passes the project to a company or a new owner, through an
+exclusive license to its code, the assignment of the licenses received under the CLA
+and the transfer of the trademarks, that company or owner takes over the maintainer
+role. The change is announced in the repository.
