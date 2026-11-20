@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LicenseRef-Brokerium-Commercial
 
+import { IconStethoscope } from '@tabler/icons-react';
 import type { RouteObject } from 'react-router';
 
 import type {
@@ -10,7 +11,8 @@ import type {
   TopicAction,
   TopicTab,
 } from '../lib/edition';
-import { MESSAGE_TOOLS } from './features';
+import { MESSAGE_TOOLS, PROBLEMS } from './features';
+import { ProblemCountsCell } from './problems/ProblemCountsCell';
 import { CopyMessagesAction } from './topic/CopyMessagesAction';
 import { DeleteRecordsAction } from './topic/DeleteRecordsAction';
 import { SearchPanel } from './topic/SearchPanel';
@@ -24,9 +26,17 @@ export const enterpriseRoutes: RouteObject[] = [];
 
 export const navExtensions: NavExtension[] = [];
 
-export const clusterTabs: ClusterTabExtension[] = [];
+export const clusterTabs: ClusterTabExtension[] = [
+  {
+    feature: PROBLEMS,
+    value: 'problems',
+    label: 'Problems',
+    icon: IconStethoscope,
+    load: () => import('./problems/ProblemsTab'),
+  },
+];
 
-export const overviewColumns: OverviewColumn[] = [];
+export const overviewColumns: OverviewColumn[] = [{ feature: PROBLEMS, header: 'Problems', Cell: ProblemCountsCell }];
 
 export const topicActions: TopicAction[] = [
   { feature: MESSAGE_TOOLS, label: 'Copy messages', Component: CopyMessagesAction },

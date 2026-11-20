@@ -18,20 +18,13 @@ import (
 	"github.com/brokerium/brokerium/internal/store"
 )
 
-// Route is an HTTP route of the message tools.
-type Route struct {
-	Pattern string
-	Role    string
-	Handler http.HandlerFunc
-}
-
 // Routes returns the HTTP routes of the message tools; the caller adds the license check.
-func Routes(s *api.Server) []Route {
+func Routes(s *api.Server) []api.Route {
 	h := &handlers{srv: s}
-	return []Route{
-		{"POST /api/v1/clusters/{id}/topics/{topic}/delete-records", store.RoleOperator, h.deleteRecords},
-		{"POST /api/v1/clusters/{id}/topics/{topic}/search", store.RoleViewer, h.search},
-		{"POST /api/v1/clusters/{id}/topics/{topic}/export", store.RoleViewer, h.export},
+	return []api.Route{
+		{Pattern: "POST /api/v1/clusters/{id}/topics/{topic}/delete-records", Role: store.RoleOperator, Handler: h.deleteRecords},
+		{Pattern: "POST /api/v1/clusters/{id}/topics/{topic}/search", Role: store.RoleViewer, Handler: h.search},
+		{Pattern: "POST /api/v1/clusters/{id}/topics/{topic}/export", Role: store.RoleViewer, Handler: h.export},
 	}
 }
 

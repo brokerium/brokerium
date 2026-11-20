@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 
-import type { Capabilities, OperationParams, OperationType, Role } from '../api/types';
+import type { Capabilities, LicenseView, OperationParams, OperationType, Role } from '../api/types';
+import { featureAvailability } from './license';
 
 export type CapabilityKey = Exclude<keyof Capabilities, 'notes'>;
 export type OperationTypeName = keyof OperationParams;
@@ -86,7 +87,10 @@ export function operationAvailability(
   if (serverTypes && !serverTypes.some((t) => t.type === type)) {
     return { allowed: false, reason: 'This Brokerium server does not support this operation' };
   }
-  const missing = missingCapabilities(type, caps, serverTypes);
+  return requiresAvailability(missingCapabilities(type, caps, serverTypes));
+}
+
+function requiresAvailability(missing: CapabilityKey[]): Availability {
   if (missing.length > 0) {
     return {
       allowed: false,
@@ -94,6 +98,28 @@ export function operationAvailability(
     };
   }
   return { allowed: true };
+}
+
+/**
+ * Decides whether an operation that the dashboard knows only by its name from the server, such as
+ * an Enterprise operation, can be offered: the server lists it, the license covers its feature and
+ * the cluster has the capabilities it requires.
+ */
+export function namedOperationAvailability(
+  type: string,
+  caps: Capabilities | undefined,
+  serverTypes: readonly OperationType[] | undefined,
+  license: LicenseView | undefined,
+): Availability {
+  if (!caps) return { allowed: false, reason: 'Cluster capabilities are not known yet' };
+  if (!serverTypes) return { allowed: false, reason: 'The operations of the server are not known yet' };
+  const server = serverTypes.find((t) => t.type === type);
+  if (!server) return { allowed: false, reason: 'This Brokerium server does not support this operation' };
+  if (server.feature) {
+    const licensed = featureAvailability(license, server.feature);
+    if (!licensed.allowed) return licensed;
+  }
+  return requiresAvailability(server.requires.filter(isCapabilityKey).filter((key) => !caps[key]));
 }
 
 export function canOperate(role: Role | undefined): boolean {

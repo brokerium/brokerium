@@ -14,6 +14,7 @@ import (
 
 	"github.com/brokerium/brokerium/ee/licensing"
 	"github.com/brokerium/brokerium/ee/messagetools"
+	"github.com/brokerium/brokerium/ee/problems"
 	"github.com/brokerium/brokerium/internal/api"
 	"github.com/brokerium/brokerium/internal/cluster"
 	"github.com/brokerium/brokerium/internal/config"
@@ -48,13 +49,19 @@ func Setup(ctx context.Context, d Deps) ([]api.Extension, error) {
 	edition.SetManager(m)
 	go m.Run(ctx, evaluateEvery)
 	d.Engine.Register(messagetools.OperationTypes(), messagetools.StepKinds())
-	return []api.Extension{featureRoutes{feature: edition.MessageTools, routes: messagetools.Routes}}, nil
+	findings := problems.New(d.Store, d.Clusters, d.Log)
+	findings.Start(ctx)
+	d.Engine.Register(problems.OperationTypes(), problems.StepKinds())
+	return []api.Extension{
+		featureRoutes{feature: edition.MessageTools, routes: messagetools.Routes},
+		featureRoutes{feature: edition.Problems, routes: findings.Routes},
+	}, nil
 }
 
 // featureRoutes registers the routes of an Enterprise feature behind its license check.
 type featureRoutes struct {
 	feature string
-	routes  func(s *api.Server) []messagetools.Route
+	routes  func(s *api.Server) []api.Route
 }
 
 func (f featureRoutes) Register(s *api.Server) {

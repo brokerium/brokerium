@@ -121,6 +121,30 @@ func TestEvaluateCounters(t *testing.T) {
 	}
 }
 
+func TestWithoutTopics(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	s := healthySnapshot(now)
+	s.Topics[0].Partitions[0].ISR = []int32{101}
+	s.Topics = append(s.Topics, kafka.Topic{Name: "audit", MinISR: 2, Partitions: []kafka.Partition{
+		{ID: 0, Leader: 101, Replicas: []int32{101}, ISR: []int32{101}},
+		{ID: 1, Leader: -1, Replicas: []int32{102}, ISR: []int32{}},
+	}})
+	h := Evaluate(s, now)
+	if h.UnderMinISR != 2 || h.UnderReplicated != 1 || h.OfflinePartitions != 1 {
+		t.Fatalf("counters %+v", h)
+	}
+	if got := WithoutTopics(h, s, []string{"audit"}); got.UnderMinISR != 1 || got.UnderReplicated != 1 || got.OfflinePartitions != 1 {
+		t.Errorf("without audit: %+v", got)
+	}
+	if got := WithoutTopics(h, s, []string{"audit", "orders"}); got.UnderMinISR != 0 || got.UnderReplicated != 0 || got.OfflinePartitions != 1 {
+		t.Errorf("without both topics: %+v", got)
+	}
+	if got := WithoutTopics(h, s, nil); !reflect.DeepEqual(got, h) {
+		t.Errorf("without no topics: %+v", got)
+	}
+}
+
 func TestMetadataVersionName(t *testing.T) {
 	t.Parallel()
 	for level, want := range map[int16]string{7: "3.3-IV3", 21: "3.9-IV0", 30: "4.3-IV0", 33: "4.4-IV2", 99: "level 99"} {

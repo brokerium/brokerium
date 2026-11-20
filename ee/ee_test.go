@@ -14,6 +14,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/brokerium/brokerium/internal/cluster"
 	"github.com/brokerium/brokerium/internal/config"
 	"github.com/brokerium/brokerium/internal/edition"
 	"github.com/brokerium/brokerium/internal/ops"
@@ -69,12 +70,18 @@ func TestSetup(t *testing.T) {
 	defer cancel()
 	log := slog.New(slog.DiscardHandler)
 	engine := ops.New(nil, nil, nil, log)
-	exts, err := Setup(ctx, Deps{Config: config.Server{License: "brk-lic-1.x.y"}, Engine: engine, Log: log})
+	exts, err := Setup(ctx, Deps{Config: config.Server{License: "brk-lic-1.x.y"}, Clusters: cluster.New(nil, nil, log),
+		Engine: engine, Log: log})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(exts) != 1 || !slices.ContainsFunc(engine.Types(), func(op ops.OpType) bool { return op.Type == "copy-messages" }) {
-		t.Errorf("Setup returned %d extensions and registered %d operation types", len(exts), len(engine.Types()))
+	for _, typ := range []string{"copy-messages", "change-replication-factor", "alter-topic-configs", "align-broker-configs"} {
+		if !slices.ContainsFunc(engine.Types(), func(op ops.OpType) bool { return op.Type == typ }) {
+			t.Errorf("Setup did not register the operation type %s", typ)
+		}
+	}
+	if len(exts) != 2 {
+		t.Errorf("Setup returned %d extensions, want 2", len(exts))
 	}
 	m := edition.CurrentManager()
 	if m == nil {

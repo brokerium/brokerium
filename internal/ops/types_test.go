@@ -61,6 +61,25 @@ func TestReassignSteps(t *testing.T) {
 	}
 }
 
+func TestReassignStepsGated(t *testing.T) {
+	t.Parallel()
+	moves := []balancer.Move{{Topic: "t", Partition: 0, From: []int32{1}, To: []int32{1, 2}, ReplicaMoves: 1}}
+	gate := HealthGateArgs{IgnoreTopics: []string{"t"}}
+	gates := 0
+	for _, s := range ReassignStepsGated(moves, 0, 0, gate) {
+		if s.Kind != KindHealthGate {
+			continue
+		}
+		gates++
+		if !reflect.DeepEqual(s.Args, gate) {
+			t.Errorf("%s: args %+v, want %+v", s.Name, s.Args, gate)
+		}
+	}
+	if gates != 2 {
+		t.Errorf("%d health gates, want 2", gates)
+	}
+}
+
 func TestHealthProblems(t *testing.T) {
 	t.Parallel()
 	ok := cluster.Health{QuorumLeader: 1, Voters: 3}

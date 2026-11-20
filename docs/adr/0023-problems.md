@@ -19,13 +19,18 @@ authentication. Operators find these by reading configurations by hand, cluster 
   brokers (DescribeConfigs, refreshed every 5 minutes and cached), the nodes and their agents.
 - **Finding.** A stable code (for example `topic-rf-below-min-isr`), a severity (`critical`,
   `warning`, `info`), the object (cluster, broker, topic or node), a title, an explanation, the
-  evidence (the values that triggered it), a recommendation and an optional fix. The fingerprint
-  of the code and the object identifies a finding across snapshots.
+  evidence (the values that triggered it), a recommendation and fixes: none, one, or alternatives
+  after the recommended first one (raise the replication factor, or lower min.insync.replicas).
+  The fingerprint of the code and the object identifies a finding across snapshots. A topic gets
+  at most one of the replication findings, the most severe that applies.
 - **State.** The table `problem_states` keeps, per cluster and fingerprint, when a finding was
   first and last seen, who acknowledged it and when, and until when it is muted. Findings
-  themselves are not stored; every snapshot evaluates them again. A muted finding is hidden until
-  the time passes; an acknowledged one stays visible with its mark. The table belongs to the
-  shared migrations, so both editions use one database.
+  themselves are not stored; every snapshot evaluates them again, in the background after each
+  refresh, and the last-seen time is written at most once a minute. A muted finding is hidden
+  until the time passes; an acknowledged one stays visible with its mark, which can be removed.
+  Both hold while a finding comes and goes. States not seen for 30 days are deleted, and those of
+  a deleted cluster go with it. The table belongs to the shared migrations, so both editions use
+  one database.
 - **Rules in 0.4.0**, all without agents:
   - a topic replication factor below the effective min.insync.replicas (critical), equal to it
     (warning), or 1 on a cluster with more brokers (warning); min.insync.replicas 1 with more
@@ -44,9 +49,11 @@ authentication. Operators find these by reading configurations by hand, cluster 
   - PLAINTEXT listeners while the authorizer allows everyone without ACLs; SASL PLAIN without TLS;
   - agents not seen for more than a day;
   - the current health issues, so the tab lists everything in one place.
-- **Fixes.** A fix names an operation and its parameters. The dashboard opens the planner with
-  them filled in, and the usual plan, confirmation, steps, health gates and audit apply. Fixes in
-  0.4.0:
+- **Fixes.** A fix names an operation and its parameters. The dashboard opens the parameters
+  filled in, still editable, and then the plan preview; the usual confirmation, steps, health
+  gates and audit apply. The health gates of `change-replication-factor` do not count the
+  under-replicated and under-min-ISR partitions of the topics it changes, which are often the
+  reason for the change; everything else in the cluster must be healthy. Fixes in 0.4.0:
   - `change-replication-factor` (new): raises or lowers the replication factor of topics,
     internal topics included, with throttled reassignments and racks taken into account;
   - `alter-topic-configs` (new): a planned change of topic configurations such as
@@ -54,10 +61,11 @@ authentication. Operators find these by reading configurations by hand, cluster 
   - `align-broker-configs` (new): one cluster-wide value instead of differing per-broker values
     of dynamic keys;
   - `rebalance` and `finalize-upgrade`.
-- **API.** `GET /api/v1/clusters/{id}/problems`, `POST .../problems/{fingerprint}/acknowledge`,
-  `POST .../problems/{fingerprint}/mute` with an end time and `DELETE .../problems/{fingerprint}/mute`,
-  plus `GET /api/v1/problems` with the counts per cluster for the overview. Viewers read;
-  operators acknowledge and mute, which the audit log records.
+- **API.** `GET /api/v1/clusters/{id}/problems`, `POST .../problems/{fingerprint}/acknowledge`
+  and `DELETE .../problems/{fingerprint}/acknowledge`, `POST .../problems/{fingerprint}/mute` with
+  an end time and `DELETE .../problems/{fingerprint}/mute`, plus `GET /api/v1/problems` with the
+  counts per cluster for the overview. Viewers read; operators acknowledge and mute, which the
+  audit log records.
 - **Dashboard.** A Problems tab for every cluster and a problems column on the overview, both in
   `web/src/ee`.
 

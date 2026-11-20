@@ -61,13 +61,7 @@ func Evaluate(s *kafka.Snapshot, now time.Time) Health {
 		h.Issues = append(h.Issues, Issue{Severity: sev, Code: code, Message: fmt.Sprintf(format, args...)})
 	}
 
-	adding := map[string]map[int32]bool{}
-	for _, r := range s.Reassignments {
-		if adding[r.Topic] == nil {
-			adding[r.Topic] = map[int32]bool{}
-		}
-		adding[r.Topic][r.Partition] = true
-	}
+	adding := reassigning(s)
 	h.Reassigning = len(s.Reassignments)
 
 	registered := map[int32]bool{}
@@ -112,17 +106,18 @@ func Evaluate(s *kafka.Snapshot, now time.Time) Health {
 		h.Topics++
 		for _, p := range t.Partitions {
 			h.Partitions++
-			if p.Leader < 0 {
+			st := classify(t, p, adding[t.Name][p.ID])
+			switch {
+			case st.offline:
 				h.OfflinePartitions++
 				continue
-			}
-			if len(p.ISR) < len(p.Replicas) && !adding[t.Name][p.ID] {
-				h.UnderReplicated++
-			}
-			if len(p.ISR) < t.MinISR {
+			case st.underMinISR:
 				h.UnderMinISR++
-			} else if len(p.ISR) == t.MinISR && len(p.Replicas) > t.MinISR {
+			case st.atMinISR:
 				h.AtMinISR++
+			}
+			if st.underReplicated {
+				h.UnderReplicated++
 			}
 		}
 	}
@@ -187,6 +182,64 @@ func Evaluate(s *kafka.Snapshot, now time.Time) Health {
 		add(HealthWarning, "partial_snapshot", "some information could not be collected: %s", strings.Join(s.Errors, "; "))
 	}
 	h.settle()
+	return h
+}
+
+// reassigning returns the partitions with a reassignment in progress by topic.
+func reassigning(s *kafka.Snapshot) map[string]map[int32]bool {
+	out := map[string]map[int32]bool{}
+	for _, r := range s.Reassignments {
+		if out[r.Topic] == nil {
+			out[r.Topic] = map[int32]bool{}
+		}
+		out[r.Topic][r.Partition] = true
+	}
+	return out
+}
+
+// partitionState classifies a partition for the health counters. Partitions that are being
+// reassigned are not under-replicated while their new replicas catch up.
+type partitionState struct {
+	offline, underReplicated, underMinISR, atMinISR bool
+}
+
+func classify(t kafka.Topic, p kafka.Partition, reassigned bool) partitionState {
+	if p.Leader < 0 {
+		return partitionState{offline: true}
+	}
+	return partitionState{
+		underReplicated: len(p.ISR) < len(p.Replicas) && !reassigned,
+		underMinISR:     len(p.ISR) < t.MinISR,
+		atMinISR:        len(p.ISR) == t.MinISR && len(p.Replicas) > t.MinISR,
+	}
+}
+
+// WithoutTopics returns the counters of h without the under-replicated and under-min-ISR
+// partitions of the given topics, for the health gates of operations that change the
+// replication of these topics. The status and the issues stay as they are.
+func WithoutTopics(h Health, s *kafka.Snapshot, topics []string) Health {
+	if len(topics) == 0 || s == nil {
+		return h
+	}
+	skip := map[string]bool{}
+	for _, t := range topics {
+		skip[t] = true
+	}
+	adding := reassigning(s)
+	for _, t := range s.Topics {
+		if !skip[t.Name] {
+			continue
+		}
+		for _, p := range t.Partitions {
+			st := classify(t, p, adding[t.Name][p.ID])
+			if st.underReplicated {
+				h.UnderReplicated--
+			}
+			if st.underMinISR {
+				h.UnderMinISR--
+			}
+		}
+	}
 	return h
 }
 

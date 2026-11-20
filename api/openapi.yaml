@@ -48,6 +48,7 @@ tags:
   - name: groups
   - name: security
   - name: operations
+  - name: problems
   - name: nodes
   - name: users
   - name: audit
@@ -899,6 +900,129 @@ paths:
               schema: { $ref: "#/components/schemas/Operation" }
         "400": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+  /api/v1/problems:
+    get:
+      tags: [problems]
+      summary: Problems of every cluster by severity
+      description: >-
+        Brokerium Enterprise, feature `problems`. Role: viewer. The number of current problems of
+        each cluster by severity, for the overview; muted problems count only in `muted`.
+      responses:
+        "200":
+          description: Counts per cluster.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clusters:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProblemCounts" }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/clusters/{id}/problems:
+    parameters: [{ $ref: "#/components/parameters/ClusterId" }]
+    get:
+      tags: [problems]
+      summary: Problems of a cluster
+      description: >-
+        Brokerium Enterprise, feature `problems`. Role: viewer. The findings of the rules for the
+        latest snapshot of the cluster (at most 20 seconds old), the most severe first, with their
+        states. Muted problems are listed only with `muted=true`.
+      parameters:
+        - name: muted
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: The problems.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  problems:
+                    type: array
+                    items: { $ref: "#/components/schemas/Problem" }
+                  muted: { type: integer, description: The number of muted problems. }
+                  evaluatedAt: { type: string, format: date-time, description: The time of the snapshot. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/clusters/{id}/problems/{fingerprint}/acknowledge:
+    parameters:
+      - { $ref: "#/components/parameters/ClusterId" }
+      - { $ref: "#/components/parameters/Fingerprint" }
+    post:
+      tags: [problems]
+      summary: Acknowledge a problem
+      description: >-
+        Brokerium Enterprise, feature `problems`. Role: operator. Marks a current problem as known;
+        it stays listed with the user who acknowledged it. Audited as `problem.acknowledge`.
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      responses:
+        "200":
+          description: The state of the problem.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemState" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [problems]
+      summary: Remove the acknowledgement of a problem
+      description: >-
+        Brokerium Enterprise, feature `problems`. Role: operator. Audited as
+        `problem.unacknowledge`.
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      responses:
+        "200":
+          description: The state of the problem.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemState" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/clusters/{id}/problems/{fingerprint}/mute:
+    parameters:
+      - { $ref: "#/components/parameters/ClusterId" }
+      - { $ref: "#/components/parameters/Fingerprint" }
+    post:
+      tags: [problems]
+      summary: Mute a problem
+      description: >-
+        Brokerium Enterprise, feature `problems`. Role: operator. Hides a current problem until a
+        time in the future. Audited as `problem.mute`.
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [until]
+              properties:
+                until: { type: string, format: date-time }
+      responses:
+        "200":
+          description: The state of the problem.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemState" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [problems]
+      summary: Unmute a problem
+      description: "Brokerium Enterprise, feature `problems`. Role: operator. Audited as `problem.unmute`."
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      responses:
+        "200":
+          description: The state of the problem.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemState" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /api/v1/operations:
     get:
       tags: [operations]
@@ -1292,6 +1416,12 @@ components:
       name: limit
       in: query
       schema: { type: integer, minimum: 1, maximum: 1000 }
+    Fingerprint:
+      name: fingerprint
+      in: path
+      required: true
+      description: Identifies a problem by its code and its object.
+      schema: { type: string, examples: [b2fe6a9ceb47f240] }
 
   responses:
     Error:
@@ -2062,6 +2192,47 @@ components:
           required: [version]
           properties:
             version: { type: string, examples: ["4.4.0"] }
+        change-replication-factor:
+          type: object
+          required: [topics, replicationFactor]
+          description: >-
+            Brokerium Enterprise, feature `problems`. Raises or lowers the replication factor of
+            topics, internal topics included, with throttled, batched reassignments and a preferred
+            leader election. New replicas go to the least loaded brokers that serve and are not
+            cordoned, on the racks the partition uses least; lowering keeps the leader and the
+            preferred replica. Refused above the number of serving brokers, for offline partitions
+            and while partitions of the topics are reassigned. The health gates do not count the
+            under-replicated and under-min-ISR partitions of the topics.
+          properties:
+            topics: { type: array, items: { type: string } }
+            replicationFactor: { type: integer, minimum: 1 }
+            throttleBytesPerSec: { type: integer, format: int64, default: 52428800 }
+            batchSize: { type: integer, default: 25 }
+            rackAware: { type: boolean, description: On by default when every broker has a rack. }
+        alter-topic-configs:
+          type: object
+          required: [topics]
+          description: >-
+            Brokerium Enterprise, feature `problems`. Sets or removes configs of topics. The plan
+            validates the change with the brokers (validateOnly) and lists the old and new values.
+          properties:
+            topics: { type: array, items: { type: string } }
+            set: { type: object, additionalProperties: { type: string } }
+            delete: { type: array, items: { type: string } }
+        align-broker-configs:
+          type: object
+          required: [keys]
+          description: >-
+            Brokerium Enterprise, feature `problems`. Sets one cluster-wide value of dynamic broker
+            configs and removes the values of single brokers. Refuses read-only and sensitive keys
+            and keys that differ between brokers by design (ids, listeners, log directories, racks,
+            TLS stores); the plan validates the change with the brokers first.
+          properties:
+            keys: { type: array, items: { type: string } }
+            values:
+              type: object
+              additionalProperties: { type: string }
+              description: The cluster-wide value of keys; by default the value most serving brokers have.
     Step:
       type: object
       properties:
@@ -2191,6 +2362,64 @@ components:
         result: { type: string }
         detail: {}
 
+    Problem:
+      type: object
+      description: A finding of the problem rules with its state (Brokerium Enterprise).
+      properties:
+        fingerprint: { type: string }
+        code: { type: string, examples: [topic-rf-below-min-isr] }
+        severity: { type: string, enum: [critical, warning, info] }
+        object:
+          type: object
+          properties:
+            kind: { type: string, enum: [cluster, broker, topic, node] }
+            id: { type: string, description: "The cluster id, the broker id, the topic name or the id of the agent node." }
+            name: { type: string, description: The name of a cluster or an agent node. }
+        title: { type: string }
+        explanation: { type: string }
+        evidence:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              value: { type: string }
+        recommendation: { type: string }
+        fixes:
+          type: array
+          description: Operations that resolve the problem, the recommended one first.
+          items:
+            type: object
+            properties:
+              operation: { type: string, examples: [change-replication-factor] }
+              params: { type: object, description: "Parameters of the operation, see `OperationParams`." }
+              label: { type: string }
+        firstSeen: { type: string, format: date-time }
+        lastSeen: { type: string, format: date-time }
+        acknowledgedBy: { type: string }
+        acknowledgedAt: { type: string, format: date-time }
+        mutedUntil: { type: string, format: date-time, description: Set while the problem is muted. }
+    ProblemState:
+      type: object
+      properties:
+        clusterId: { type: string }
+        fingerprint: { type: string }
+        code: { type: string }
+        object: { type: string, examples: ["topic:orders"] }
+        firstSeen: { type: string, format: date-time }
+        lastSeen: { type: string, format: date-time }
+        acknowledgedBy: { type: string }
+        acknowledgedAt: { type: [string, "null"], format: date-time }
+        mutedUntil: { type: [string, "null"], format: date-time }
+    ProblemCounts:
+      type: object
+      properties:
+        clusterId: { type: string }
+        critical: { type: integer }
+        warning: { type: integer }
+        info: { type: integer }
+        muted: { type: integer }
+        evaluatedAt: { type: string, format: date-time }
     Edition:
       type: string
       enum: [community, enterprise]

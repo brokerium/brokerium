@@ -2,12 +2,13 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { Capabilities, OperationType } from '../api/types';
+import type { Capabilities, LicenseView, OperationType } from '../api/types';
 import {
   canOperate,
   isAdmin,
   isClusterTab,
   missingCapabilities,
+  namedOperationAvailability,
   operationAvailability,
   securitySections,
   visibleClusterTabs,
@@ -93,6 +94,47 @@ describe('operationAvailability', () => {
 
   it('is not allowed before capabilities are known', () => {
     expect(operationAvailability('rebalance', undefined).allowed).toBe(false);
+  });
+});
+
+describe('namedOperationAvailability', () => {
+  const enterpriseTypes: OperationType[] = [
+    ...serverTypes,
+    {
+      type: 'change-replication-factor',
+      title: 'Change replication factor',
+      description: '',
+      scope: 'cluster',
+      requires: ['reassign'],
+      irreversible: false,
+      feature: 'problems',
+    },
+  ];
+  const license = (licensed: boolean): LicenseView => ({
+    edition: 'enterprise',
+    features: [{ id: 'problems', title: 'Problems', description: '', licensed }],
+    license: null,
+  });
+
+  it('allows a listed operation that the license covers', () => {
+    expect(namedOperationAvailability('change-replication-factor', caps(), enterpriseTypes, license(true))).toEqual({
+      allowed: true,
+    });
+    expect(namedOperationAvailability('rebalance', caps(), enterpriseTypes, undefined)).toEqual({ allowed: true });
+  });
+
+  it('explains the license, the capabilities and missing operation types', () => {
+    expect(namedOperationAvailability('change-replication-factor', caps(), enterpriseTypes, license(false)).reason).toBe(
+      'Problems needs a Brokerium Enterprise license that covers it',
+    );
+    expect(
+      namedOperationAvailability('change-replication-factor', caps({ reassign: false }), enterpriseTypes, license(true))
+        .reason,
+    ).toContain('partition reassignment');
+    expect(namedOperationAvailability('align-broker-configs', caps(), enterpriseTypes, license(true)).reason).toContain(
+      'does not support',
+    );
+    expect(namedOperationAvailability('rebalance', caps(), undefined, license(true)).allowed).toBe(false);
   });
 });
 

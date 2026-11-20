@@ -138,6 +138,10 @@ func racksKnown(v *cluster.View) bool {
 
 // reassignStepsURP turns moves into throttled, batched, health-gated steps.
 func reassignStepsURP(moves []balancer.Move, throttle int64, batch int, allowURP bool) []StepSpec {
+	return reassignStepsGated(moves, throttle, batch, HealthGateArgs{AllowUnderReplicated: allowURP})
+}
+
+func reassignStepsGated(moves []balancer.Move, throttle int64, batch int, gate HealthGateArgs) []StepSpec {
 	if throttle <= 0 {
 		throttle = DefaultThrottle
 	}
@@ -152,7 +156,7 @@ func reassignStepsURP(moves []balancer.Move, throttle int64, batch int, allowURP
 	}
 	throttleArgs := ThrottleArgs{RateBytesPerSec: throttle, Assignments: assignments}
 	steps := []StepSpec{
-		{Name: "Check cluster health", Kind: KindHealthGate, Args: HealthGateArgs{AllowUnderReplicated: allowURP}},
+		{Name: "Check cluster health", Kind: KindHealthGate, Args: gate},
 	}
 	if copiesData {
 		steps = append(steps, StepSpec{Name: fmt.Sprintf("Throttle replication to %s/s", humanBytes(throttle)), Kind: KindThrottle, Args: throttleArgs})
@@ -164,7 +168,7 @@ func reassignStepsURP(moves []balancer.Move, throttle int64, batch int, allowURP
 		steps = append(steps,
 			StepSpec{Name: fmt.Sprintf("Start batch %d (%d partitions)", n, len(part)), Kind: KindReassign, Args: ReassignArgs{Assignments: part}},
 			StepSpec{Name: fmt.Sprintf("Wait for batch %d", n), Kind: KindWaitReassign, Args: ReassignArgs{Assignments: part}},
-			StepSpec{Name: fmt.Sprintf("Check health after batch %d", n), Kind: KindHealthGate, Args: HealthGateArgs{AllowUnderReplicated: allowURP}},
+			StepSpec{Name: fmt.Sprintf("Check health after batch %d", n), Kind: KindHealthGate, Args: gate},
 		)
 	}
 	if copiesData {
@@ -177,6 +181,28 @@ func reassignStepsURP(moves []balancer.Move, throttle int64, batch int, allowURP
 // gates pass while partitions are under-replicated, for replacing a failed broker.
 func ReassignSteps(moves []balancer.Move, throttle int64, batch int, allowURP bool) []StepSpec {
 	return reassignStepsURP(moves, throttle, batch, allowURP)
+}
+
+// ReassignStepsGated is ReassignSteps with the arguments of every health gate, for operation
+// types of other packages.
+func ReassignStepsGated(moves []balancer.Move, throttle int64, batch int, gate HealthGateArgs) []StepSpec {
+	return reassignStepsGated(moves, throttle, batch, gate)
+}
+
+// ModelFrom exposes the balancer model of the planned cluster to operation types of other
+// packages; excluded brokers receive no new replicas.
+func ModelFrom(p *Planner, exclude map[int32]bool) balancer.Model {
+	return modelFrom(p, exclude)
+}
+
+// RacksKnown reports whether every broker of the view has a rack.
+func RacksKnown(v *cluster.View) bool {
+	return racksKnown(v)
+}
+
+// HumanBytes renders a byte count with binary units, as plan summaries do.
+func HumanBytes(b int64) string {
+	return humanBytes(b)
 }
 
 // EvacuateSteps plans moving every replica off the given brokers: throttled, batched
