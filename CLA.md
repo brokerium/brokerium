@@ -1,6 +1,6 @@
 # Brokerium Individual Contributor License Agreement
 
-Version 1.0, 2026-10-15
+Version 1.1, 2026-11-20
 
 Thank you for your interest in contributing to Brokerium. This Individual
 Contributor License Agreement ("Agreement") documents the rights you grant when you
@@ -15,9 +15,9 @@ to Contributions submitted after it is published.
 
 ## 1. Definitions
 
-- **"Maintainer"** means Bulat Valiev, together with any legal entity he controls and
-  any successor or assignee to which the rights in the Project are transferred,
-  including through an assignment of intellectual property, a merger or an
+- **"Maintainer"** means Bulat Valiev, together with any legal entity he controls,
+  any person to whom he grants an exclusive license to the Project, and any person to
+  whom this Agreement is assigned under section 7, for example in a merger or an
   acquisition.
 - **"You"** means the individual who accepts this Agreement. If you submit a
   Contribution on behalf of your employer or another legal entity, that entity must
@@ -97,11 +97,20 @@ distributed by the Maintainer.
 
 ## 7. Assignment
 
-The Maintainer may assign or transfer this Agreement, and all rights granted under
-it, to any successor or assignee without Your further consent. This Agreement then
-benefits that successor or assignee in the same way.
+The Maintainer may assign this Agreement, and the licenses You granted under it, in
+whole or in part, to a legal entity the Maintainer controls, to a person who receives
+an exclusive license to the Project, or to a successor in a merger or an acquisition.
+You consent to such an assignment in advance; no further consent is needed. This
+Agreement then benefits the assignee in the same way.
 
-## 8. How to sign
+## 8. Governing law
+
+This Agreement is governed by the law of the Czech Republic, without regard to its
+conflict of laws rules. The courts of the Czech Republic have jurisdiction over
+disputes arising from it, unless mandatory law gives You the right to bring
+proceedings where You live.
+
+## 9. How to sign
 
 When You open your first pull request, the CLA Assistant bot asks You to sign. Reply
 in the pull request with the exact sentence:
