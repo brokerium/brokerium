@@ -185,8 +185,9 @@ come from the configuration pages of the Kafka documentation of the line,
 `https://kafka.apache.org/<line without the dot>/generated/kafka_config.html` and
 `topic_config.html`; a line without those pages uses the closest line that has them, and the file
 names the pages it used. Releases from 3.7 run the `apache/kafka` image. 3.5 and 3.6 run the
-release tarball on Eclipse Temurin 17: the generator downloads it once into `.data/catalog/` and
-checks it against the SHA-512 sum Apache publishes.
+image of the lab, `brokerium-lab/kafka:<version>`; when it is missing, the generator builds it
+with `deploy/lab/kafka/Dockerfile` and the SHA-512 sum Apache publishes, and a tarball in
+`deploy/lab/kafka/dist/` saves the slow download from archive.apache.org.
 
 To add a Kafka release:
 

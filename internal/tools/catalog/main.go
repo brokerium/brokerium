@@ -9,10 +9,10 @@
 //	go run ./internal/tools/catalog                  # every supported release (make catalog)
 //	go run ./internal/tools/catalog -versions 4.4.0  # one release (make catalog VERSIONS=4.4.0)
 //
-// Releases from 3.7 run the apache/kafka image. Older releases have no image: they run the
-// release tarball on Eclipse Temurin 17, downloaded into -cache and checked against the SHA-512
-// sum Apache publishes. The containers are named brokerium-catalog-<version> and removed when
-// their release is done.
+// Releases from 3.7 run the apache/kafka image. Older releases have none: they run the image of
+// the lab, brokerium-lab/kafka:<version>, which deploy/lab/kafka/Dockerfile builds from the
+// release tarball checked against the SHA-512 sum Apache publishes. The containers are named
+// brokerium-catalog-<version> and removed when their release is done.
 package main
 
 import (
@@ -38,20 +38,19 @@ var releases = []string{"3.5.2", "3.6.2", "3.7.2", "3.8.1", "3.9.2", "4.0.2", "4
 func main() {
 	versions := flag.String("versions", strings.Join(releases, " "), "Kafka releases to generate, separated by spaces or commas")
 	out := flag.String("out", "internal/kafkaconfig/catalog", "directory of the catalog files")
-	cache := flag.String("cache", ".data/catalog", "directory for downloaded release tarballs")
 	timeout := flag.Duration("timeout", 10*time.Minute, "time limit for each release, downloads included")
 	flag.Parse()
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx, *versions, *out, *cache, *timeout); err != nil {
+	if err := run(ctx, *versions, *out, *timeout); err != nil {
 		slog.Error("catalog", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, versions, out, cache string, timeout time.Duration) error {
+func run(ctx context.Context, versions, out string, timeout time.Duration) error {
 	list, err := parseReleases(versions)
 	if err != nil {
 		return err
@@ -61,7 +60,7 @@ func run(ctx context.Context, versions, out, cache string, timeout time.Duration
 		if ctx.Err() != nil {
 			return fmt.Errorf("interrupted before %s", r)
 		}
-		if err := generate(ctx, r, out, cache, timeout); err != nil {
+		if err := generate(ctx, r, out, timeout); err != nil {
 			slog.Error("release failed", "version", r, "err", err)
 			failed = append(failed, r.String())
 		}
@@ -73,7 +72,7 @@ func run(ctx context.Context, versions, out, cache string, timeout time.Duration
 }
 
 // generate writes the catalog of one release.
-func generate(ctx context.Context, r version, out, cache string, timeout time.Duration) (err error) {
+func generate(ctx context.Context, r version, out string, timeout time.Duration) (err error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	defer func() {
@@ -90,7 +89,7 @@ func generate(ctx context.Context, r version, out, cache string, timeout time.Du
 		slog.Warn("no configuration pages in the documentation of the release; using the closest line",
 			"version", r, "docs", docs.source.Line)
 	}
-	n, err := startNode(ctx, r, cache)
+	n, err := startNode(ctx, r)
 	if err != nil {
 		return err
 	}

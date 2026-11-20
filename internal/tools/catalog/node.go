@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -22,8 +21,6 @@ import (
 )
 
 const (
-	// baseImage runs the release tarballs of releases without an apache/kafka image.
-	baseImage = "eclipse-temurin:17-jre-noble"
 	clusterID = "YnJva2VyaXVtLWNhdGFsbw"
 	topicName = "brokerium-catalog"
 	// readyTimeout is how long a node may take until it creates the topic.
@@ -44,17 +41,12 @@ var nodeConfig = []string{
 	"log.dirs=/tmp/kraft-combined-logs",
 }
 
-// startScript writes the configuration, formats the storage and starts Kafka. KAFKA_TGZ names a
-// release tarball to unpack first.
+// startScript writes the configuration, formats the storage and starts Kafka, which both the
+// apache/kafka images and the lab images have in /opt/kafka.
 const startScript = `set -eu
-home=/opt/kafka
-if [ -n "${KAFKA_TGZ:-}" ]; then
-  mkdir -p "$home"
-  tar -xzf "$KAFKA_TGZ" --strip-components=1 -C "$home"
-fi
 printf '%s\n' "$NODE_CONFIG" > /tmp/server.properties
-"$home/bin/kafka-storage.sh" format --cluster-id "$CLUSTER_ID" --config /tmp/server.properties
-exec "$home/bin/kafka-server-start.sh" /tmp/server.properties
+/opt/kafka/bin/kafka-storage.sh format --cluster-id "$CLUSTER_ID" --config /tmp/server.properties
+exec /opt/kafka/bin/kafka-server-start.sh /tmp/server.properties
 `
 
 // node is a running single-node Kafka cluster.
@@ -64,22 +56,9 @@ type node struct {
 }
 
 // startNode starts a container with the release and waits until it has created the topic.
-func startNode(ctx context.Context, v version, cache string) (*node, error) {
-	image := "apache/kafka:" + v.String()
-	var extra []string
-	if !v.hasImage() {
-		tgz, err := tarball(ctx, cache, v)
-		if err != nil {
-			return nil, err
-		}
-		abs, err := filepath.Abs(tgz)
-		if err != nil {
-			return nil, err
-		}
-		image = baseImage
-		extra = []string{"-v", abs + ":/dist/kafka.tgz:ro", "-e", "KAFKA_TGZ=/dist/kafka.tgz"}
-	}
-	if err := ensureImage(ctx, image); err != nil {
+func startNode(ctx context.Context, v version) (*node, error) {
+	image, err := nodeImage(ctx, v)
+	if err != nil {
 		return nil, err
 	}
 	port, err := freePort()
@@ -90,13 +69,12 @@ func startNode(ctx context.Context, v version, cache string) (*node, error) {
 	// A container left behind by a run that was killed.
 	n.remove()
 	config := strings.ReplaceAll(strings.Join(nodeConfig, "\n"), "{port}", strconv.Itoa(port))
-	args := append([]string{"run", "--detach", "--name", n.container, "--memory", "1g",
+	slog.Info("starting Kafka", "version", v, "image", image, "container", n.container, "addr", n.addr)
+	_, err = docker(ctx, "run", "--detach", "--name", n.container, "--memory", "1g",
 		"--publish", fmt.Sprintf("127.0.0.1:%d:%d", port, port),
 		"--env", "KAFKA_HEAP_OPTS=-Xms384m -Xmx384m", "--env", "LOG_DIR=/tmp/kafka-server-logs",
-		"--env", "CLUSTER_ID=" + clusterID, "--env", "NODE_CONFIG=" + config}, extra...)
-	args = append(args, "--entrypoint", "bash", image, "-c", startScript)
-	slog.Info("starting Kafka", "version", v, "image", image, "container", n.container, "addr", n.addr)
-	_, err = docker(ctx, args...)
+		"--env", "CLUSTER_ID="+clusterID, "--env", "NODE_CONFIG="+config,
+		"--entrypoint", "bash", image, "-c", startScript)
 	if err == nil {
 		err = n.createTopic(ctx)
 	}
@@ -231,14 +209,24 @@ func (n *node) logs() string {
 	return out
 }
 
-// ensureImage pulls an image that is not present.
-func ensureImage(ctx context.Context, image string) error {
-	if _, err := docker(ctx, "image", "inspect", "--format", "{{.Id}}", image); err == nil {
-		return nil
+// nodeImage is the image of a release: apache/kafka, pulled when it is missing, or else the
+// image of the lab built from the release tarball.
+func nodeImage(ctx context.Context, v version) (string, error) {
+	if !v.hasImage() {
+		return labImage(ctx, v)
+	}
+	image := "apache/kafka:" + v.String()
+	if imagePresent(ctx, image) {
+		return image, nil
 	}
 	slog.Info("pulling the image", "image", image)
 	_, err := docker(ctx, "pull", "--quiet", image)
-	return err
+	return image, err
+}
+
+func imagePresent(ctx context.Context, image string) bool {
+	_, err := docker(ctx, "image", "inspect", "--format", "{{.Id}}", image)
+	return err == nil
 }
 
 // docker runs a Docker command and returns its output: stdout and stderr combined.
