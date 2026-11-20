@@ -19,6 +19,7 @@ import { IconHistory, IconLicense, IconListDetails, IconServer2, IconServerBolt,
 import type { ComponentType } from 'react';
 import { Link, Outlet, useLocation, useNavigation } from 'react-router';
 
+import { navExtensions } from '@ee';
 import { useVersion } from '../../api/auth';
 import { useOverview } from '../../api/clusters';
 import { useLicense } from '../../api/license';
@@ -44,6 +45,13 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/nodes', label: 'Nodes', icon: IconServerBolt, active: (p) => p.startsWith('/nodes') },
   { to: '/users', label: 'Users', icon: IconUsers, active: (p) => p.startsWith('/users'), adminOnly: true },
   { to: '/audit', label: 'Audit', icon: IconHistory, active: (p) => p.startsWith('/audit') },
+  ...navExtensions.map(({ to, label, icon, adminOnly }) => ({
+    to,
+    label,
+    icon,
+    adminOnly,
+    active: (p: string) => p.startsWith(to),
+  })),
   { to: '/license', label: 'License', icon: IconLicense, active: (p) => p.startsWith('/license') },
 ];
 

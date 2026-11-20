@@ -3,7 +3,7 @@
 import type { ComponentType } from 'react';
 import type { RouteObject } from 'react-router';
 
-import { enterpriseRoutes } from '@ee';
+import { clusterTabs, enterpriseRoutes } from '@ee';
 import { RequireAuth } from '../components/layout/RequireAuth';
 import { RootLayout } from '../components/layout/RootLayout';
 import { RouteError } from '../components/layout/RouteError';
@@ -47,6 +47,7 @@ export const routes: RouteObject[] = [
                       { path: 'operations', lazy: page(() => import('./cluster/ClusterOperationsTab')) },
                       { path: 'upgrade', lazy: page(() => import('./cluster/UpgradeTab')) },
                       { path: 'settings', lazy: page(() => import('./cluster/SettingsTab')) },
+                      ...clusterTabs.map((t) => ({ path: t.value, lazy: page(t.load) })),
                     ],
                   },
                 ],
