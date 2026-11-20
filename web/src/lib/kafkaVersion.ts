@@ -9,6 +9,12 @@ export function parseKafkaVersion(text: string): KafkaVersion | null {
   return [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)];
 }
 
+/** The error of a Kafka version field; example is the default release of the server, once known. */
+export function kafkaVersionError(text: string, example: string | undefined): string | undefined {
+  if (parseKafkaVersion(text)) return undefined;
+  return example ? `A release such as ${example}` : 'A release version, x.y.z';
+}
+
 export function compareKafkaVersions(a: KafkaVersion, b: KafkaVersion): number {
   for (let i = 0; i < 3; i += 1) {
     if (a[i] !== b[i]) return a[i] - b[i];

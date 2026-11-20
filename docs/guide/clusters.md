@@ -33,7 +33,10 @@ advertised host of the host, formats the storage and starts the node. A host can
 its agent is connected, it runs no Kafka node, it belongs to no other cluster (a join token for
 a cluster reserves its host for that cluster) and its Kafka data directory is empty or holds
 the data of the same node. The dashboard offers these hosts; through the API, take their ids
-from `GET /api/v1/nodes`.
+from `GET /api/v1/nodes`. Kafka stores its data in the data directory of the agent
+(`BROKERIUM_AGENT_KAFKA_DATA_DIR`, see the [installation](install.md#agents-on-virtual-machines-and-bare-metal)).
+Clusters that Brokerium creates accept clients without authentication; see
+[security](security.md#clusters-that-brokerium-creates).
 
 In the dashboard, **Add cluster → Create on hosts with agents** lists the free hosts. Give each
 host you need a role (controller, broker, or controller and broker), keep the suggested node id
@@ -66,6 +69,8 @@ api -d '{"type": "bootstrap-cluster", "params": {"version": "4.3.1", "nodes": [
 - Node ids default to 1, 2, ... for controllers and combined nodes and 101, 102, ... for
   brokers in the order of the list; `nodeId` sets one explicitly (unique, at least 0).
 - `rack` defaults to the rack of the host; `quorum` is `dynamic` (default) or `static`.
+- `version` defaults to the Kafka release the server gives new clusters, `defaultKafkaVersion`
+  in `GET /api/v1/server`; the dashboard proposes it too.
 - The plan lists the hosts with their node ids, racks and advertised hosts. Confirm it with
   `POST /api/v1/operations/<operation id>/confirm`. Afterwards the cluster connects to the
   advertised hosts of its brokers.
@@ -182,7 +187,9 @@ Brokerium runs in the same Kubernetes cluster (Helm value `rbac.strimzi`). Strim
 **Add cluster → Create in Docker** builds a cluster from the lab node image as containers on the
 server's Docker host, for evaluations, labs and tests. Give it the numbers of controllers, brokers
 and combined nodes (broker and controller in one process). **Settings → Delete
-cluster nodes** removes the containers and volumes again.
+cluster nodes** removes the containers and volumes again. The form proposes the Kafka release the
+server gives new clusters; the lab node image ships Kafka 4.3.1, and the agents in the nodes
+download any other release (from `BROKERIUM_KAFKA_MIRROR` first).
 
 The dashboard offers it only when the server offers Docker clusters, which
 `BROKERIUM_DOCKER_PROVIDER` decides

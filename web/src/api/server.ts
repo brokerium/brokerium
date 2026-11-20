@@ -18,3 +18,8 @@ export function useServerInfo() {
     meta: { silent: true },
   });
 }
+
+/** The Kafka release the server gives new clusters; undefined until the server answered. */
+export function useDefaultKafkaVersion(): string | undefined {
+  return useServerInfo().data?.defaultKafkaVersion;
+}

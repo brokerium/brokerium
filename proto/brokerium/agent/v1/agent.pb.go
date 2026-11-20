@@ -1634,7 +1634,16 @@ type NodeStatus struct {
 	// Version of the Java runtime that runs Kafka, for example "21.0.8".
 	JavaVersion string `protobuf:"bytes,11,opt,name=java_version,json=javaVersion,proto3" json:"java_version,omitempty"`
 	// The node runs with an operator-owned configuration (agent --kafka-config).
-	Adopted       bool `protobuf:"varint,12,opt,name=adopted,proto3" json:"adopted,omitempty"`
+	Adopted bool `protobuf:"varint,12,opt,name=adopted,proto3" json:"adopted,omitempty"`
+	// Kafka data directory of the node: the agent setting, or the first log.dirs entry of an
+	// adopted node. The server renders it as log.dirs.
+	KafkaDataDir string `protobuf:"bytes,13,opt,name=kafka_data_dir,json=kafkaDataDir,proto3" json:"kafka_data_dir,omitempty"`
+	// The Kafka process the agent runs: its child or the main process of its unit, or a Kafka JVM
+	// below it. Empty (pid 0) when none runs; agents before 0.3.2 do not set it.
+	KafkaProcess *KafkaProcess `protobuf:"bytes,14,opt,name=kafka_process,json=kafkaProcess,proto3" json:"kafka_process,omitempty"`
+	// Kafka processes on the host that the agent does not run, for example under the operator's
+	// own unit of an adopted node.
+	ForeignKafka  []*KafkaProcess `protobuf:"bytes,15,rep,name=foreign_kafka,json=foreignKafka,proto3" json:"foreign_kafka,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1753,6 +1762,109 @@ func (x *NodeStatus) GetAdopted() bool {
 	return false
 }
 
+func (x *NodeStatus) GetKafkaDataDir() string {
+	if x != nil {
+		return x.KafkaDataDir
+	}
+	return ""
+}
+
+func (x *NodeStatus) GetKafkaProcess() *KafkaProcess {
+	if x != nil {
+		return x.KafkaProcess
+	}
+	return nil
+}
+
+func (x *NodeStatus) GetForeignKafka() []*KafkaProcess {
+	if x != nil {
+		return x.ForeignKafka
+	}
+	return nil
+}
+
+// KafkaProcess is a Kafka broker or controller JVM (main class kafka.Kafka) read from /proc.
+type KafkaProcess struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Pid   int64                  `protobuf:"varint,1,opt,name=pid,proto3" json:"pid,omitempty"`
+	// Unix time in milliseconds.
+	StartTimeMs int64 `protobuf:"varint,2,opt,name=start_time_ms,json=startTimeMs,proto3" json:"start_time_ms,omitempty"`
+	// Version of the first kafka-clients jar on the classpath, else of the first Kafka core jar;
+	// empty when the classpath names neither.
+	Version string `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
+	// The classpath holds jars of several Kafka versions.
+	MixedVersions bool `protobuf:"varint,4,opt,name=mixed_versions,json=mixedVersions,proto3" json:"mixed_versions,omitempty"`
+	// Account that runs the process.
+	User          string `protobuf:"bytes,5,opt,name=user,proto3" json:"user,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *KafkaProcess) Reset() {
+	*x = KafkaProcess{}
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *KafkaProcess) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*KafkaProcess) ProtoMessage() {}
+
+func (x *KafkaProcess) ProtoReflect() protoreflect.Message {
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use KafkaProcess.ProtoReflect.Descriptor instead.
+func (*KafkaProcess) Descriptor() ([]byte, []int) {
+	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *KafkaProcess) GetPid() int64 {
+	if x != nil {
+		return x.Pid
+	}
+	return 0
+}
+
+func (x *KafkaProcess) GetStartTimeMs() int64 {
+	if x != nil {
+		return x.StartTimeMs
+	}
+	return 0
+}
+
+func (x *KafkaProcess) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *KafkaProcess) GetMixedVersions() bool {
+	if x != nil {
+		return x.MixedVersions
+	}
+	return false
+}
+
+func (x *KafkaProcess) GetUser() string {
+	if x != nil {
+		return x.User
+	}
+	return ""
+}
+
 var File_brokerium_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_brokerium_agent_v1_agent_proto_rawDesc = "" +
@@ -1868,7 +1980,7 @@ const file_brokerium_agent_v1_agent_proto_rawDesc = "" +
 	"cluster_id\x18\x01 \x01(\tR\tclusterId\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\x05R\x06nodeId\x12!\n" +
 	"\fdirectory_id\x18\x03 \x01(\tR\vdirectoryId\x12\x1c\n" +
-	"\tformatted\x18\x04 \x01(\bR\tformatted\"\xa8\x03\n" +
+	"\tformatted\x18\x04 \x01(\bR\tformatted\"\xdc\x04\n" +
 	"\n" +
 	"NodeStatus\x12\x18\n" +
 	"\arunning\x18\x01 \x01(\bR\arunning\x12%\n" +
@@ -1884,7 +1996,16 @@ const file_brokerium_agent_v1_agent_proto_rawDesc = "" +
 	"\rprocess_roles\x18\n" +
 	" \x01(\tR\fprocessRoles\x12!\n" +
 	"\fjava_version\x18\v \x01(\tR\vjavaVersion\x12\x18\n" +
-	"\aadopted\x18\f \x01(\bR\aadopted*t\n" +
+	"\aadopted\x18\f \x01(\bR\aadopted\x12$\n" +
+	"\x0ekafka_data_dir\x18\r \x01(\tR\fkafkaDataDir\x12E\n" +
+	"\rkafka_process\x18\x0e \x01(\v2 .brokerium.agent.v1.KafkaProcessR\fkafkaProcess\x12E\n" +
+	"\rforeign_kafka\x18\x0f \x03(\v2 .brokerium.agent.v1.KafkaProcessR\fforeignKafka\"\x99\x01\n" +
+	"\fKafkaProcess\x12\x10\n" +
+	"\x03pid\x18\x01 \x01(\x03R\x03pid\x12\"\n" +
+	"\rstart_time_ms\x18\x02 \x01(\x03R\vstartTimeMs\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\tR\aversion\x12%\n" +
+	"\x0emixed_versions\x18\x04 \x01(\bR\rmixedVersions\x12\x12\n" +
+	"\x04user\x18\x05 \x01(\tR\x04user*t\n" +
 	"\n" +
 	"FormatMode\x12\x1b\n" +
 	"\x17FORMAT_MODE_UNSPECIFIED\x10\x00\x12\x14\n" +
@@ -1909,7 +2030,7 @@ func file_brokerium_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_brokerium_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_brokerium_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_brokerium_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_brokerium_agent_v1_agent_proto_goTypes = []any{
 	(FormatMode)(0),                  // 0: brokerium.agent.v1.FormatMode
 	(*RenewCertificateRequest)(nil),  // 1: brokerium.agent.v1.RenewCertificateRequest
@@ -1935,7 +2056,8 @@ var file_brokerium_agent_v1_agent_proto_goTypes = []any{
 	(*CommandResult)(nil),            // 21: brokerium.agent.v1.CommandResult
 	(*MetaProperties)(nil),           // 22: brokerium.agent.v1.MetaProperties
 	(*NodeStatus)(nil),               // 23: brokerium.agent.v1.NodeStatus
-	nil,                              // 24: brokerium.agent.v1.WriteConfig.PropertiesEntry
+	(*KafkaProcess)(nil),             // 24: brokerium.agent.v1.KafkaProcess
+	nil,                              // 25: brokerium.agent.v1.WriteConfig.PropertiesEntry
 }
 var file_brokerium_agent_v1_agent_proto_depIdxs = []int32{
 	4,  // 0: brokerium.agent.v1.EnrollRequest.proof:type_name -> brokerium.agent.v1.EnrollProof
@@ -1956,21 +2078,23 @@ var file_brokerium_agent_v1_agent_proto_depIdxs = []int32{
 	18, // 15: brokerium.agent.v1.Command.stop:type_name -> brokerium.agent.v1.StopKafka
 	19, // 16: brokerium.agent.v1.Command.status:type_name -> brokerium.agent.v1.GetStatus
 	20, // 17: brokerium.agent.v1.Command.wipe:type_name -> brokerium.agent.v1.WipeData
-	24, // 18: brokerium.agent.v1.WriteConfig.properties:type_name -> brokerium.agent.v1.WriteConfig.PropertiesEntry
+	25, // 18: brokerium.agent.v1.WriteConfig.properties:type_name -> brokerium.agent.v1.WriteConfig.PropertiesEntry
 	0,  // 19: brokerium.agent.v1.FormatStorage.mode:type_name -> brokerium.agent.v1.FormatMode
 	23, // 20: brokerium.agent.v1.CommandResult.status:type_name -> brokerium.agent.v1.NodeStatus
 	22, // 21: brokerium.agent.v1.NodeStatus.meta:type_name -> brokerium.agent.v1.MetaProperties
-	3,  // 22: brokerium.agent.v1.AgentService.Enroll:input_type -> brokerium.agent.v1.EnrollRequest
-	7,  // 23: brokerium.agent.v1.AgentService.Connect:input_type -> brokerium.agent.v1.AgentMessage
-	1,  // 24: brokerium.agent.v1.AgentService.RenewCertificate:input_type -> brokerium.agent.v1.RenewCertificateRequest
-	5,  // 25: brokerium.agent.v1.AgentService.Enroll:output_type -> brokerium.agent.v1.EnrollResponse
-	12, // 26: brokerium.agent.v1.AgentService.Connect:output_type -> brokerium.agent.v1.ServerMessage
-	2,  // 27: brokerium.agent.v1.AgentService.RenewCertificate:output_type -> brokerium.agent.v1.RenewCertificateResponse
-	25, // [25:28] is the sub-list for method output_type
-	22, // [22:25] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	24, // 22: brokerium.agent.v1.NodeStatus.kafka_process:type_name -> brokerium.agent.v1.KafkaProcess
+	24, // 23: brokerium.agent.v1.NodeStatus.foreign_kafka:type_name -> brokerium.agent.v1.KafkaProcess
+	3,  // 24: brokerium.agent.v1.AgentService.Enroll:input_type -> brokerium.agent.v1.EnrollRequest
+	7,  // 25: brokerium.agent.v1.AgentService.Connect:input_type -> brokerium.agent.v1.AgentMessage
+	1,  // 26: brokerium.agent.v1.AgentService.RenewCertificate:input_type -> brokerium.agent.v1.RenewCertificateRequest
+	5,  // 27: brokerium.agent.v1.AgentService.Enroll:output_type -> brokerium.agent.v1.EnrollResponse
+	12, // 28: brokerium.agent.v1.AgentService.Connect:output_type -> brokerium.agent.v1.ServerMessage
+	2,  // 29: brokerium.agent.v1.AgentService.RenewCertificate:output_type -> brokerium.agent.v1.RenewCertificateResponse
+	27, // [27:30] is the sub-list for method output_type
+	24, // [24:27] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_brokerium_agent_v1_agent_proto_init() }
@@ -2005,7 +2129,7 @@ func file_brokerium_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_brokerium_agent_v1_agent_proto_rawDesc), len(file_brokerium_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   24,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

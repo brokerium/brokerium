@@ -56,7 +56,7 @@ func TestNodeLifecycle(t *testing.T) {
 	heavy(t)
 	c := newClient(t)
 	name := uniqueName("e2e-nodes-")
-	id := dockerCluster(t, c, name, map[string]any{"controllers": 3, "brokers": 4,
+	id := dockerCluster(t, c, name, map[string]any{"controllers": 3, "brokers": 4, "version": labKafkaVersion,
 		"racks": []string{"r1", "r2", "r3", "r4", "r5", "r6"}})
 	waitView(t, c, id, 2*time.Minute, "a healthy cluster", healthy)
 	produce(t, c, id, "events", 12, 100)
@@ -127,7 +127,7 @@ func TestMigrateStaticQuorum(t *testing.T) {
 	c := newClient(t)
 	name := uniqueName("e2e-static-")
 	id := dockerCluster(t, c, name, map[string]any{"controllers": 3, "brokers": 1, "quorum": "static",
-		"racks": []string{"r1"}})
+		"version": labKafkaVersion, "racks": []string{"r1"}})
 	v := waitView(t, c, id, 2*time.Minute, "a healthy static cluster", healthy)
 	if v.Health.KRaftVersion != 0 {
 		t.Fatalf("kraft.version = %d, want 0 for a static quorum", v.Health.KRaftVersion)

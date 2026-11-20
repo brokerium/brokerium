@@ -207,10 +207,19 @@ name, advertised host and role, and Kafka is not touched.
 
 Installer variables: `BROKERIUM_AGENT_VERSION` (release tag), `BROKERIUM_AGENT_URL` (download
 from your own mirror) with `BROKERIUM_AGENT_SHA256` (its expected checksum),
-`BROKERIUM_AGENT_KAFKA_DATA_DIR` (log.dirs, default `/var/lib/kafka/data`), and
+`BROKERIUM_AGENT_KAFKA_DATA_DIR` (the Kafka data directory, below), and
 `BROKERIUM_AGENT_TRANSPORT`, `BROKERIUM_AGENT_TLS` and `BROKERIUM_AGENT_CA_FILE` for
 [agents behind a TLS-terminating proxy](#agents-behind-a-tls-terminating-proxy). Binaries from
 GitHub releases are always checked against the `SHA256SUMS` of the release.
+
+`BROKERIUM_AGENT_KAFKA_DATA_DIR` is the directory where Kafka stores its data, by default
+`/var/lib/kafka/data`: an absolute path of letters, digits and `._/@:+-`. The script creates it
+and lets the agent write to it. The agent reports it, and Brokerium configures it as `log.dirs`
+of the Kafka node on the host, so Kafka writes where the agent formats storage, measures the disk
+and wipes data. Choose it before the host runs Kafka: when it changes later, the node is
+configured with the new, empty directory at its next restart and does not start. Agents before
+0.3.2 do not report the directory, so their nodes get `/var/lib/kafka/data`; adopted nodes keep
+the `log.dirs` of their own `server.properties`.
 
 ### What the installer sets up
 
@@ -220,7 +229,7 @@ GitHub releases are always checked against the `SHA256SUMS` of the release.
 | `brokerium-agent` | system account without login, member of `kafka` | Runs the agent. |
 | `/var/lib/brokerium-agent` | `brokerium-agent`, 0711 | Agent state: identity, client certificate and key (0600), `server.properties`, `kafka.env`. Kafka writes its logs to `logs/`. |
 | `/opt/brokerium/kafka` | `brokerium-agent:kafka`, 0755 | Kafka releases the agent installed; `current` points at the active one. |
-| `/var/lib/kafka/data` | `kafka:kafka`, 2770 | Kafka data. New files belong to the `kafka` group, through which the agent formats and wipes storage. |
+| `/var/lib/kafka/data` (`BROKERIUM_AGENT_KAFKA_DATA_DIR`) | `kafka:kafka`, 2770 | Kafka data, the `log.dirs` of the node. New files belong to the `kafka` group, through which the agent formats and wipes storage. |
 | `brokerium-kafka.service` | root | `User=kafka`, `UMask=0007`, heap options from `kafka.env`, starts the release behind `current`. `SuccessExitStatus=143`: Kafka exits with 143 after a controlled shutdown, so a stopped node is inactive, not failed. Not enabled: after a host reboot the agent starts it when Kafka was running before, and a node stopped from Brokerium stays stopped. |
 | `brokerium-agent.service` | root | `User=brokerium-agent`, `SupplementaryGroups=kafka`, `ProtectSystem=full`, `ProtectHome=yes`, `PrivateTmp=yes`. |
 | `/etc/sudoers.d/brokerium-agent` | root, 0440 | The sudo rule below. |

@@ -5,7 +5,13 @@ computes the steps and, for data moves, the before and after distribution. Nothi
 until you confirm; irreversible operations ask for the cluster name. Steps run one at a time
 and are stored in PostgreSQL, so an operation continues after a server restart. You can pause,
 resume or cancel; cleanup steps (for example removing replication throttles) run in every
-case. Only one operation runs per cluster. Each step and its result are in the audit log.
+case. Only one operation runs per cluster. Each step, with its progress, result or error, is
+stored with its operation and shown on the operation page. The audit log records who planned,
+confirmed, paused, resumed, cancelled or discarded an operation (`operation.plan`,
+`operation.confirm`, `operation.pause`, `operation.resume`, `operation.cancel`,
+`operation.discard`) and, when it ends, its result as `operation.<type>`, for example
+`operation.rolling-restart`, next to the other changes made through the API, such as
+`cluster.update` or `node.update`.
 
 ## Safety rules
 
@@ -18,6 +24,10 @@ case. Only one operation runs per cluster. Each step and its result are in the a
 - One quorum change at a time: a new controller catches up as an observer before it becomes a
   voter; the last voter is never removed.
 - Storage is formatted with the Kafka release that will run the node.
+- Kafka starts only on hosts where no other Kafka process runs, such as the operator's own unit
+  of an adopted node; plans warn about such hosts and their steps fail with the process id and
+  its user. After a restart or an upgrade the agent must report a new Kafka process that runs
+  the expected release (agents from 0.3.2 on, which read the process from `/proc`).
 
 ## Types
 
@@ -33,8 +43,8 @@ case. Only one operation runs per cluster. Each step and its result are in the a
 | Replace broker | For a lost broker: the same id on an empty disk, on its host or another one (followers re-replicate), or a new id on another host with its replicas moved over and the old id unregistered. Refused for combined nodes. |
 | Add / remove controller | Grows or shrinks a dynamic quorum one voter at a time; a new controller runs on an agent host you choose. Combined nodes are not removed. |
 | Migrate quorum | Moves a static quorum to a dynamic one (`kraft.version` 1, Kafka 4.1+). Irreversible. |
-| Rolling restart | Restarts nodes one at a time: controllers and combined nodes first with the quorum leader last, then brokers. A combined node also waits for its replicas to be in sync. |
-| Rolling upgrade | Downloads the release on every node, then restarts them one at a time on it. Warns about known defects (KAFKA-20979 in 4.1.0 to 4.3.1) and checks Java 17+. |
+| Rolling restart | Restarts nodes one at a time: controllers and combined nodes first with the quorum leader last, then brokers. Each node must come back as a new Kafka process; a combined node also waits for its replicas to be in sync. |
+| Rolling upgrade | Downloads the release on every node, then restarts them one at a time on it and checks that each runs the new release. Warns about known defects (KAFKA-20979 in 4.1.0 to 4.3.1) and checks Java 17+. |
 | Finalize upgrade | Raises `metadata.version` and other features. Irreversible. |
 | Scale node pool | Strimzi broker pools, see [clusters](clusters.md#strimzi). |
 | Create / delete cluster nodes | Creates the controllers, brokers and combined nodes of a cluster on agent hosts you choose ([agent clusters](clusters.md#agent-clusters)) or in Docker; deletes Docker lab clusters. |

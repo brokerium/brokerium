@@ -5,13 +5,14 @@ import { IconAlertOctagon, IconAlertTriangle, IconArrowBigUpLines, IconFlagCheck
 import { useState } from 'react';
 
 import { useNodes } from '../../api/nodes';
+import { useDefaultKafkaVersion } from '../../api/server';
 import { FeaturesTable } from '../../components/FeaturesTable';
 import { GatedButton } from '../../components/Gated';
 import { usePlanner } from '../../components/operations/plannerContext';
 import { PageLoader, QueryError } from '../../components/QueryState';
 import { RelativeTime } from '../../components/RelativeTime';
 import { StatCard } from '../../components/StatCard';
-import { affectedByKafka20979, KAFKA_20979_WARNING, parseKafkaVersion } from '../../lib/kafkaVersion';
+import { affectedByKafka20979, KAFKA_20979_WARNING, kafkaVersionError, parseKafkaVersion } from '../../lib/kafkaVersion';
 import { kraftVersionOf, quorumKindLabel } from '../../lib/quorum';
 import { useClusterContext } from './clusterContext';
 import { Section, TabNotAvailable } from './common';
@@ -99,7 +100,9 @@ function AgentNodes({ clusterId }: { clusterId: string }) {
 export default function UpgradeTab() {
   const { clusterId, caps, view, snapshot } = useClusterContext();
   const planner = usePlanner();
-  const [version, setVersion] = useState('4.4.0');
+  const defaultVersion = useDefaultKafkaVersion();
+  const [editedVersion, setVersion] = useState<string | null>(null);
+  const version = editedVersion ?? defaultVersion ?? '';
 
   if (!caps.upgradeVersion && !caps.finalizeFeatures) return <TabNotAvailable what="Version management" />;
 
@@ -141,7 +144,7 @@ export default function UpgradeTab() {
             label="Target Kafka version"
             value={version}
             onChange={(e) => setVersion(e.currentTarget.value)}
-            error={version && !parsed ? 'Use a release version such as 4.4.0' : undefined}
+            error={version ? kafkaVersionError(version, defaultVersion) : undefined}
             w={220}
             styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }}
           />
