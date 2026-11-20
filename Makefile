@@ -19,7 +19,7 @@ endif
 GO_TAGS := $(if $(filter enterprise,$(EDITION)),-tags enterprise)
 SERVER_NAME := $(if $(filter enterprise,$(EDITION)),brokerium-server-enterprise,brokerium-server)
 
-.PHONY: help build build-go web-build web-dev dev test test-go test-web lint proto e2e screenshots images \
+.PHONY: help build build-go web-build web-dev dev test test-go test-web lint proto catalog e2e screenshots images \
 	lab-up lab-down lab-reset lab-certs lab-ps lab-quorum lab-load licenses
 
 help: ## Show targets
@@ -61,6 +61,9 @@ lint: ## golangci-lint for both editions, buf lint and web typecheck
 
 proto: ## Regenerate the agent protocol code
 	$(MISE) buf generate
+
+catalog: ## Generate the Kafka configuration catalog in Docker (VERSIONS="4.4.0" for one release)
+	$(MISE) go run ./internal/tools/catalog $(if $(VERSIONS),-versions "$(VERSIONS)")
 
 licenses: ## Check dependency licenses against the allowlist
 	$(MISE) go run github.com/google/go-licenses@v1.6.0 check ./... \
