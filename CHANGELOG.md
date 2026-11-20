@@ -6,6 +6,79 @@ All notable changes to Brokerium are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-20
+
+Fixes from clusters on real hosts, the removal of agents of deleted nodes, the licenses of every
+component, and Node.js 26.
+
+### Added
+
+- The license texts and notices of every third-party component: `THIRD_PARTY_NOTICES` lists the
+  Go modules of the server and the agent and the npm packages of the dashboard with their
+  licenses, and `NOTICE` reproduces the NOTICE files of the components
+  ([ADR 0030](docs/adr/0030-third-party-notices.md)). The images carry them in `/licenses`, the
+  releases attach them with the licenses of Brokerium, and the **Licenses** page of the dashboard
+  shows them (`GET /api/v1/notices`). The lab node image keeps the license files of Apache Kafka.
+- Removing an agent from a host: `GET /api/v1/agent/uninstall.sh` removes the agent, its units,
+  its sudo rule and its state; `--stop-kafka`, `--remove-kafka` and `--delete-data` also stop and
+  remove Kafka and its data. After deleting a node the dashboard shows the command
+  ([ADR 0031](docs/adr/0031-node-deletion-and-agent-removal.md)).
+- Agents report the Kafka process they run (process id, start time and the Kafka version of its
+  classpath) and the Kafka processes on the host that they do not run; the **Nodes** page shows
+  them.
+- `GET /api/v1/server` reports `defaultKafkaVersion`, the release the creation forms and the
+  **Upgrade** tab offer.
+
+### Changed
+
+- Deleting a node closes the session of its agent, and the agent exits with status 6 instead of
+  reconnecting forever; the unit of the install script does not restart it
+  (`RestartPreventExitStatus=6`). On the insecure transport the agent stops only on an answer
+  signed by the CA. Nodes that run a broker or a controller cannot be deleted, connected or not;
+  decommission them first. A combined node can be deleted once its cluster no longer knows it.
+- Restarts and upgrades wait for a new Kafka process with the expected version. A Kafka process on
+  the host that the agent does not run, such as the old unit of an adopted node, fails starts,
+  restarts and upgrades of its node with its process id and user, and plans warn about it.
+- New clusters and nodes get Kafka 4.4.0 by default. Clusters whose settings record no version
+  keep 4.3.1.
+- From 0.4.0, new features are part of Brokerium Enterprise; everything published up to 0.3.1
+  stays in the Community edition ([ADR 0016](docs/adr/0016-editions-and-license-keys.md)).
+- The Brokerium Commercial License 1.1 names Czech law and the courts of the Czech Republic and
+  excludes the CISG. It, CLA and CCLA 1.1 and GOVERNANCE.md speak of an exclusive license and of
+  assigning the licenses received instead of transferring rights.
+- The dashboard is built with Node.js 26 LTS. The images of the Community server, the agent and
+  the lab node carry their own title and license labels.
+
+### Fixed
+
+- `log.dirs` of agent nodes follows the Kafka data directory of the agent
+  (`BROKERIUM_AGENT_KAFKA_DATA_DIR`) instead of always `/var/lib/kafka/data`.
+- `PATCH /api/v1/clusters/{id}` merges `settings` into the stored ones and `null` removes a key.
+  Before, a partial update dropped the Kafka version, the quorum type, the replication settings
+  and the racks. The keys Brokerium reads are validated.
+- ACLs on `USER` resources can be created and deleted.
+- The documentation says that clusters Brokerium creates accept unauthenticated clients
+  (PLAINTEXT listeners, `User:ANONYMOUS` as a super user), and the creation wizard shows it. The
+  operations guide describes what the audit log records.
+
+### Security
+
+- typescript-eslint 8.73, whose dependencies no longer include a minimatch vulnerable to
+  GHSA-g3hv-75wg-m249 (a development dependency, not part of the dashboard bundle).
+
+### Upgrading
+
+- Update the server, then the agents: create a join token for the node on the **Nodes** page and
+  run its command on the host again, so that the agent unit gets `RestartPreventExitStatus=6`.
+  Agents before 0.3.2 keep reconnecting after their node is deleted.
+- Scripts that delete nodes get `200` with `uninstallCommand` instead of `204`, and `409` for
+  nodes that run a broker or a controller.
+- Scripts that update cluster settings keep the keys they do not send; send `null` to remove one.
+- A host whose agent was installed with another `BROKERIUM_AGENT_KAFKA_DATA_DIR` than
+  `/var/lib/kafka/data` while its Kafka writes to `/var/lib/kafka/data` gets the configured
+  directory on the next restart: move the data first or install the agent again with the
+  directory Kafka uses.
+
 ## [0.3.1] - 2026-11-18
 
 Clusters created from the dashboard on hosts with agents, hosts that keep their own names,
