@@ -61,7 +61,8 @@ emptying topics, searching, exporting and copying messages). Its code lives in `
 `web/src/ee/` under the [Brokerium Commercial License](ee/LICENSE): you can read it, but
 production use needs a subscription and a license key. The Community build and its
 images contain none of that code. Features that were free in a published version never
-move to Enterprise.
+move to Enterprise. From 0.4.0, new features are part of Enterprise, while the Community
+edition keeps receiving bug fixes and corrections of the features it already has.
 
 **Where is the commercial license?**
 Enterprise subscriptions and other commercial licenses (OEM, service providers, special
