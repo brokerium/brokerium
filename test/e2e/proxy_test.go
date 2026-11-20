@@ -174,7 +174,7 @@ func checkEnrollmentProofs(t *testing.T, c *client, proxy string) {
 	if err != nil {
 		t.Fatalf("enrolling through the proxy: %v", err)
 	}
-	t.Cleanup(func() { c.must(http.StatusNoContent, "DELETE", "/api/v1/nodes/"+resp.GetNodeId(), nil, nil) })
+	t.Cleanup(func() { c.must(http.StatusOK, "DELETE", "/api/v1/nodes/"+resp.GetNodeId(), nil, nil) })
 	if _, secret, err := e.Open(resp, parts[2]); err != nil || len(secret) != agentauth.SecretSize {
 		t.Fatalf("opening the enrollment response: %v", err)
 	}

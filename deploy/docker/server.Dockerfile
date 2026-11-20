@@ -39,7 +39,7 @@ COPY ee/LICENSE /licenses/LICENSE-enterprise
 FROM runtime-${EDITION}
 LABEL org.opencontainers.image.source="https://github.com/brokerium/brokerium"
 COPY --from=build /out/brokerium-server /usr/local/bin/brokerium-server
-COPY LICENSE NOTICE /licenses/
+COPY LICENSE NOTICE THIRD_PARTY_NOTICES /licenses/
 # Owned by the runtime user, so a named volume mounted here starts out writable.
 COPY --from=build --chown=65532:65532 /out/data /var/lib/brokerium
 ENV BROKERIUM_DATA_DIR=/var/lib/brokerium

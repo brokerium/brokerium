@@ -26,7 +26,7 @@ env:
   BROKERIUM_AGENT_IMAGE: bvaliev/brokerium-agent:lab
   # Every Community scenario runs in one job; the api job fails for a scenario without a job.
   # TestStrimzi runs in e2e-strimzi.yml and TestAgentVMs against the VM lab (deploy/lab/vm).
-  API_SCENARIOS: TestMultiClusterOverview|TestDataPlane|TestSecureConnections|TestUsersRolesAudit|TestLicenseCommunity|TestControllersDirect|TestAgentCertificateRenewal
+  API_SCENARIOS: TestMultiClusterOverview|TestDataPlane|TestSecureConnections|TestUsersRolesAudit|TestLicenseCommunity|TestControllersDirect|TestAgentCertificateRenewal|TestNodeDeletion
   PROXY_SCENARIOS: TestInsecureAgentBehindProxy
   DOCKER_SCENARIOS: TestScaleOutAndBalance|TestNodeLifecycle|TestMigrateStaticQuorum|TestRollingUpgrade|TestCombinedNodes
   OTHER_SCENARIOS: TestStrimzi|TestAgentVMs
@@ -59,13 +59,14 @@ jobs:
             files=$(git diff --name-only "$BASE" HEAD)
             while read -r file; do
               case "$file" in
-                "" | docs/* | *.md | web/* | ee/* | deploy/helm/* | deploy/docker/hub/* | api/openapi.yaml | LICENSE | NOTICE) ;;
+                "" | docs/* | *.md | web/* | ee/* | deploy/helm/* | deploy/docker/hub/* | api/openapi.yaml | LICENSE | NOTICE | \
+                  THIRD_PARTY_NOTICES | internal/tools/*) ;;
                 .github/workflows/e2e.yml) community=true ;;
                 .github/*) ;;
                 *) community=true ;;
               esac
               case "$file" in
-                *.md | ee/LICENSE) ;;
+                *.md | ee/LICENSE | internal/tools/*) ;;
                 ee/* | internal/* | cmd/* | test/e2e/* | go.mod | go.sum | Makefile | .mise.toml | .github/workflows/e2e.yml)
                   enterprise=true ;;
               esac
@@ -104,8 +105,12 @@ jobs:
         run: |
           make lab-certs
           docker compose -f deploy/lab/compose.yaml --profile beta up -d --wait postgres beta-c1 beta-b1
+      # The image distributes Apache Kafka, so it keeps the license files of Kafka next to ours.
       - name: Agent image for Docker clusters
-        run: docker build -f deploy/docker/agent-lab.Dockerfile --build-arg VERSION=ci -t "$BROKERIUM_AGENT_IMAGE" .
+        run: |
+          docker build -f deploy/docker/agent-lab.Dockerfile --build-arg VERSION=ci -t "$BROKERIUM_AGENT_IMAGE" .
+          docker run --rm --entrypoint ls "$BROKERIUM_AGENT_IMAGE" /opt/kafka/LICENSE /opt/kafka/NOTICE /opt/kafka/licenses \
+            /licenses/LICENSE /licenses/NOTICE /licenses/THIRD_PARTY_NOTICES > /dev/null
       # The scenarios use the API only, so the server is built without the dashboard.
       - name: Build
         run: go build -o bin/brokerium-server ./cmd/brokerium-server
@@ -135,6 +140,8 @@ jobs:
           controllers=$(api "localhost:8080/api/v1/clusters/$id" | jq -r '.cluster.settings.controllerBootstrapServers | join(",")')
           echo "BROKERIUM_E2E_CONTROLLERS=$controllers" >> "$GITHUB_ENV"
       - name: Scenarios
+        env:
+          BROKERIUM_E2E_INSECURE_GATEWAY: localhost:8444
         run: go test -tags e2e -count=1 -timeout 20m -v -run "^($API_SCENARIOS)$" ./test/e2e
       # OpenResty terminates TLS with a self-signed certificate and passes gRPC in plaintext to the
       # insecure agent listener; two lab agents enroll through it with the insecure transport.

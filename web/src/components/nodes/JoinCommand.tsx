@@ -10,18 +10,25 @@ import { formatDateTime } from '../../lib/format';
 import { CopyIcon } from '../CopyText';
 import { RelativeTime } from '../RelativeTime';
 
+/** A shell command to run on a host, with a copy button. */
+export function CommandBlock({ command }: { command: string }) {
+  return (
+    <Paper withBorder p="sm" radius="md" pos="relative">
+      <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', paddingRight: 36 }}>
+        {command}
+      </Code>
+      <Group pos="absolute" top={8} right={8}>
+        <CopyIcon value={command} label="Copy command" />
+      </Group>
+    </Paper>
+  );
+}
+
 /** The install command of a join token, shown once. */
 export function JoinCommand({ token }: { token: JoinTokenResponse }) {
   return (
     <Stack gap="xs">
-      <Paper withBorder p="sm" radius="md" pos="relative">
-        <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', paddingRight: 36 }}>
-          {token.command}
-        </Code>
-        <Group pos="absolute" top={8} right={8}>
-          <CopyIcon value={token.command} label="Copy command" />
-        </Group>
-      </Paper>
+      <CommandBlock command={token.command} />
       <Alert color="yellow" variant="light" icon={<IconInfoCircle size={18} />}>
         The token is shown only once and expires {formatDateTime(token.expiresAt)} (
         <RelativeTime value={token.expiresAt} size="sm" />

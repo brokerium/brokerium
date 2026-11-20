@@ -76,7 +76,8 @@ hex SHA-256 of the secret as text, which is what the server stores for the token
 2. The server rejects unknown nodes, nodes whose transport is not `insecure`, wrong MACs and
    timestamps more than five minutes off. It answers `SessionAccept{server_nonce (16 random
    bytes), signature}` over `"brokerium-session-v1", node_id, agent_nonce, server_nonce`, which
-   the agent verifies.
+   the agent verifies. The hello of an unknown node gets a signed `NodeDeleted` answer before
+   the stream ends ([ADR 0031](0031-node-deletion-and-agent-removal.md)).
 3. Every later message is a `SignedMessage{seq, signed_body, signature | mac}`. `seq` counts the
    messages of each direction from 1; `signed_body` is the deterministic protobuf encoding of the
    message it carries.

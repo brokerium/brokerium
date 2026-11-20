@@ -30,3 +30,11 @@ never put data at risk.
 
 - Operations are explicit and auditable; a declarative "desired cluster spec" may be built
   on top later.
+
+## Amendment 2026-11-20: the Kafka process of a node
+
+- Starting, restarting or upgrading Kafka on a node fails when its host runs a Kafka process that
+  the agent does not run, such as the operator's own unit of an adopted node; the error names the
+  process and its user, and plans warn about it before.
+- Restarts and upgrades continue only after the agent reports a new Kafka process that runs the
+  expected version. Agents before 0.3.2 do not report their process and skip this check.

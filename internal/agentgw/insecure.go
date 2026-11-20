@@ -155,7 +155,9 @@ func (g *Gateway) connectInsecure(stream agentv1.AgentService_ConnectServer) err
 			"the stream must start with a session hello; run the agent with BROKERIUM_AGENT_TRANSPORT=insecure")
 	}
 	node, secret, err := g.nodeSecret(stream.Context(), hello.GetNodeId())
-	if err != nil {
+	if errors.Is(err, store.ErrNotFound) {
+		return g.refuseDeleted(stream, hello)
+	} else if err != nil {
 		return err
 	}
 	sess, accept, err := agentauth.Accept(g.CA.Key, secret, hello, time.Now())
@@ -178,12 +180,28 @@ func (g *Gateway) connectInsecure(stream agentv1.AgentService_ConnectServer) err
 	return g.serve(node, signed, first)
 }
 
-// nodeSecret returns a node of the insecure transport and its node secret.
+// refuseDeleted answers the session hello of a node that does not exist with a signed answer, on
+// which its agent stops.
+func (g *Gateway) refuseDeleted(stream agentv1.AgentService_ConnectServer, hello *agentv1.SessionHello) error {
+	g.Log.Warn("rejected agent session", "nodeId", hello.GetNodeId(), "error", "the node was deleted")
+	answer, err := agentauth.NodeDeleted(g.CA.Key, hello)
+	if err != nil {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
+	if err := stream.Send(&agentv1.ServerMessage{Body: &agentv1.ServerMessage_NodeDeleted{NodeDeleted: answer}}); err != nil {
+		return err
+	}
+	return errNodeDeleted
+}
+
+// nodeSecret returns a node of the insecure transport and its node secret, or store.ErrNotFound
+// when the node does not exist.
 func (g *Gateway) nodeSecret(ctx context.Context, id string) (*store.Node, []byte, error) {
 	node, err := g.Store.GetNode(ctx, id)
-	if err != nil {
-		g.Log.Warn("rejected agent session", "nodeId", id, "error", "unknown node")
-		return nil, nil, status.Error(codes.PermissionDenied, "unknown node")
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, nil, err
+	} else if err != nil {
+		return nil, nil, status.Error(codes.Unavailable, "looking up the node: "+err.Error())
 	}
 	if node.Transport != store.TransportInsecure {
 		g.Log.Warn("rejected agent session", "node", node.Name, "error", "the node is not enrolled with the insecure transport")

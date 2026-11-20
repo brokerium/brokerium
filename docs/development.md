@@ -26,6 +26,8 @@ rules are in [CONTRIBUTING.md](../CONTRIBUTING.md).
 | `internal/edition` | Edition of the build, catalog of Enterprise features, license manager interface |
 | `internal/webui` | Embedded dashboard build output |
 | `internal/tools/catalog` | Generator of the Kafka configuration catalog (`make catalog`) |
+| `internal/tools/notices` | Generator of `THIRD_PARTY_NOTICES` and of the third-party section of `NOTICE` (`make notices`) |
+| `notices.go` | Embeds `LICENSE`, `NOTICE` and `THIRD_PARTY_NOTICES` into the server for the Licenses page |
 | `ee/` | Brokerium Enterprise server code (build tag `enterprise`): `ee.Setup`, `ee/licensing` (license keys and their manager) |
 | `web/` | React + TypeScript dashboard (Vite, Mantine, TanStack Query) |
 | `web/src/ee`, `web/src/ee-community` | Enterprise dashboard code and its Community stand-in, imported as `@ee` |
@@ -55,6 +57,7 @@ activate mise in your shell.
 | `make lint` | golangci-lint for both editions and web lint |
 | `make proto` | Regenerate the agent protocol code |
 | `make catalog` | Generate the Kafka configuration catalog in Docker; `VERSIONS="4.4.0"` for one release |
+| `make notices` | Regenerate `THIRD_PARTY_NOTICES` and the third-party section of `NOTICE` after a dependency change |
 | `make lab-certs` | Throwaway CA and certificates for the SASL and SSL listeners of beta |
 | `make images` | Build the server, agent and lab node images locally |
 | `make e2e` | End-to-end scenarios against a running lab and server |
@@ -207,8 +210,9 @@ engine owns them, so they are not in the catalog.
 A tag `vX.Y.Z` publishes a release:
 
 - the `release` workflow attaches the binaries of both editions, the Helm chart
-  `brokerium-X.Y.Z.tgz`, `SHA256SUMS` and an SBOM to the GitHub release, with the notes of the
-  matching section of `CHANGELOG.md`;
+  `brokerium-X.Y.Z.tgz`, `LICENSE`, `LICENSE-enterprise`, `NOTICE`, `THIRD_PARTY_NOTICES`,
+  `SHA256SUMS` and an SBOM to the GitHub release, with the notes of the matching section of
+  `CHANGELOG.md`;
 - it pushes the chart to `oci://ghcr.io/brokerium/charts` and runs the `helm-repo` workflow,
   which rebuilds the index of https://charts.brokerium.kaufen (GitHub Pages) from the charts of
   all releases;

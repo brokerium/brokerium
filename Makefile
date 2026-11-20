@@ -20,7 +20,7 @@ GO_TAGS := $(if $(filter enterprise,$(EDITION)),-tags enterprise)
 SERVER_NAME := $(if $(filter enterprise,$(EDITION)),brokerium-server-enterprise,brokerium-server)
 
 .PHONY: help build build-go web-build web-dev dev test test-go test-web lint proto catalog e2e screenshots images \
-	lab-up lab-down lab-reset lab-certs lab-ps lab-quorum lab-load licenses
+	lab-up lab-down lab-reset lab-certs lab-ps lab-quorum lab-load licenses notices
 
 help: ## Show targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -70,6 +70,10 @@ licenses: ## Check dependency licenses against the allowlist
 		--allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0 \
 		--ignore github.com/brokerium/brokerium
 	cd web && $(MISE) node scripts/check-licenses.mjs
+
+notices: ## Write THIRD_PARTY_NOTICES and the third-party notices in NOTICE from the dependencies
+	cd web && $(MISE) pnpm install --frozen-lockfile
+	$(MISE) go run ./internal/tools/notices
 
 e2e: ## End-to-end scenarios against a running lab and server
 	$(MISE) go test -tags e2e -count=1 -timeout 60m ./test/e2e/...

@@ -5,6 +5,7 @@ import {
   Anchor,
   Badge,
   Button,
+  Checkbox,
   EmptyState,
   Group,
   Modal,
@@ -25,7 +26,7 @@ import { useOverview } from '../api/clusters';
 import { type NodeUpdate, useCreateJoinToken, useDeleteNode, useNodes, useUpdateNode } from '../api/nodes';
 import type { AgentNode, JoinTokenResponse, KafkaProcess, NodeStatus } from '../api/types';
 import { confirmAction } from '../components/confirm';
-import { JoinCommand } from '../components/nodes/JoinCommand';
+import { CommandBlock, JoinCommand } from '../components/nodes/JoinCommand';
 import { notifySuccess } from '../components/notify';
 import { PageHeader } from '../components/PageHeader';
 import { PageLoader, QueryError } from '../components/QueryState';
@@ -34,6 +35,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { hostAddressError } from '../lib/bootstrap';
 import { formatBytes, formatRelativeTime } from '../lib/format';
 import { NODE_ROLE_COLORS, NODE_ROLE_LABELS } from '../lib/labels';
+import { removalBlocker, type UninstallOptions, uninstallCommand } from '../lib/nodes';
 
 const NODE_NAME = /^[A-Za-z0-9._-]{1,63}$/;
 const RACK = /^[A-Za-z0-9._-]{0,64}$/;
@@ -289,6 +291,53 @@ function EditNodeModal({ node, onClose }: { node: AgentNode; onClose: () => void
   );
 }
 
+/** The command that removes the agent of a removed node from its host, with the options of the script. */
+function UninstallModal({ name, command, onClose }: { name: string; command: string; onClose: () => void }) {
+  const [options, setOptions] = useState<UninstallOptions>({ stopKafka: false, removeKafka: false, deleteData: false });
+  const option = (key: keyof UninstallOptions, label: string, description: string, color?: string) => (
+    <Checkbox
+      label={label}
+      description={description}
+      color={color}
+      checked={options[key]}
+      onChange={(e) => {
+        const checked = e.currentTarget.checked;
+        setOptions((o) => ({ ...o, [key]: checked }));
+      }}
+    />
+  );
+
+  return (
+    <Modal opened onClose={onClose} title={<Text fw={600}>Remove the agent from {name}</Text>} size="lg">
+      <Stack>
+        <Text size="sm">
+          The agent stops as soon as it is connected, and systemd does not start it again. Run this command on the host
+          as a user with sudo to remove the agent, its service, sudo rule, configuration and state.
+        </Text>
+        <CommandBlock command={uninstallCommand(command, options)} />
+        {option(
+          'stopKafka',
+          'Stop Kafka (--stop-kafka)',
+          'Kafka runs from the configuration of the agent: without this option the script changes nothing while Kafka runs.',
+        )}
+        {option('removeKafka', 'Remove the Kafka releases (--remove-kafka)', 'The releases the agent installed in /opt/brokerium/kafka.')}
+        {option(
+          'deleteData',
+          'Delete the Kafka data (--delete-data)',
+          'The data directory of the agent and all data in it are lost.',
+          'red',
+        )}
+        <Text size="xs" c="dimmed">
+          Running the script again removes what is left.
+        </Text>
+        <Group justify="flex-end">
+          <Button onClick={onClose}>Done</Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
 export default function NodesPage() {
   const nodes = useNodes();
   const { data: clusters } = useOverview();
@@ -296,17 +345,28 @@ export default function NodesPage() {
   const remove = useDeleteNode();
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<AgentNode | null>(null);
+  const [uninstall, setUninstall] = useState<{ name: string; command: string } | null>(null);
   const clusterName = (id: string | null) => (id ? (clusters?.find((c) => c.cluster.id === id)?.cluster.name ?? id) : null);
 
-  const del = async (id: string, name: string) => {
+  const del = async (node: AgentNode) => {
     const ok = await confirmAction({
-      title: `Remove node ${name}`,
-      message: 'The agent registration and its certificate are revoked. Kafka on the host keeps running but is no longer managed.',
+      title: `Remove node ${node.name}`,
+      message:
+        node.role === 'combined'
+          ? 'Brokerium removes a combined node only after it left its cluster: take it out of the quorum, stop Kafka and unregister its broker first. Its agent then stops for good, and the next dialog shows the command that removes it from the host.'
+          : 'The agent stops for good and its registration and credentials are revoked; Kafka on the host is left as it is. The next dialog shows the command that removes the agent, and Kafka and its data if you want, from the host.',
       confirmLabel: 'Remove node',
-      typeToConfirm: name,
+      typeToConfirm: node.name,
       typeToConfirmWhat: 'node name',
     });
-    if (ok) remove.mutate(id, { onSuccess: () => notifySuccess('Node removed', name) });
+    if (ok) {
+      remove.mutate(node.id, {
+        onSuccess: (res) => {
+          notifySuccess('Node removed', node.name);
+          setUninstall({ name: node.name, command: res.uninstallCommand });
+        },
+      });
+    }
   };
 
   const list = [...(nodes.data ?? [])].sort((a, b) => a.name.localeCompare(b.name));
@@ -326,6 +386,7 @@ export default function NodesPage() {
       />
       {adding && <AddNodeModal opened onClose={() => setAdding(false)} />}
       {editing && <EditNodeModal node={editing} onClose={() => setEditing(null)} />}
+      {uninstall && <UninstallModal name={uninstall.name} command={uninstall.command} onClose={() => setUninstall(null)} />}
 
       {nodes.isPending && <PageLoader />}
       {nodes.error && !nodes.data && <QueryError error={nodes.error} onRetry={() => void nodes.refetch()} />}
@@ -360,6 +421,7 @@ export default function NodesPage() {
                 <Table.Tbody>
                   {list.map((n) => {
                     const cluster = clusterName(n.clusterId);
+                    const blocker = removalBlocker(n, cluster ?? 'its cluster');
                     return (
                       <Table.Tr key={n.id}>
                         <Table.Td>
@@ -462,8 +524,17 @@ export default function NodesPage() {
                                   <IconPencil size={14} />
                                 </ActionIcon>
                               </Tooltip>
-                              <Tooltip label="Remove node" withArrow>
-                                <ActionIcon variant="subtle" color="red" onClick={() => void del(n.id, n.name)} aria-label={`Remove ${n.name}`}>
+                              <Tooltip label={blocker ?? 'Remove node'} withArrow multiline maw={blocker ? 320 : undefined}>
+                                <ActionIcon
+                                  variant="subtle"
+                                  color="red"
+                                  data-disabled={blocker !== null || undefined}
+                                  aria-disabled={blocker !== null}
+                                  onClick={() => {
+                                    if (blocker === null) void del(n);
+                                  }}
+                                  aria-label={`Remove ${n.name}`}
+                                >
                                   <IconTrash size={14} />
                                 </ActionIcon>
                               </Tooltip>

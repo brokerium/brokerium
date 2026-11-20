@@ -23,8 +23,8 @@ linters:
     paths:
       - proto/
     rules:
-      # Tests and lab tooling (deploy/lab, the generators in internal/tools) run fixed commands,
-      # write throwaway files and use test data.
+      # Tests, lab tooling and development tools run fixed commands, read dependencies, write
+      # throwaway or committed files and use test data.
       - path: (_test\.go|^deploy/lab/|^internal/tools/)
         linters: [gosec]
       # The agent works on paths from its own configuration, and Kafka directories must stay

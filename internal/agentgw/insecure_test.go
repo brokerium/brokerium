@@ -141,6 +141,37 @@ func TestRecvBefore(t *testing.T) {
 	}
 }
 
+// recordedStream records what the server sends on a Connect stream.
+type recordedStream struct {
+	agentv1.AgentService_ConnectServer
+	sent []*agentv1.ServerMessage
+}
+
+func (s *recordedStream) Send(m *agentv1.ServerMessage) error {
+	s.sent = append(s.sent, m)
+	return nil
+}
+
+func TestRefuseDeleted(t *testing.T) {
+	t.Parallel()
+	ca := testCA(t)
+	g := New(nil, ca, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	hello := agentauth.NewHello("n1", bytes.Repeat([]byte{7}, agentauth.SecretSize), time.Now())
+	stream := &recordedStream{}
+	if err := g.refuseDeleted(stream, hello); status.Code(err) != codes.NotFound {
+		t.Errorf("refuseDeleted = %v, want NotFound", err)
+	}
+	if len(stream.sent) != 1 || agentauth.VerifyNodeDeleted(&ca.Key.PublicKey, hello, stream.sent[0].GetNodeDeleted()) != nil {
+		t.Fatalf("sent %v, want one answer that the node was deleted, signed by the CA", stream.sent)
+	}
+
+	hello.AgentNonce = nil
+	stream = &recordedStream{}
+	if err := g.refuseDeleted(stream, hello); status.Code(err) != codes.InvalidArgument || len(stream.sent) != 0 {
+		t.Errorf("a malformed hello: %v, sent %v; want InvalidArgument and no answer", err, stream.sent)
+	}
+}
+
 func TestRedeemProofExpired(t *testing.T) {
 	t.Parallel()
 	secret, hash := auth.NewToken()
