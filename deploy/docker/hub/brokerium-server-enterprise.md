@@ -48,7 +48,7 @@ For Kubernetes, use the Helm chart with `edition: enterprise`; see the
 
 | Tag | Meaning |
 | --- | --- |
-| `latest`, `0.3`, `0.3.1` | The latest release, the latest patch of a minor version, an exact release |
+| `latest`, `0.3`, `0.3.2` | The latest release, the latest patch of a minor version, an exact release |
 | `edge` | A nightly build of the `main` branch, for testing |
 
 The tags match those of `bvaliev/brokerium-server`. Images are built for `linux/amd64` and

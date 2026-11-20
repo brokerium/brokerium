@@ -3,8 +3,8 @@ apiVersion: v2
 name: brokerium
 description: Brokerium control plane and dashboard for Apache Kafka clusters
 type: application
-version: 0.3.1
-appVersion: "0.3.1"
+version: 0.3.2
+appVersion: "0.3.2"
 home: https://brokerium.kaufen
 icon: https://raw.githubusercontent.com/brokerium/brokerium/main/docs/brand/brokerium-mark.svg
 sources:
