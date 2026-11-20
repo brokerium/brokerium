@@ -22,6 +22,9 @@
 | [0019](0019-docker-clusters-for-docker-installations.md) | Docker clusters only for the Docker installation, with nodes reached by container name |
 | [0020](0020-ci-by-need.md) | CI runs the jobs a change needs; nightly `edge` images |
 | [0021](0021-combined-nodes.md) | Combined broker and controller nodes: voters and brokers, restarted with the controllers, not replaced or drained |
+| [0022](0022-kafka-versions-and-modes.md) | Mode and version of every broker; capabilities by Kafka mode and version; ZooKeeper-based clusters from 3.5, new clusters from 4.2 |
+| [0023](0023-problems.md) | Problems: rules after every snapshot, findings with fixes, only their state stored |
+| [0024](0024-monitoring-through-prometheus.md) | Monitoring through the team's Prometheus with fixed panels; a server `/metrics` endpoint |
 
 New ADRs use the next free number and the same structure: status, date, context, decision,
 consequences. Superseded ADRs stay in place with their status changed.
