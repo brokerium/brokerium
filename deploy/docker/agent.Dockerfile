@@ -18,6 +18,6 @@ LABEL org.opencontainers.image.title="brokerium-agent" \
       org.opencontainers.image.source="https://github.com/brokerium/brokerium" \
       org.opencontainers.image.licenses="LicenseRef-PolyForm-Shield-1.0.0"
 COPY --from=build /out/brokerium-agent /usr/local/bin/brokerium-agent
-COPY LICENSE NOTICE /licenses/
+COPY LICENSE NOTICE THIRD_PARTY_NOTICES /licenses/
 USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/brokerium-agent"]

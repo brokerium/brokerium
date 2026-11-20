@@ -125,6 +125,16 @@ offers them only in this setup. `GET /api/v1/server` reports whether it does and
 Release assets contain `brokerium-server-<os>-<arch>` with the dashboard built in, and
 `brokerium-server-enterprise-<os>-<arch>` for Brokerium Enterprise.
 
+### Licenses and notices
+
+`THIRD_PARTY_NOTICES` lists the third-party software in Brokerium, the Go modules of the binaries
+and the npm packages of the dashboard, with their versions, licenses and license texts; `NOTICE`
+reproduces their notice files. Both come with `LICENSE` (and `LICENSE-enterprise` for Brokerium
+Enterprise) in `/licenses` of every image and as assets of every release, covered by
+`SHA256SUMS`. The dashboard shows the same files on the **Licenses** page, linked at the bottom of
+the sidebar. The lab node image of Docker clusters also keeps the `LICENSE`, `NOTICE` and
+`licenses/` of Apache Kafka in `/opt/kafka`.
+
 ### Configuration
 
 | Variable | Default | Meaning |

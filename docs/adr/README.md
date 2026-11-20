@@ -30,6 +30,7 @@
 | [0027](0027-agent-commands-for-0-5.md) | Agent commands for sealed files, artifacts, host facts, bounded logs and autostart |
 | [0028](0028-takeover-of-existing-nodes.md) | Takeover of existing nodes: import, diff, own installation, unit switch node by node |
 | [0029](0029-zookeeper-clusters.md) | ZooKeeper-based clusters: adoption, releases and compatibility as data, two-pass upgrades, `migrate-zookeeper` |
+| [0030](0030-third-party-notices.md) | Generated `THIRD_PARTY_NOTICES` and third-party notice files in the images, releases and dashboard |
 
 New ADRs use the next free number and the same structure: status, date, context, decision,
 consequences. Superseded ADRs stay in place with their status changed.
