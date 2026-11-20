@@ -25,11 +25,32 @@ type View struct {
 	Capabilities Capabilities    `json:"capabilities"`
 	Error        string          `json:"error,omitempty"`
 	UpdatedAt    time.Time       `json:"updatedAt"`
+
+	brokerConfigs map[int32][]kafka.ConfigEntry
 }
+
+// BrokerConfigs returns the configuration of each broker as read at most BrokerConfigInterval
+// before the snapshot: every entry with its value, source and flags. The configurations stay on
+// the server; sensitive entries carry no value.
+func (v *View) BrokerConfigs() map[int32][]kafka.ConfigEntry {
+	return v.brokerConfigs
+}
+
+// BrokerConfigInterval is how long the broker configurations of a cluster are kept before they
+// are read again.
+const BrokerConfigInterval = 5 * time.Minute
+
+// brokerConfigRetry is how soon brokers that did not describe their configuration are asked again.
+const brokerConfigRetry = time.Minute
 
 type cachedClient struct {
 	client    *kafka.Client
 	updatedAt time.Time
+}
+
+type cachedConfigs struct {
+	readAt  time.Time
+	brokers map[int32][]kafka.ConfigEntry
 }
 
 // Service manages clients and snapshots of registered clusters.
@@ -43,6 +64,7 @@ type Service struct {
 	mu        sync.Mutex
 	clients   map[string]cachedClient
 	views     map[string]*View
+	configs   map[string]*cachedConfigs
 	refreshMu map[string]*sync.Mutex
 	listeners []func(*View)
 }
@@ -50,7 +72,7 @@ type Service struct {
 // New creates a Service.
 func New(st *store.Store, box *secrets.Box, log *slog.Logger) *Service {
 	return &Service{store: st, box: box, log: log, clients: map[string]cachedClient{}, views: map[string]*View{},
-		refreshMu: map[string]*sync.Mutex{}}
+		configs: map[string]*cachedConfigs{}, refreshMu: map[string]*sync.Mutex{}}
 }
 
 // OnRefresh registers a callback invoked after each snapshot refresh.
@@ -146,6 +168,7 @@ func (s *Service) Invalidate(id string) {
 		delete(s.clients, id)
 	}
 	delete(s.views, id)
+	delete(s.configs, id)
 }
 
 // Refresh collects a new snapshot now.
@@ -165,43 +188,54 @@ func (s *Service) Refresh(ctx context.Context, id string) (*View, error) {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, err
 		}
-		v := &View{Cluster: c, Health: Health{Status: HealthUnreachable, QuorumLeader: -1,
+		v := &View{Cluster: c, Health: Health{Status: HealthUnreachable, QuorumLeader: -1, Controller: -1, Versions: []string{},
 			Issues: []Issue{{Severity: HealthCritical, Code: "unreachable", Message: err.Error()}}}, Error: err.Error(), UpdatedAt: time.Now()}
 		if c != nil {
-			v.Capabilities = CapabilitiesFor(c, false)
+			v.Capabilities = CapabilitiesFor(c, nil)
 		}
 		s.mu.Lock()
 		s.views[id] = v
 		s.mu.Unlock()
 		return v, nil
 	}
+	s.mu.Lock()
+	var prev *kafka.Snapshot
+	if old, ok := s.views[id]; ok {
+		prev = old.Snapshot
+	}
+	s.mu.Unlock()
 	snapCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	caps := CapabilitiesFor(c, false)
+	caps := CapabilitiesFor(c, nil)
 	snap, err := cl.Snapshot(snapCtx, kafka.SnapshotOptions{Groups: true, MaxGroups: 500,
 		SkipQuorum: !caps.DescribeQuorum, SkipReassignments: !caps.Reassign,
 		SkipLogDirs: c.Flavor == store.FlavorConfluentCloud})
 	v := &View{Cluster: c, UpdatedAt: time.Now()}
 	if err != nil {
-		v.Health = Health{Status: HealthUnreachable, Issues: []Issue{{Severity: HealthCritical, Code: "unreachable", Message: err.Error()}}}
+		v.Health = Health{Status: HealthUnreachable, QuorumLeader: -1, Controller: -1, Versions: []string{},
+			Issues: []Issue{{Severity: HealthCritical, Code: "unreachable", Message: err.Error()}}}
 		v.Error = err.Error()
-		v.Capabilities = CapabilitiesFor(c, false)
+		v.Capabilities = CapabilitiesFor(c, nil)
 		if q := s.controllerQuorum(ctx, c); q != nil {
-			v.Snapshot = &kafka.Snapshot{CollectedAt: time.Now(), ClusterID: c.KafkaClusterID, Quorum: q}
+			v.Snapshot = &kafka.Snapshot{CollectedAt: time.Now(), ClusterID: c.KafkaClusterID, ControllerID: -1, Quorum: q}
 			v.Snapshot.FillEmpty()
 			v.Health = Evaluate(v.Snapshot, time.Now())
 			v.Health.Status = HealthCritical
 			v.Health.Issues = append([]Issue{{Severity: HealthCritical, Code: "brokers_unreachable",
 				Message: "no broker answers; the quorum was read from the controllers: " + err.Error()}}, v.Health.Issues...)
+			v.Capabilities = CapabilitiesFor(c, v.Snapshot)
 		}
 	} else {
+		nodes, nodesErr := s.store.ListNodes(ctx, c.ID)
+		v.brokerConfigs = s.brokerConfigs(snapCtx, c.ID, cl, snap)
+		completeBrokers(snap, prev, v.brokerConfigs, nodes)
 		v.Snapshot = snap
 		v.Health = Evaluate(snap, time.Now())
-		if nodes, err := s.store.ListNodes(ctx, c.ID); err == nil {
+		if nodesErr == nil {
 			v.Health.Issues = append(v.Health.Issues, CertificateIssues(nodes, time.Now(), s.CertificateWarning)...)
 			v.Health.settle()
 		}
-		v.Capabilities = CapabilitiesFor(c, v.Health.KRaftVersion == 0 && snap.Quorum != nil)
+		v.Capabilities = CapabilitiesFor(c, snap)
 		if snap.ClusterID != "" && snap.ClusterID != c.KafkaClusterID {
 			if err := s.store.SetKafkaClusterID(ctx, c.ID, snap.ClusterID); err == nil {
 				c.KafkaClusterID = snap.ClusterID

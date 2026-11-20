@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -138,6 +139,13 @@ func racksKnown(v *cluster.View) bool {
 
 // reassignStepsURP turns moves into throttled, batched, health-gated steps.
 func reassignStepsURP(moves []balancer.Move, throttle int64, batch int, allowURP bool) []StepSpec {
+	return reassignStepsGated(moves, throttle, batch, HealthGateArgs{AllowUnderReplicated: allowURP})
+}
+
+// reassignStepsGated turns moves into throttled, batched steps behind health gates with the
+// arguments of gate. Every gate names the brokers that receive replicas in the batch after it,
+// so that only their disks can stop the gate.
+func reassignStepsGated(moves []balancer.Move, throttle int64, batch int, gate HealthGateArgs) []StepSpec {
 	if throttle <= 0 {
 		throttle = DefaultThrottle
 	}
@@ -150,9 +158,17 @@ func reassignStepsURP(moves []balancer.Move, throttle int64, batch int, allowURP
 		assignments = append(assignments, kafka.Assignment{Topic: mv.Topic, Partition: mv.Partition, Replicas: mv.To})
 		copiesData = copiesData || mv.ReplicaMoves > 0
 	}
+	before := func(i int) HealthGateArgs {
+		g := gate
+		g.Receivers = nil
+		if i < len(moves) {
+			g.Receivers = receivers(moves[i:min(i+batch, len(moves))])
+		}
+		return g
+	}
 	throttleArgs := ThrottleArgs{RateBytesPerSec: throttle, Assignments: assignments}
 	steps := []StepSpec{
-		{Name: "Check cluster health", Kind: KindHealthGate, Args: HealthGateArgs{AllowUnderReplicated: allowURP}},
+		{Name: "Check cluster health", Kind: KindHealthGate, Args: before(0)},
 	}
 	if copiesData {
 		steps = append(steps, StepSpec{Name: fmt.Sprintf("Throttle replication to %s/s", humanBytes(throttle)), Kind: KindThrottle, Args: throttleArgs})
@@ -164,7 +180,7 @@ func reassignStepsURP(moves []balancer.Move, throttle int64, batch int, allowURP
 		steps = append(steps,
 			StepSpec{Name: fmt.Sprintf("Start batch %d (%d partitions)", n, len(part)), Kind: KindReassign, Args: ReassignArgs{Assignments: part}},
 			StepSpec{Name: fmt.Sprintf("Wait for batch %d", n), Kind: KindWaitReassign, Args: ReassignArgs{Assignments: part}},
-			StepSpec{Name: fmt.Sprintf("Check health after batch %d", n), Kind: KindHealthGate, Args: HealthGateArgs{AllowUnderReplicated: allowURP}},
+			StepSpec{Name: fmt.Sprintf("Check health after batch %d", n), Kind: KindHealthGate, Args: before(end)},
 		)
 	}
 	if copiesData {
@@ -173,10 +189,34 @@ func reassignStepsURP(moves []balancer.Move, throttle int64, batch int, allowURP
 	return append(steps, StepSpec{Name: "Elect preferred leaders", Kind: KindElectPreferred, Args: ReassignArgs{Assignments: assignments}})
 }
 
+// receivers are the brokers that get a new replica from moves.
+func receivers(moves []balancer.Move) []int32 {
+	set := map[int32]bool{}
+	for _, mv := range moves {
+		for _, r := range mv.To {
+			if !slices.Contains(mv.From, r) {
+				set[r] = true
+			}
+		}
+	}
+	out := make([]int32, 0, len(set))
+	for r := range set {
+		out = append(out, r)
+	}
+	slices.Sort(out)
+	return out
+}
+
 // ReassignSteps exposes reassignSteps to node lifecycle operations. allowURP lets the health
 // gates pass while partitions are under-replicated, for replacing a failed broker.
 func ReassignSteps(moves []balancer.Move, throttle int64, batch int, allowURP bool) []StepSpec {
 	return reassignStepsURP(moves, throttle, batch, allowURP)
+}
+
+// ReassignStepsGated is ReassignSteps with the arguments of every health gate, for operation
+// types of other packages.
+func ReassignStepsGated(moves []balancer.Move, throttle int64, batch int, gate HealthGateArgs) []StepSpec {
+	return reassignStepsGated(moves, throttle, batch, gate)
 }
 
 // EvacuateSteps plans moving every replica off the given brokers: throttled, batched

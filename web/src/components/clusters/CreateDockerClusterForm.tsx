@@ -8,7 +8,7 @@ import { type PlannedCluster, useCreateNewCluster } from '../../api/clusters';
 import { useDefaultKafkaVersion } from '../../api/server';
 import { COMBINED_WARNING, MAX_VOTERS } from '../../lib/bootstrap';
 import { CLUSTER_NAME_PATTERN } from '../../lib/clusterForm';
-import { KAFKA_20979_WARNING, affectedByKafka20979, kafkaVersionError } from '../../lib/kafkaVersion';
+import { KAFKA_20979_WARNING, affectedByKafka20979, newClusterVersionError } from '../../lib/kafkaVersion';
 import { quorumHint } from '../../lib/quorum';
 import { PlannedClusterPreview, type Quorum, QuorumField } from './NewClusterParts';
 
@@ -35,7 +35,7 @@ export function CreateDockerClusterForm({ onCancel, onDone }: CreateDockerCluste
   const [planned, setPlanned] = useState<PlannedCluster | null>(null);
 
   const nameError = name !== '' && !CLUSTER_NAME_PATTERN.test(name) ? 'Lowercase letters, digits and dashes' : undefined;
-  const versionError = kafkaVersionError(version, defaultVersion);
+  const versionError = newClusterVersionError(version, defaultVersion);
   const voters = controllers + combined;
   const countError =
     voters < 1 || voters > MAX_VOTERS

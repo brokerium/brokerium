@@ -85,6 +85,12 @@ export interface Issue {
 
 export type HealthStatus = 'ok' | 'warning' | 'critical' | 'unreachable' | 'unknown';
 
+/**
+ * kraft: every broker runs KRaft; zookeeper: every broker runs ZooKeeper; migration: otherwise,
+ * or a broker has zookeeper.metadata.migration.enable. Empty while no broker could be told.
+ */
+export type KafkaMode = 'kraft' | 'zookeeper' | 'migration' | '';
+
 export interface Health {
   status: HealthStatus;
   issues: Issue[];
@@ -103,8 +109,15 @@ export interface Health {
   voters: number;
   votersLagging: number;
   diskUsedPercentMax: number;
+  /** Empty on ZooKeeper-based clusters. */
   metadataVersion: string;
   kraftVersion: number;
+  mode: KafkaMode;
+  /** Quorum leader, or the controller broker of a ZooKeeper-based cluster; -1 when none or unknown. */
+  controller: number;
+  /** Distinct Kafka versions of the brokers, oldest first. */
+  versions: string[] | null;
+  mixedVersions: boolean;
 }
 
 export interface Capabilities {
@@ -188,6 +201,16 @@ export interface Broker {
   replicas: number;
   leaders: number;
   preferredLeaders: number;
+  /**
+   * Exact release from the agent ("4.3.1"), else estimated from ApiVersions ("3.5", "3.4 to 3.5",
+   * "4.4 or later"); empty when unknown.
+   */
+  version: string;
+  versionExact: boolean;
+  mode: KafkaMode;
+  processRoles?: string;
+  zookeeperConnect?: string;
+  interBrokerProtocolVersion?: string;
 }
 
 export interface Partition {
@@ -248,6 +271,10 @@ export interface Snapshot {
   collectedAt: string;
   durationMs: number;
   clusterId: string;
+  mode: KafkaMode;
+  mixedVersions: boolean;
+  /** Controller named by Metadata: meaningful on ZooKeeper-based clusters only. */
+  controllerId: number;
   brokers: Broker[];
   quorum?: Quorum;
   features: Feature[];

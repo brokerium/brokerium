@@ -23,7 +23,7 @@ import { Link } from 'react-router';
 import { overviewColumns } from '@ee';
 import { useOverview } from '../api/clusters';
 import type { ClusterSummary, Health } from '../api/types';
-import { FlavorBadge, HealthBadge, ProviderBadge } from '../components/badges';
+import { FlavorBadge, HealthBadge, ModeBadge, ProviderBadge } from '../components/badges';
 import { AddClusterModal } from '../components/clusters/AddClusterModal';
 import { PageHeader } from '../components/PageHeader';
 import { PageLoader, QueryError } from '../components/QueryState';
@@ -31,6 +31,7 @@ import { RelativeTime } from '../components/RelativeTime';
 import { StatCard } from '../components/StatCard';
 import { usePermissions } from '../hooks/usePermissions';
 import { formatNumber } from '../lib/format';
+import { isZooKeeperBased, versionsLabel } from '../lib/kafkaMode';
 import { bySeverity, severityColor } from '../lib/status';
 
 function topIssue(summary: ClusterSummary): { text: string; color: string } | null {
@@ -71,6 +72,13 @@ function Brokers({ health }: { health: Health }) {
 }
 
 function Controllers({ health }: { health: Health }) {
+  if (isZooKeeperBased(health.mode) && health.voters === 0) {
+    return (
+      <Text size="sm" c={health.controller < 0 ? 'red' : undefined}>
+        {health.controller < 0 ? 'no controller' : `broker ${health.controller}`}
+      </Text>
+    );
+  }
   if (health.voters === 0) return <Text size="sm" c="dimmed">—</Text>;
   return (
     <Stack gap={0}>
@@ -90,12 +98,24 @@ function Controllers({ health }: { health: Health }) {
   );
 }
 
+function Kafka({ health }: { health: Health }) {
+  const versions = versionsLabel(health.versions);
+  return (
+    <Stack gap={2} align="flex-start">
+      <ModeBadge mode={health.mode} />
+      <Text size="xs" ff="monospace" c={health.mixedVersions ? 'yellow.8' : 'dimmed'}>
+        {versions || '—'}
+      </Text>
+    </Stack>
+  );
+}
+
 export default function OverviewPage() {
   const { data, error, isPending, refetch, dataUpdatedAt } = useOverview();
   const { canOperate } = usePermissions();
   const [adding, { open, close }] = useDisclosure(false);
   const [search, setSearch] = useState('');
-  const tableWidth = useMatches({ base: 760, md: 1000, lg: 1200 });
+  const tableWidth = useMatches({ base: 760, md: 1100, lg: 1300 });
 
   const clusters = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -182,6 +202,7 @@ export default function OverviewPage() {
                   <Table.Tr>
                     <Table.Th style={stickyColumn}>Cluster</Table.Th>
                     <Table.Th visibleFrom="lg">Type</Table.Th>
+                    <Table.Th visibleFrom="md">Kafka</Table.Th>
                     <Table.Th>Health</Table.Th>
                     <Table.Th>Brokers</Table.Th>
                     <Table.Th visibleFrom="md">Controllers</Table.Th>
@@ -217,6 +238,9 @@ export default function OverviewPage() {
                             <ProviderBadge provider={cluster.provider} />
                             <FlavorBadge flavor={cluster.flavor} />
                           </Group>
+                        </Table.Td>
+                        <Table.Td visibleFrom="md">
+                          <Kafka health={health} />
                         </Table.Td>
                         <Table.Td>
                           <HealthBadge status={health.status} />

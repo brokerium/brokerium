@@ -33,6 +33,9 @@ function broker(id: number): Broker {
     replicas: 0,
     leaders: 0,
     preferredLeaders: 0,
+    version: '4.3',
+    versionExact: false,
+    mode: 'kraft',
   };
 }
 

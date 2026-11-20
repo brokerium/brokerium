@@ -1,11 +1,12 @@
 name: e2e
 
-# Lab scenarios against a real server and PostgreSQL in three parallel jobs: api (scenarios against
+# Lab scenarios against a real server and PostgreSQL in four parallel jobs: api (scenarios against
 # the lab cluster beta and a small Docker cluster, then agents behind a TLS-terminating proxy),
-# docker-clusters (scenarios that create Docker clusters with the Docker provider) and enterprise
-# (the scenarios of Brokerium Enterprise against beta). Runs on pull requests, nightly and on
-# demand. Pull requests run only the jobs their changes need; the job e2e, a required check,
-# passes when every job succeeded or was skipped.
+# docker-clusters (scenarios that create Docker clusters with the Docker provider), zookeeper (the
+# ZooKeeper-based lab clusters delta and epsilon) and enterprise (the scenarios of Brokerium
+# Enterprise against beta). Runs on pull requests, nightly and on demand. Pull requests run only
+# the jobs their changes need; the job e2e, a required check, passes when every job succeeded or
+# was skipped.
 on:
   pull_request:
   workflow_dispatch:
@@ -29,6 +30,7 @@ env:
   API_SCENARIOS: TestMultiClusterOverview|TestDataPlane|TestSecureConnections|TestUsersRolesAudit|TestLicenseCommunity|TestControllersDirect|TestAgentCertificateRenewal|TestNodeDeletion
   PROXY_SCENARIOS: TestInsecureAgentBehindProxy
   DOCKER_SCENARIOS: TestScaleOutAndBalance|TestNodeLifecycle|TestMigrateStaticQuorum|TestRollingUpgrade|TestCombinedNodes
+  ZOOKEEPER_SCENARIOS: TestZooKeeperClusters
   OTHER_SCENARIOS: TestStrimzi|TestAgentVMs
 
 jobs:
@@ -96,7 +98,7 @@ jobs:
         run: |
           scenarios=$(go test -tags e2e -list . ./test/e2e)
           missing=$(grep '^Test' <<< "$scenarios" |
-            grep -vxE "$API_SCENARIOS|$PROXY_SCENARIOS|$DOCKER_SCENARIOS|$OTHER_SCENARIOS" || true)
+            grep -vxE "$API_SCENARIOS|$PROXY_SCENARIOS|$DOCKER_SCENARIOS|$ZOOKEEPER_SCENARIOS|$OTHER_SCENARIOS" || true)
           if [ -n "$missing" ]; then
             echo "::error::Scenarios that no job of e2e.yml runs: $(tr '\n' ' ' <<< "$missing")"
             exit 1
@@ -287,6 +289,66 @@ jobs:
           name: e2e-docker-clusters-logs
           path: server.log
 
+  zookeeper:
+    name: zookeeper
+    needs: changes
+    if: needs.changes.outputs.community == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: jdx/mise-action@v5.2.8
+        with:
+          install: true
+          install_args: go
+      # The brokers of delta run an image built from the Kafka 3.5.2 release; the tarball is cached
+      # in the build context, and the build checks it against the checksum in compose.yaml.
+      - name: Cached Kafka 3.5.2
+        id: kafka-release
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: deploy/lab/kafka/dist
+          key: lab-kafka-3.5.2
+      - name: Download Kafka 3.5.2
+        if: steps.kafka-release.outputs.cache-hit != 'true'
+        run: |
+          file=kafka_2.13-3.5.2.tgz
+          mkdir -p deploy/lab/kafka/dist
+          curl -fsSL --connect-timeout 20 --speed-limit 102400 --speed-time 30 --retry 2 -o "deploy/lab/kafka/dist/$file" \
+            "https://archive.apache.org/dist/kafka/3.5.2/$file"
+          sum=$(docker compose -f deploy/lab/compose.yaml --profile delta config --format json |
+            jq -r '.services["delta-b1"].build.args.KAFKA_SHA512')
+          echo "$sum  deploy/lab/kafka/dist/$file" | sha512sum -c -
+      - name: Cache Kafka 3.5.2
+        if: steps.kafka-release.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: deploy/lab/kafka/dist
+          key: lab-kafka-3.5.2
+      - name: Lab (PostgreSQL, delta and epsilon)
+        run: |
+          docker compose -f deploy/lab/compose.yaml --profile delta --profile epsilon up -d --wait \
+            postgres delta-zk delta-b1 delta-b2 delta-b3 epsilon-zk epsilon-b1 epsilon-b2 epsilon-b3
+      - name: Build
+        run: go build -o bin/brokerium-server ./cmd/brokerium-server
+      - name: Start the server
+        run: |
+          nohup ./bin/brokerium-server > server.log 2>&1 &
+          for _ in $(seq 1 60); do curl -fs localhost:8080/readyz && break; sleep 1; done
+      - name: Scenarios
+        run: go test -tags e2e -count=1 -timeout 15m -v -run "^($ZOOKEEPER_SCENARIOS)$" ./test/e2e
+      - name: Diagnostics
+        if: failure()
+        run: |
+          tail -n 200 server.log
+          docker compose -f deploy/lab/compose.yaml --profile delta --profile epsilon ps -a
+          docker compose -f deploy/lab/compose.yaml --profile delta --profile epsilon logs --tail 50 2>&1 || true
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: e2e-zookeeper-logs
+          path: server.log
+
   enterprise:
     name: enterprise
     needs: changes
@@ -329,7 +391,7 @@ jobs:
 
   e2e:
     name: e2e
-    needs: [changes, api, docker-clusters, enterprise]
+    needs: [changes, api, docker-clusters, zookeeper, enterprise]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -338,7 +400,8 @@ jobs:
         env:
           RESULTS: >-
             changes=${{ needs.changes.result }} api=${{ needs.api.result }}
-            docker-clusters=${{ needs.docker-clusters.result }} enterprise=${{ needs.enterprise.result }}
+            docker-clusters=${{ needs.docker-clusters.result }} zookeeper=${{ needs.zookeeper.result }}
+            enterprise=${{ needs.enterprise.result }}
         run: |
           echo "$RESULTS"
           for result in $RESULTS; do
