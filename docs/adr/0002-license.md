@@ -18,8 +18,8 @@ open source after two to four years, which re-opens old versions for competing f
 - Describe the product as **source-available**, never as "open source".
 - Accept external code only under the [Individual CLA](../../CLA.md) or
   [Corporate CLA](../../CCLA.md), which grant the right to relicense under any terms and
-  to assign the rights to a successor. CLA Assistant Lite records signatures on the
-  `cla-signatures` branch.
+  let the maintainer assign the licenses received to a successor. CLA Assistant Lite
+  records signatures on the `cla-signatures` branch.
 - Use only dependencies under permissive or weak-copyleft licenses (MIT, BSD, Apache-2.0,
   ISC, MPL-2.0 unmodified). GPL, AGPL, SSPL, BSL and code without a license are not
   shipped in artifacts. CI checks dependency licenses and publishes an SBOM.
@@ -34,3 +34,13 @@ open source after two to four years, which re-opens old versions for competing f
   Docker's open-source program are not available.
 - The owner can change the license of future versions at any time; published versions keep
   their license.
+
+## Amendment 2026-11-20: Czech law
+
+- Under the Czech Copyright Act (§ 26 of Act No. 121/2000 Coll.) an author's economic rights
+  cannot be transferred. The maintainer passes his own code to a company or a buyer through an
+  exclusive license with the right to grant licenses; the licenses received under the CLA are
+  assigned to it.
+- CLA and CCLA 1.1 and the Brokerium Commercial License 1.1 use this wording and name Czech law
+  and the courts of the Czech Republic; the commercial license excludes the CISG. Version 1.0 of
+  the CLA was never signed.

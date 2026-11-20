@@ -1,6 +1,6 @@
 # Brokerium Corporate Contributor License Agreement
 
-Version 1.0, 2026-10-15
+Version 1.1, 2026-11-20
 
 This Corporate Contributor License Agreement ("Agreement") lets a company or other
 legal entity ("Corporation") authorize its employees and contractors to contribute
@@ -46,8 +46,9 @@ inaccurate or a Designated Employee leaves the list.
 
 ## 4. Other terms
 
-Sections 5 (moral rights), 6 (what does not change) and 7 (assignment) of the
-[Individual CLA](CLA.md) apply to the Corporation and its Designated Employees.
+Sections 5 (moral rights), 6 (what does not change), 7 (assignment) and 8 (governing
+law) of the [Individual CLA](CLA.md) apply to the Corporation and its Designated
+Employees.
 
 ## 5. How to sign
 

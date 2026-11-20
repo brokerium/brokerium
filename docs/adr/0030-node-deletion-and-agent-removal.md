@@ -1,4 +1,4 @@
-# ADR 0022: Deleting nodes and removing agents
+# ADR 0030: Deleting nodes and removing agents
 
 - Status: accepted
 - Date: 2026-11-20

@@ -75,7 +75,7 @@ personally.
 | Path | License |
 | --- | --- |
 | Everything in this repository unless stated otherwise | PolyForm Shield License 1.0.0 |
-| `ee/` and `web/src/ee/` (Brokerium Enterprise) | [Brokerium Commercial License 1.0](ee/LICENSE) |
+| `ee/` and `web/src/ee/` (Brokerium Enterprise) | [Brokerium Commercial License 1.1](ee/LICENSE) |
 | Third-party dependencies (Go modules, npm packages, container base images) | Their own licenses; see the generated SBOM attached to each release |
 
 Source files carry an SPDX header:

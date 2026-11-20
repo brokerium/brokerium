@@ -1,6 +1,6 @@
 # ADR 0010: Agentless metrics first
 
-- Status: accepted
+- Status: accepted, amended by [ADR 0024](0024-monitoring-through-prometheus.md)
 - Date: 2026-10-15
 
 ## Context

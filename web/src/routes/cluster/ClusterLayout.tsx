@@ -16,9 +16,10 @@ import {
   IconTopologyStar3,
   IconUsersGroup,
 } from '@tabler/icons-react';
-import { type ComponentType, useMemo } from 'react';
+import { type ComponentType, Fragment, useMemo } from 'react';
 import { Outlet, useMatch, useNavigate, useParams } from 'react-router';
 
+import { clusterTabs } from '@ee';
 import { useCluster, useRefreshCluster } from '../../api/clusters';
 import { isApiError } from '../../api/errors';
 import { FlavorBadge, HealthBadge, ProviderBadge } from '../../components/badges';
@@ -49,7 +50,8 @@ export default function ClusterLayout() {
   const { data: view, error, isPending, refetch } = useCluster(clusterId);
   const refresh = useRefreshCluster(clusterId);
   const tabParam = useMatch('/clusters/:clusterId/:tab/*')?.params.tab;
-  const tab: ClusterTab = isClusterTab(tabParam) ? tabParam : 'overview';
+  const enterpriseTab = clusterTabs.find((t) => t.value === tabParam);
+  const tab: string = isClusterTab(tabParam) ? tabParam : (enterpriseTab?.value ?? 'overview');
 
   const ctx = useMemo<ClusterContextValue | null>(
     () =>
@@ -163,21 +165,33 @@ export default function ClusterLayout() {
               const { label, icon: Icon } = TAB_META[t];
               const count = tabBadge(t);
               return (
-                <Tabs.Tab
-                  key={t}
-                  value={t}
-                  leftSection={<Icon size={16} />}
-                  rightSection={
-                    count !== null ? (
-                      <Badge size="xs" variant="light" color="gray" circle={count < 10}>
-                        {count}
-                      </Badge>
-                    ) : undefined
-                  }
-                  style={{ whiteSpace: 'nowrap' }}
-                >
-                  {label}
-                </Tabs.Tab>
+                <Fragment key={t}>
+                  <Tabs.Tab
+                    value={t}
+                    leftSection={<Icon size={16} />}
+                    rightSection={
+                      count !== null ? (
+                        <Badge size="xs" variant="light" color="gray" circle={count < 10}>
+                          {count}
+                        </Badge>
+                      ) : undefined
+                    }
+                    style={{ whiteSpace: 'nowrap' }}
+                  >
+                    {label}
+                  </Tabs.Tab>
+                  {t === 'overview' &&
+                    clusterTabs.map(({ value, label: tabLabel, icon: TabIcon }) => (
+                      <Tabs.Tab
+                        key={value}
+                        value={value}
+                        leftSection={<TabIcon size={16} />}
+                        style={{ whiteSpace: 'nowrap' }}
+                      >
+                        {tabLabel}
+                      </Tabs.Tab>
+                    ))}
+                </Fragment>
               );
             })}
           </Tabs.List>

@@ -20,6 +20,7 @@ import { IconPlus, IconSearch, IconServer2 } from '@tabler/icons-react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 
+import { overviewColumns } from '@ee';
 import { useOverview } from '../api/clusters';
 import type { ClusterSummary, Health } from '../api/types';
 import { FlavorBadge, HealthBadge, ProviderBadge } from '../components/badges';
@@ -189,6 +190,9 @@ export default function OverviewPage() {
                     <Table.Th>Under-replicated</Table.Th>
                     <Table.Th>Offline</Table.Th>
                     <Table.Th visibleFrom="md">Under min ISR</Table.Th>
+                    {overviewColumns.map((column) => (
+                      <Table.Th key={column.header}>{column.header}</Table.Th>
+                    ))}
                     <Table.Th>Top issue</Table.Th>
                   </Table.Tr>
                 </Table.Thead>
@@ -240,6 +244,11 @@ export default function OverviewPage() {
                         <Table.Td visibleFrom="md">
                           <Count value={health.underMinIsr} danger />
                         </Table.Td>
+                        {overviewColumns.map(({ header, Cell }) => (
+                          <Table.Td key={header}>
+                            <Cell clusterId={cluster.id} />
+                          </Table.Td>
+                        ))}
                         <Table.Td maw={320}>
                           {issue ? (
                             <Tooltip label={issue.text} multiline maw={400} withArrow openDelay={300}>
