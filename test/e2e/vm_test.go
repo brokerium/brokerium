@@ -34,7 +34,8 @@ type agentHost struct {
 }
 
 // TestAgentVMs installs brokerium-agent with the real install.sh on systemd hosts and builds a
-// cluster on them (provider agent), choosing the hosts explicitly. Prepare with
+// cluster on them (provider agent), choosing the hosts explicitly. The host that leaves the
+// cluster is deleted at the end and its agent removed with the uninstall script. Prepare with
 // deploy/lab/vm/vm.sh up and run against the containerized server:
 //
 //	BROKERIUM_E2E_VM=1 BROKERIUM_E2E_URL=http://localhost:18080
@@ -248,6 +249,42 @@ func TestAgentVMs(t *testing.T) {
 		if umask := hostOutput(t, host, "sh", "-c", "sed -n 's/^Umask:\\t//p' /proc/"+pid+"/status"); umask != "0007" {
 			t.Errorf("Kafka on %s runs with umask %q, want 0007", host, umask)
 		}
+	}
+
+	// The decommissioned host leaves Brokerium: deleting its node stops its agent for good, and the
+	// command of the answer removes the agent, Kafka and its data from the host.
+	if got := c.do("DELETE", "/api/v1/nodes/"+broker.ID, nil, nil); got != http.StatusConflict {
+		t.Errorf("deleting the node of broker 101: status %d, want 409", got)
+	}
+	var deleted struct {
+		UninstallCommand string `json:"uninstallCommand"`
+	}
+	c.must(http.StatusOK, "DELETE", "/api/v1/nodes/"+third.ID, nil, &deleted)
+	deadline := time.Now().Add(time.Minute)
+	for hostOutput(t, "vm-host-3", "systemctl", "show", "-p", "ExecMainStatus", "--value", "brokerium-agent.service") != "6" {
+		if time.Now().After(deadline) {
+			t.Fatal("the agent of the deleted node did not exit with status 6")
+		}
+		time.Sleep(time.Second)
+	}
+	// The unit restarts the agent after 5 seconds unless it exits with status 6.
+	time.Sleep(10 * time.Second)
+	if state := hostOutput(t, "vm-host-3", "systemctl", "is-active", "brokerium-agent.service"); state != "failed" {
+		t.Errorf("the agent of the deleted node is %s, want failed: systemd must not start it again", state)
+	}
+	if out, err := exec.Command("docker", "exec", "vm-host-3", "sh", "-c",
+		deleted.UninstallCommand+" --stop-kafka --remove-kafka --delete-data").CombinedOutput(); err != nil {
+		t.Fatalf("removing the agent from vm-host-3: %v\n%s", err, out)
+	}
+	for _, path := range []string{"/etc/systemd/system/brokerium-agent.service", "/etc/systemd/system/brokerium-kafka.service",
+		"/usr/local/bin/brokerium-agent", "/etc/sudoers.d/brokerium-agent", "/etc/brokerium-agent.env", "/var/lib/brokerium-agent",
+		"/opt/brokerium/kafka", "/var/lib/kafka/data"} {
+		if exec.Command("docker", "exec", "vm-host-3", "test", "-e", path).Run() == nil {
+			t.Errorf("the uninstall script left %s on vm-host-3", path)
+		}
+	}
+	if exec.Command("docker", "exec", "vm-host-3", "id", "brokerium-agent").Run() == nil {
+		t.Error("the uninstall script left the account brokerium-agent on vm-host-3")
 	}
 }
 

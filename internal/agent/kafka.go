@@ -29,6 +29,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/brokerium/brokerium/internal/agentcfg"
+	"github.com/brokerium/brokerium/internal/agenthost"
 	agentv1 "github.com/brokerium/brokerium/proto/brokerium/agent/v1"
 )
 
@@ -65,7 +66,7 @@ type nodeState struct {
 
 func newKafka(cfg Config) *Kafka {
 	k := &Kafka{cfg: cfg, state: nodeState{Installed: map[string]string{}}, root: os.Geteuid() == 0,
-		run: runCommand, systemctl: lookSystemctl(), unitFile: "/etc/systemd/system/" + kafkaUnit}
+		run: runCommand, systemctl: lookSystemctl(), unitFile: filepath.Join(agenthost.UnitDir, kafkaUnit)}
 	if raw, err := os.ReadFile(k.statePath()); err == nil {
 		_ = json.Unmarshal(raw, &k.state)
 	}

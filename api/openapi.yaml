@@ -1052,12 +1052,37 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
     delete:
       tags: [nodes]
-      summary: Forget a node
-      description: "Role: operator. Refused while the node is connected and assigned to a cluster."
+      summary: Delete a node
+      description: |
+        Role: operator. Deletes the node and ends the session of its agent, which stops and exits
+        with status 6; its systemd unit does not restart it. Returns the command that removes the
+        agent from the host. Refused, whether the agent is connected or not, while the node runs a
+        broker or a controller of a cluster: decommissioning it (`drain-broker` with
+        `decommission`, `remove-controller` or `replace-broker`) stops Kafka on the host and
+        releases the node. A combined node, which Brokerium does not decommission, is deleted once
+        its cluster no longer has its Kafka node as a broker, a voter or an observer. Audited as
+        `node.delete`.
       parameters: [{ $ref: "#/components/parameters/CSRF" }]
       responses:
-        "204": { description: Deleted. }
-        "409": { $ref: "#/components/responses/Error" }
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [uninstallCommand]
+                properties:
+                  uninstallCommand:
+                    type: string
+                    description: >-
+                      Runs the uninstall script on the host; append `--stop-kafka`,
+                      `--remove-kafka` and `--delete-data` as needed.
+        "404": { $ref: "#/components/responses/Error" }
+        "409":
+          description: "`node_in_use`: the node runs Kafka for a cluster; decommission it first."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/v1/join-tokens:
     post:
       tags: [nodes]
@@ -1105,6 +1130,22 @@ paths:
       responses:
         "200":
           description: POSIX shell script that downloads and starts brokerium-agent as a systemd service.
+          content:
+            text/x-shellscript:
+              schema: { type: string }
+  /api/v1/agent/uninstall.sh:
+    get:
+      tags: [nodes]
+      summary: Agent uninstall script
+      description: |
+        Removes what the install script set up: the agent service, binary, sudo rule, environment
+        file, state and account. It changes nothing while Kafka runs unless given `--stop-kafka`;
+        `--remove-kafka` removes the Kafka releases and `--delete-data` the Kafka data directory.
+        Running it again removes what is left.
+      security: []
+      responses:
+        "200":
+          description: POSIX shell script, run as root.
           content:
             text/x-shellscript:
               schema: { type: string }

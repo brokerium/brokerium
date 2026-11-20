@@ -14,14 +14,15 @@ import (
 	"syscall"
 
 	"github.com/brokerium/brokerium/internal/agentcfg"
+	"github.com/brokerium/brokerium/internal/agenthost"
 )
 
 // On hosts Kafka runs as kafkaUnit. An agent running as root writes the unit on every start. The
 // installer writes a static unit for an agent without root, which may start, stop and restart it
 // through the sudo rule in sudoersFile.
 const (
-	kafkaUnit   = "brokerium-kafka.service"
-	sudoersFile = "/etc/sudoers.d/brokerium-agent"
+	kafkaUnit   = agenthost.KafkaUnit
+	sudoersFile = agenthost.SudoersFile
 )
 
 // runFunc runs a host command with extra environment variables and returns its combined output.

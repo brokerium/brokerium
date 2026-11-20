@@ -872,6 +872,7 @@ type ServerMessage struct {
 	//	*ServerMessage_Command
 	//	*ServerMessage_SessionAccept
 	//	*ServerMessage_Signed
+	//	*ServerMessage_NodeDeleted
 	Body          isServerMessage_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -941,6 +942,15 @@ func (x *ServerMessage) GetSigned() *SignedMessage {
 	return nil
 }
 
+func (x *ServerMessage) GetNodeDeleted() *NodeDeleted {
+	if x != nil {
+		if x, ok := x.Body.(*ServerMessage_NodeDeleted); ok {
+			return x.NodeDeleted
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Body interface {
 	isServerMessage_Body()
 }
@@ -959,11 +969,67 @@ type ServerMessage_Signed struct {
 	Signed *SignedMessage `protobuf:"bytes,3,opt,name=signed,proto3,oneof"`
 }
 
+type ServerMessage_NodeDeleted struct {
+	// Insecure transport: the answer to the session hello of a node that was deleted.
+	NodeDeleted *NodeDeleted `protobuf:"bytes,4,opt,name=node_deleted,json=nodeDeleted,proto3,oneof"`
+}
+
 func (*ServerMessage_Command) isServerMessage_Body() {}
 
 func (*ServerMessage_SessionAccept) isServerMessage_Body() {}
 
 func (*ServerMessage_Signed) isServerMessage_Body() {}
+
+func (*ServerMessage_NodeDeleted) isServerMessage_Body() {}
+
+// NodeDeleted tells an agent of the insecure transport that its node no longer exists, so that it
+// stops instead of connecting again. The status NOT_FOUND alone could come from anyone on the
+// path to the server.
+type NodeDeleted struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// ECDSA P-256 signature (ASN.1) of the CA key over the node id and the agent nonce of the
+	// session hello.
+	Signature     []byte `protobuf:"bytes,1,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NodeDeleted) Reset() {
+	*x = NodeDeleted{}
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NodeDeleted) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NodeDeleted) ProtoMessage() {}
+
+func (x *NodeDeleted) ProtoReflect() protoreflect.Message {
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NodeDeleted.ProtoReflect.Descriptor instead.
+func (*NodeDeleted) Descriptor() ([]byte, []int) {
+	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *NodeDeleted) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
 
 // Command is one typed action. There is deliberately no generic shell command.
 type Command struct {
@@ -985,7 +1051,7 @@ type Command struct {
 
 func (x *Command) Reset() {
 	*x = Command{}
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[12]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -997,7 +1063,7 @@ func (x *Command) String() string {
 func (*Command) ProtoMessage() {}
 
 func (x *Command) ProtoReflect() protoreflect.Message {
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[12]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1010,7 +1076,7 @@ func (x *Command) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Command.ProtoReflect.Descriptor instead.
 func (*Command) Descriptor() ([]byte, []int) {
-	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{12}
+	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Command) GetId() string {
@@ -1148,7 +1214,7 @@ type InstallKafka struct {
 
 func (x *InstallKafka) Reset() {
 	*x = InstallKafka{}
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[13]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1160,7 +1226,7 @@ func (x *InstallKafka) String() string {
 func (*InstallKafka) ProtoMessage() {}
 
 func (x *InstallKafka) ProtoReflect() protoreflect.Message {
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[13]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1173,7 +1239,7 @@ func (x *InstallKafka) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstallKafka.ProtoReflect.Descriptor instead.
 func (*InstallKafka) Descriptor() ([]byte, []int) {
-	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{13}
+	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *InstallKafka) GetVersion() string {
@@ -1201,7 +1267,7 @@ type WriteConfig struct {
 
 func (x *WriteConfig) Reset() {
 	*x = WriteConfig{}
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[14]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1213,7 +1279,7 @@ func (x *WriteConfig) String() string {
 func (*WriteConfig) ProtoMessage() {}
 
 func (x *WriteConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[14]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1226,7 +1292,7 @@ func (x *WriteConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteConfig.ProtoReflect.Descriptor instead.
 func (*WriteConfig) Descriptor() ([]byte, []int) {
-	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{14}
+	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *WriteConfig) GetProperties() map[string]string {
@@ -1255,7 +1321,7 @@ type FormatStorage struct {
 
 func (x *FormatStorage) Reset() {
 	*x = FormatStorage{}
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[15]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1267,7 +1333,7 @@ func (x *FormatStorage) String() string {
 func (*FormatStorage) ProtoMessage() {}
 
 func (x *FormatStorage) ProtoReflect() protoreflect.Message {
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[15]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1280,7 +1346,7 @@ func (x *FormatStorage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FormatStorage.ProtoReflect.Descriptor instead.
 func (*FormatStorage) Descriptor() ([]byte, []int) {
-	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{15}
+	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *FormatStorage) GetClusterId() string {
@@ -1314,7 +1380,7 @@ type StartKafka struct {
 
 func (x *StartKafka) Reset() {
 	*x = StartKafka{}
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[16]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1326,7 +1392,7 @@ func (x *StartKafka) String() string {
 func (*StartKafka) ProtoMessage() {}
 
 func (x *StartKafka) ProtoReflect() protoreflect.Message {
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[16]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1339,7 +1405,7 @@ func (x *StartKafka) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartKafka.ProtoReflect.Descriptor instead.
 func (*StartKafka) Descriptor() ([]byte, []int) {
-	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{16}
+	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *StartKafka) GetVersion() string {
@@ -1359,7 +1425,7 @@ type StopKafka struct {
 
 func (x *StopKafka) Reset() {
 	*x = StopKafka{}
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[17]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1371,7 +1437,7 @@ func (x *StopKafka) String() string {
 func (*StopKafka) ProtoMessage() {}
 
 func (x *StopKafka) ProtoReflect() protoreflect.Message {
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[17]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1384,7 +1450,7 @@ func (x *StopKafka) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopKafka.ProtoReflect.Descriptor instead.
 func (*StopKafka) Descriptor() ([]byte, []int) {
-	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{17}
+	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *StopKafka) GetTimeoutSeconds() int32 {
@@ -1402,7 +1468,7 @@ type GetStatus struct {
 
 func (x *GetStatus) Reset() {
 	*x = GetStatus{}
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[18]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1414,7 +1480,7 @@ func (x *GetStatus) String() string {
 func (*GetStatus) ProtoMessage() {}
 
 func (x *GetStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[18]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1427,7 +1493,7 @@ func (x *GetStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatus.ProtoReflect.Descriptor instead.
 func (*GetStatus) Descriptor() ([]byte, []int) {
-	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{18}
+	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{19}
 }
 
 // WipeData deletes the Kafka data directory. confirm must equal the node name.
@@ -1440,7 +1506,7 @@ type WipeData struct {
 
 func (x *WipeData) Reset() {
 	*x = WipeData{}
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[19]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1452,7 +1518,7 @@ func (x *WipeData) String() string {
 func (*WipeData) ProtoMessage() {}
 
 func (x *WipeData) ProtoReflect() protoreflect.Message {
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[19]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1465,7 +1531,7 @@ func (x *WipeData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WipeData.ProtoReflect.Descriptor instead.
 func (*WipeData) Descriptor() ([]byte, []int) {
-	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{19}
+	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *WipeData) GetConfirm() string {
@@ -1488,7 +1554,7 @@ type CommandResult struct {
 
 func (x *CommandResult) Reset() {
 	*x = CommandResult{}
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[20]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1500,7 +1566,7 @@ func (x *CommandResult) String() string {
 func (*CommandResult) ProtoMessage() {}
 
 func (x *CommandResult) ProtoReflect() protoreflect.Message {
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[20]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1513,7 +1579,7 @@ func (x *CommandResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandResult.ProtoReflect.Descriptor instead.
 func (*CommandResult) Descriptor() ([]byte, []int) {
-	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{20}
+	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *CommandResult) GetCommandId() string {
@@ -1563,7 +1629,7 @@ type MetaProperties struct {
 
 func (x *MetaProperties) Reset() {
 	*x = MetaProperties{}
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[21]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1575,7 +1641,7 @@ func (x *MetaProperties) String() string {
 func (*MetaProperties) ProtoMessage() {}
 
 func (x *MetaProperties) ProtoReflect() protoreflect.Message {
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[21]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1588,7 +1654,7 @@ func (x *MetaProperties) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetaProperties.ProtoReflect.Descriptor instead.
 func (*MetaProperties) Descriptor() ([]byte, []int) {
-	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{21}
+	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *MetaProperties) GetClusterId() string {
@@ -1641,7 +1707,7 @@ type NodeStatus struct {
 
 func (x *NodeStatus) Reset() {
 	*x = NodeStatus{}
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[22]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1653,7 +1719,7 @@ func (x *NodeStatus) String() string {
 func (*NodeStatus) ProtoMessage() {}
 
 func (x *NodeStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[22]
+	mi := &file_brokerium_agent_v1_agent_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1666,7 +1732,7 @@ func (x *NodeStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeStatus.ProtoReflect.Descriptor instead.
 func (*NodeStatus) Descriptor() ([]byte, []int) {
-	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{22}
+	return file_brokerium_agent_v1_agent_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *NodeStatus) GetRunning() bool {
@@ -1814,12 +1880,15 @@ const file_brokerium_agent_v1_agent_proto_rawDesc = "" +
 	"\x03mac\x18\x04 \x01(\fR\x03mac\"d\n" +
 	"\x05Hello\x12#\n" +
 	"\ragent_version\x18\x01 \x01(\tR\fagentVersion\x126\n" +
-	"\x06status\x18\x02 \x01(\v2\x1e.brokerium.agent.v1.NodeStatusR\x06status\"\xd9\x01\n" +
+	"\x06status\x18\x02 \x01(\v2\x1e.brokerium.agent.v1.NodeStatusR\x06status\"\x9f\x02\n" +
 	"\rServerMessage\x127\n" +
 	"\acommand\x18\x01 \x01(\v2\x1b.brokerium.agent.v1.CommandH\x00R\acommand\x12J\n" +
 	"\x0esession_accept\x18\x02 \x01(\v2!.brokerium.agent.v1.SessionAcceptH\x00R\rsessionAccept\x12;\n" +
-	"\x06signed\x18\x03 \x01(\v2!.brokerium.agent.v1.SignedMessageH\x00R\x06signedB\x06\n" +
-	"\x04body\"\xbe\x03\n" +
+	"\x06signed\x18\x03 \x01(\v2!.brokerium.agent.v1.SignedMessageH\x00R\x06signed\x12D\n" +
+	"\fnode_deleted\x18\x04 \x01(\v2\x1f.brokerium.agent.v1.NodeDeletedH\x00R\vnodeDeletedB\x06\n" +
+	"\x04body\"+\n" +
+	"\vNodeDeleted\x12\x1c\n" +
+	"\tsignature\x18\x01 \x01(\fR\tsignature\"\xbe\x03\n" +
 	"\aCommand\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12<\n" +
 	"\ainstall\x18\n" +
@@ -1909,7 +1978,7 @@ func file_brokerium_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_brokerium_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_brokerium_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_brokerium_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_brokerium_agent_v1_agent_proto_goTypes = []any{
 	(FormatMode)(0),                  // 0: brokerium.agent.v1.FormatMode
 	(*RenewCertificateRequest)(nil),  // 1: brokerium.agent.v1.RenewCertificateRequest
@@ -1924,53 +1993,55 @@ var file_brokerium_agent_v1_agent_proto_goTypes = []any{
 	(*SignedMessage)(nil),            // 10: brokerium.agent.v1.SignedMessage
 	(*Hello)(nil),                    // 11: brokerium.agent.v1.Hello
 	(*ServerMessage)(nil),            // 12: brokerium.agent.v1.ServerMessage
-	(*Command)(nil),                  // 13: brokerium.agent.v1.Command
-	(*InstallKafka)(nil),             // 14: brokerium.agent.v1.InstallKafka
-	(*WriteConfig)(nil),              // 15: brokerium.agent.v1.WriteConfig
-	(*FormatStorage)(nil),            // 16: brokerium.agent.v1.FormatStorage
-	(*StartKafka)(nil),               // 17: brokerium.agent.v1.StartKafka
-	(*StopKafka)(nil),                // 18: brokerium.agent.v1.StopKafka
-	(*GetStatus)(nil),                // 19: brokerium.agent.v1.GetStatus
-	(*WipeData)(nil),                 // 20: brokerium.agent.v1.WipeData
-	(*CommandResult)(nil),            // 21: brokerium.agent.v1.CommandResult
-	(*MetaProperties)(nil),           // 22: brokerium.agent.v1.MetaProperties
-	(*NodeStatus)(nil),               // 23: brokerium.agent.v1.NodeStatus
-	nil,                              // 24: brokerium.agent.v1.WriteConfig.PropertiesEntry
+	(*NodeDeleted)(nil),              // 13: brokerium.agent.v1.NodeDeleted
+	(*Command)(nil),                  // 14: brokerium.agent.v1.Command
+	(*InstallKafka)(nil),             // 15: brokerium.agent.v1.InstallKafka
+	(*WriteConfig)(nil),              // 16: brokerium.agent.v1.WriteConfig
+	(*FormatStorage)(nil),            // 17: brokerium.agent.v1.FormatStorage
+	(*StartKafka)(nil),               // 18: brokerium.agent.v1.StartKafka
+	(*StopKafka)(nil),                // 19: brokerium.agent.v1.StopKafka
+	(*GetStatus)(nil),                // 20: brokerium.agent.v1.GetStatus
+	(*WipeData)(nil),                 // 21: brokerium.agent.v1.WipeData
+	(*CommandResult)(nil),            // 22: brokerium.agent.v1.CommandResult
+	(*MetaProperties)(nil),           // 23: brokerium.agent.v1.MetaProperties
+	(*NodeStatus)(nil),               // 24: brokerium.agent.v1.NodeStatus
+	nil,                              // 25: brokerium.agent.v1.WriteConfig.PropertiesEntry
 }
 var file_brokerium_agent_v1_agent_proto_depIdxs = []int32{
 	4,  // 0: brokerium.agent.v1.EnrollRequest.proof:type_name -> brokerium.agent.v1.EnrollProof
 	6,  // 1: brokerium.agent.v1.EnrollResponse.node_secret:type_name -> brokerium.agent.v1.EncryptedSecret
 	11, // 2: brokerium.agent.v1.AgentMessage.hello:type_name -> brokerium.agent.v1.Hello
-	21, // 3: brokerium.agent.v1.AgentMessage.result:type_name -> brokerium.agent.v1.CommandResult
-	23, // 4: brokerium.agent.v1.AgentMessage.status:type_name -> brokerium.agent.v1.NodeStatus
+	22, // 3: brokerium.agent.v1.AgentMessage.result:type_name -> brokerium.agent.v1.CommandResult
+	24, // 4: brokerium.agent.v1.AgentMessage.status:type_name -> brokerium.agent.v1.NodeStatus
 	8,  // 5: brokerium.agent.v1.AgentMessage.session_hello:type_name -> brokerium.agent.v1.SessionHello
 	10, // 6: brokerium.agent.v1.AgentMessage.signed:type_name -> brokerium.agent.v1.SignedMessage
-	23, // 7: brokerium.agent.v1.Hello.status:type_name -> brokerium.agent.v1.NodeStatus
-	13, // 8: brokerium.agent.v1.ServerMessage.command:type_name -> brokerium.agent.v1.Command
+	24, // 7: brokerium.agent.v1.Hello.status:type_name -> brokerium.agent.v1.NodeStatus
+	14, // 8: brokerium.agent.v1.ServerMessage.command:type_name -> brokerium.agent.v1.Command
 	9,  // 9: brokerium.agent.v1.ServerMessage.session_accept:type_name -> brokerium.agent.v1.SessionAccept
 	10, // 10: brokerium.agent.v1.ServerMessage.signed:type_name -> brokerium.agent.v1.SignedMessage
-	14, // 11: brokerium.agent.v1.Command.install:type_name -> brokerium.agent.v1.InstallKafka
-	15, // 12: brokerium.agent.v1.Command.write_config:type_name -> brokerium.agent.v1.WriteConfig
-	16, // 13: brokerium.agent.v1.Command.format:type_name -> brokerium.agent.v1.FormatStorage
-	17, // 14: brokerium.agent.v1.Command.start:type_name -> brokerium.agent.v1.StartKafka
-	18, // 15: brokerium.agent.v1.Command.stop:type_name -> brokerium.agent.v1.StopKafka
-	19, // 16: brokerium.agent.v1.Command.status:type_name -> brokerium.agent.v1.GetStatus
-	20, // 17: brokerium.agent.v1.Command.wipe:type_name -> brokerium.agent.v1.WipeData
-	24, // 18: brokerium.agent.v1.WriteConfig.properties:type_name -> brokerium.agent.v1.WriteConfig.PropertiesEntry
-	0,  // 19: brokerium.agent.v1.FormatStorage.mode:type_name -> brokerium.agent.v1.FormatMode
-	23, // 20: brokerium.agent.v1.CommandResult.status:type_name -> brokerium.agent.v1.NodeStatus
-	22, // 21: brokerium.agent.v1.NodeStatus.meta:type_name -> brokerium.agent.v1.MetaProperties
-	3,  // 22: brokerium.agent.v1.AgentService.Enroll:input_type -> brokerium.agent.v1.EnrollRequest
-	7,  // 23: brokerium.agent.v1.AgentService.Connect:input_type -> brokerium.agent.v1.AgentMessage
-	1,  // 24: brokerium.agent.v1.AgentService.RenewCertificate:input_type -> brokerium.agent.v1.RenewCertificateRequest
-	5,  // 25: brokerium.agent.v1.AgentService.Enroll:output_type -> brokerium.agent.v1.EnrollResponse
-	12, // 26: brokerium.agent.v1.AgentService.Connect:output_type -> brokerium.agent.v1.ServerMessage
-	2,  // 27: brokerium.agent.v1.AgentService.RenewCertificate:output_type -> brokerium.agent.v1.RenewCertificateResponse
-	25, // [25:28] is the sub-list for method output_type
-	22, // [22:25] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	13, // 11: brokerium.agent.v1.ServerMessage.node_deleted:type_name -> brokerium.agent.v1.NodeDeleted
+	15, // 12: brokerium.agent.v1.Command.install:type_name -> brokerium.agent.v1.InstallKafka
+	16, // 13: brokerium.agent.v1.Command.write_config:type_name -> brokerium.agent.v1.WriteConfig
+	17, // 14: brokerium.agent.v1.Command.format:type_name -> brokerium.agent.v1.FormatStorage
+	18, // 15: brokerium.agent.v1.Command.start:type_name -> brokerium.agent.v1.StartKafka
+	19, // 16: brokerium.agent.v1.Command.stop:type_name -> brokerium.agent.v1.StopKafka
+	20, // 17: brokerium.agent.v1.Command.status:type_name -> brokerium.agent.v1.GetStatus
+	21, // 18: brokerium.agent.v1.Command.wipe:type_name -> brokerium.agent.v1.WipeData
+	25, // 19: brokerium.agent.v1.WriteConfig.properties:type_name -> brokerium.agent.v1.WriteConfig.PropertiesEntry
+	0,  // 20: brokerium.agent.v1.FormatStorage.mode:type_name -> brokerium.agent.v1.FormatMode
+	24, // 21: brokerium.agent.v1.CommandResult.status:type_name -> brokerium.agent.v1.NodeStatus
+	23, // 22: brokerium.agent.v1.NodeStatus.meta:type_name -> brokerium.agent.v1.MetaProperties
+	3,  // 23: brokerium.agent.v1.AgentService.Enroll:input_type -> brokerium.agent.v1.EnrollRequest
+	7,  // 24: brokerium.agent.v1.AgentService.Connect:input_type -> brokerium.agent.v1.AgentMessage
+	1,  // 25: brokerium.agent.v1.AgentService.RenewCertificate:input_type -> brokerium.agent.v1.RenewCertificateRequest
+	5,  // 26: brokerium.agent.v1.AgentService.Enroll:output_type -> brokerium.agent.v1.EnrollResponse
+	12, // 27: brokerium.agent.v1.AgentService.Connect:output_type -> brokerium.agent.v1.ServerMessage
+	2,  // 28: brokerium.agent.v1.AgentService.RenewCertificate:output_type -> brokerium.agent.v1.RenewCertificateResponse
+	26, // [26:29] is the sub-list for method output_type
+	23, // [23:26] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_brokerium_agent_v1_agent_proto_init() }
@@ -1989,8 +2060,9 @@ func file_brokerium_agent_v1_agent_proto_init() {
 		(*ServerMessage_Command)(nil),
 		(*ServerMessage_SessionAccept)(nil),
 		(*ServerMessage_Signed)(nil),
+		(*ServerMessage_NodeDeleted)(nil),
 	}
-	file_brokerium_agent_v1_agent_proto_msgTypes[12].OneofWrappers = []any{
+	file_brokerium_agent_v1_agent_proto_msgTypes[13].OneofWrappers = []any{
 		(*Command_Install)(nil),
 		(*Command_WriteConfig)(nil),
 		(*Command_Format)(nil),
@@ -2005,7 +2077,7 @@ func file_brokerium_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_brokerium_agent_v1_agent_proto_rawDesc), len(file_brokerium_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   24,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
