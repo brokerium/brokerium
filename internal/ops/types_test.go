@@ -4,6 +4,7 @@ package ops
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/brokerium/brokerium/internal/balancer"
@@ -46,7 +47,7 @@ func TestReassignSteps(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			steps := reassignSteps(tc.moves, 0, tc.batch, HealthGateArgs{})
+			steps := reassignStepsURP(tc.moves, 0, tc.batch, false)
 			if got := kinds(steps); !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("kinds = %v\nwant    %v", got, tc.want)
 			}
@@ -59,6 +60,38 @@ func TestReassignSteps(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestReassignStepsNameReceivers checks that every gate of a data move names the brokers that
+// receive replicas in the batch after it and keeps the other arguments of the operation.
+func TestReassignStepsNameReceivers(t *testing.T) {
+	t.Parallel()
+	moves := []balancer.Move{
+		{Topic: "t", Partition: 0, From: []int32{1, 2}, To: []int32{1, 3}, ReplicaMoves: 1},
+		{Topic: "t", Partition: 1, From: []int32{1, 2}, To: []int32{2, 1}, LeaderChange: true},
+		{Topic: "t", Partition: 2, From: []int32{1, 2}, To: []int32{4, 5}, ReplicaMoves: 2},
+	}
+	base := HealthGateArgs{AllowUnderReplicated: true, ExpectFenced: []int32{9}}
+	var gates []HealthGateArgs
+	for _, s := range ReassignStepsGated(moves, 0, 2, base) {
+		if s.Kind == KindHealthGate {
+			gates = append(gates, s.Args.(HealthGateArgs))
+		}
+	}
+	want := [][]int32{{3}, {4, 5}, nil}
+	if len(gates) != len(want) {
+		t.Fatalf("%d gates, want %d: %+v", len(gates), len(want), gates)
+	}
+	for i, g := range gates {
+		if !slices.Equal(g.Receivers, want[i]) || !g.AllowUnderReplicated || !slices.Equal(g.ExpectFenced, []int32{9}) {
+			t.Errorf("gate %d: %+v, want receivers %v with the arguments of the operation", i, g, want[i])
+		}
+	}
+	for _, s := range reassignStepsURP(moves[1:2], 0, 0, false) {
+		if g, ok := s.Args.(HealthGateArgs); ok && len(g.Receivers) > 0 {
+			t.Errorf("a leader change receives no replicas: %+v", g)
+		}
 	}
 }
 
@@ -97,9 +130,16 @@ func TestHealthProblems(t *testing.T) {
 		{"another fenced broker than the one replaced", view(func(v *cluster.View) {
 			v.Snapshot.Brokers[1].Fenced, v.Snapshot.Brokers[2].Fenced = true, true
 		}), HealthGateArgs{ExpectFenced: []int32{103}}, []string{"broker(s) 102 fenced or offline"}},
-		{"full disks", view(func(v *cluster.View) {
+		{"full disks of brokers that receive replicas", view(func(v *cluster.View) {
 			v.Snapshot.Brokers[0].DiskUsableBytes, v.Snapshot.Brokers[1].DiskUsableBytes = 10, 7
-		}), HealthGateArgs{}, []string{"broker(s) 101 (90%), 102 (93%) with volumes at least 90% full"}},
+		}), HealthGateArgs{Receivers: []int32{101, 102, 103}},
+			[]string{"broker(s) 101 (90%), 102 (93%) receive replicas next and have volumes at least 90% full"}},
+		{"a full disk of a broker that only loses replicas", view(func(v *cluster.View) {
+			v.Snapshot.Brokers[0].DiskUsableBytes = 5
+		}), HealthGateArgs{Receivers: []int32{102, 103}}, nil},
+		{"full disks without a data move", view(func(v *cluster.View) {
+			v.Snapshot.Brokers[0].DiskUsableBytes, v.Snapshot.Brokers[1].DiskUsableBytes = 5, 5
+		}), HealthGateArgs{}, nil},
 		{"ZooKeeper with a controller", view(func(v *cluster.View) {
 			v.Health = cluster.Health{Mode: kafka.ModeZooKeeper, QuorumLeader: -1, Controller: 101}
 		}), HealthGateArgs{}, nil},

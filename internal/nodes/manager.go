@@ -874,7 +874,7 @@ func replacePlan(p *ops.Planner, f fleet, params replaceParams) (*ops.Planned, e
 	steps = append(steps, startSteps(a)...)
 	steps = append(steps, ops.StepSpec{Name: fmt.Sprintf("Wait for broker %d", id), Kind: KindWaitBroker, Args: NodeArgs{NodeID: id}})
 	if len(moves) > 0 {
-		steps = append(steps, ops.ReassignSteps(moves, 0, 0, gate)...)
+		steps = append(steps, ops.ReassignStepsGated(moves, 0, 0, gate)...)
 	}
 	steps = append(steps, ops.StepSpec{Name: fmt.Sprintf("Unregister broker %d", old), Kind: ops.KindUnregisterBroker, Args: ops.BrokerArgs{BrokerID: old}})
 	if remove != nil {
@@ -1229,17 +1229,6 @@ func adopted(n *store.Node) bool {
 	return json.Unmarshal(n.Status, &st) == nil && st.Adopted
 }
 
-// kafkaVersionOf returns the Kafka release the node's agent runs, empty when unknown.
-func kafkaVersionOf(n *store.Node) string {
-	var st struct {
-		ActiveVersion string `json:"activeVersion"`
-	}
-	if json.Unmarshal(n.Status, &st) != nil || !versionRe.MatchString(st.ActiveVersion) {
-		return ""
-	}
-	return st.ActiveVersion
-}
-
 // olderNodes names what runs a Kafka release before version: the release in the cluster
 // settings, brokers whose version in the snapshot may be older, and managed controllers whose
 // agents report an older one.
@@ -1255,7 +1244,7 @@ func olderNodes(p *ops.Planner, mn managed, version string) []string {
 		}
 	}
 	for _, n := range mn.controllers {
-		if v := kafkaVersionOf(n); v != "" && compareVersions(v, version) < 0 {
+		if v := cluster.AgentKafkaVersion(n); v != "" && compareVersions(v, version) < 0 {
 			out = append(out, fmt.Sprintf("%s runs %s", n.Name, v))
 		}
 	}

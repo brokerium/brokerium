@@ -52,8 +52,11 @@ Brokerium.
     3.5 a warning (`unsupported_version`).
   - The metadata.version levels 1 to 6 get their names (3.0-IV1 to 3.3-IV2).
   - The health gate of operations also stops on fenced or offline brokers that the operation
-    does not stop or replace itself (`replace-broker` names the broker it replaces) and on
-    broker volumes at 90% or more, the threshold of `disk_full`.
+    does not stop or replace itself (`replace-broker` names the broker it replaces). Before a
+    batch of replica moves it stops when a broker that receives replicas in that batch has a
+    volume at 90% or more, the threshold of `disk_full`; brokers that only lose replicas do not
+    stop it, so that a full broker can be drained. Restarts, upgrades, configuration and quorum
+    steps add no data and ignore disks.
 - All of this is Community: it makes existing features correct on the clusters they meet
   ([ADR 0016](0016-editions-and-license-keys.md), amendment 2026-11-20).
 

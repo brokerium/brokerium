@@ -99,15 +99,39 @@ func agentVersions(nodes []*store.Node) map[int32]string {
 		if n.KafkaNodeID == nil || (n.Role != "broker" && n.Role != "combined") {
 			continue
 		}
-		var st struct {
-			ActiveVersion string `json:"activeVersion"`
-		}
-		if json.Unmarshal(n.Status, &st) != nil {
-			continue
-		}
-		if _, ok := kafka.ParseVersion(st.ActiveVersion); ok {
-			out[*n.KafkaNodeID] = st.ActiveVersion
+		if v := AgentKafkaVersion(n); v != "" {
+			out[*n.KafkaNodeID] = v
 		}
 	}
 	return out
+}
+
+// AgentKafkaVersion is the Kafka release that the agent of a node reports: the version of the
+// Kafka process it runs, else its active version; empty when neither names a release. A process
+// whose classpath holds jars of several Kafka versions does not tell its version.
+func AgentKafkaVersion(n *store.Node) string {
+	var st struct {
+		ActiveVersion string `json:"activeVersion"`
+		KafkaProcess  *struct {
+			Pid           int64  `json:"pid"`
+			Version       string `json:"version"`
+			MixedVersions bool   `json:"mixedVersions"`
+		} `json:"kafkaProcess"`
+	}
+	if n == nil || json.Unmarshal(n.Status, &st) != nil {
+		return ""
+	}
+	if p := st.KafkaProcess; p != nil && p.Pid > 0 && !p.MixedVersions && exactRelease(p.Version) {
+		return p.Version
+	}
+	if exactRelease(st.ActiveVersion) {
+		return st.ActiveVersion
+	}
+	return ""
+}
+
+// exactRelease reports whether v names one release, such as 4.3.1.
+func exactRelease(v string) bool {
+	r, ok := kafka.ParseVersion(v)
+	return ok && r.Min == r.Max
 }

@@ -756,6 +756,9 @@ func TestMigrateQuorumNeedsKafka41(t *testing.T) {
 		{"a controller on 3.9.1", func(_ *store.Cluster, _ *kafka.Snapshot, f *fleet) {
 			f.nodes[0].Status = json.RawMessage(`{"activeVersion":"3.9.1"}`)
 		}, "ctl-1 runs 3.9.1"},
+		{"a controller whose Kafka process still runs 4.0.0", func(_ *store.Cluster, _ *kafka.Snapshot, f *fleet) {
+			f.nodes[0].Status = json.RawMessage(`{"activeVersion":"4.1.0","kafkaProcess":{"pid":4711,"version":"4.0.0"}}`)
+		}, "ctl-1 runs 4.0.0"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -776,6 +779,37 @@ func TestMigrateQuorumNeedsKafka41(t *testing.T) {
 	}
 }
 
+// TestGatesWithoutDataIgnoreDisks checks that the health gates of restarts, upgrades and quorum
+// changes name no brokers that receive replicas, so that full disks do not stop them.
+func TestGatesWithoutDataIgnoreDisks(t *testing.T) {
+	t.Parallel()
+	mn := runningFleet().managed("c1")
+	p := plannerFor(agentCluster(), runningSnapshot())
+	restart, err := restartPlan(p, mn, restartParams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	upgrade, err := upgradePlan(p, mn, upgradeParams{Version: "4.4.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrate, err := migratePlan(p, mn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addController, err := addControllerPlan(p, runningFleet(), addControllerParams{Node: "f-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, planned := range []*ops.Planned{restart, upgrade, migrate, addController} {
+		for _, s := range stepsOf(ops.KindHealthGate, planned.Steps) {
+			if args := s.Args.(ops.HealthGateArgs); len(args.Receivers) > 0 {
+				t.Errorf("%s: gate %q names receivers %v", planned.Doc.Summary, s.Name, args.Receivers)
+			}
+		}
+	}
+}
+
 func TestReplaceExpectsTheOldBrokerFenced(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []string{"same-id", "new-id"} {
@@ -788,10 +822,16 @@ func TestReplaceExpectsTheOldBrokerFenced(t *testing.T) {
 		if len(gates) == 0 {
 			t.Fatalf("%s: no health gate", mode)
 		}
+		receiving := false
 		for _, g := range gates {
-			if args := g.Args.(ops.HealthGateArgs); !args.AllowUnderReplicated || !slices.Equal(args.ExpectFenced, []int32{103}) {
+			args := g.Args.(ops.HealthGateArgs)
+			if !args.AllowUnderReplicated || !slices.Equal(args.ExpectFenced, []int32{103}) {
 				t.Errorf("%s: gate %q with %+v, want under-replicated partitions and broker 103 allowed", mode, g.Name, args)
 			}
+			receiving = receiving || slices.Equal(args.Receivers, []int32{104})
+		}
+		if mode == "new-id" && !receiving {
+			t.Errorf("no gate names the new broker 104, which receives the replicas: %+v", gates)
 		}
 	}
 }

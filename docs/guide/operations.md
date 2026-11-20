@@ -12,9 +12,11 @@ case. Only one operation runs per cluster. Each step and its result are in the a
 - A health gate runs before the first step and after every batch or node: no offline
   partitions, nothing under `min.insync.replicas`, no under-replicated partitions except
   those being moved, a quorum leader (the controller broker on ZooKeeper-based clusters), no
-  lagging voters, no fenced or offline broker except the one the operation replaces, and no
-  broker volume 90% full or more. Free space first, for example by lowering `retention.ms` of
-  large topics: data does not move while a volume is that full.
+  lagging voters and no fenced or offline broker except the one the operation replaces.
+- Before a batch of replica moves, no broker that receives replicas in the batch may have a
+  volume 90% full or more. Brokers that only give replicas away may be full, so a full broker
+  can be drained or rebalanced onto new brokers; restarts, upgrades and quorum changes add no
+  data and ignore disks.
 - Reassignments carry full target replica lists, run in batches, and are throttled on the
   brokers and topics involved; throttles are always removed afterwards.
 - Cordoned and offline brokers never receive replicas; racks are respected.

@@ -364,7 +364,7 @@ export default function BrokersTab() {
         opened={dialog?.kind === 'restart'}
         onClose={close}
         title="Rolling restart"
-        description="Restarts nodes one at a time; each restart waits for the health gate (no offline or under-replicated partitions, no fenced broker or full disk, quorum caught up)."
+        description="Restarts nodes one at a time; each restart waits for the health gate (no offline or under-replicated partitions, no fenced broker, quorum caught up)."
         planning={planner.pendingKey === 'rolling-restart'}
         onPlan={() =>
           planner.plan('rolling-restart', {

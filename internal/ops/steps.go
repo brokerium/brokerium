@@ -37,7 +37,10 @@ type HealthGateArgs struct {
 	AllowUnderReplicated bool `json:"allowUnderReplicated,omitempty"`
 	// ExpectFenced are the brokers the operation stops or replaces itself: they may be fenced
 	// or offline.
-	ExpectFenced   []int32 `json:"expectFenced,omitempty"`
+	ExpectFenced []int32 `json:"expectFenced,omitempty"`
+	// Receivers are the brokers that receive replicas in the data move after the gate: the gate
+	// stops while a volume of one of them is full. Gates without receivers ignore disks.
+	Receivers      []int32 `json:"receivers,omitempty"`
 	TimeoutSeconds int     `json:"timeoutSeconds,omitempty"`
 }
 
@@ -124,7 +127,8 @@ func aliveBrokers(v *cluster.View) map[int32]bool {
 
 // HealthProblems lists the reasons a cluster fails the health gate: offline partitions,
 // partitions under min.insync.replicas or under-replicated, no controller or lagging voters,
-// fenced brokers the operation does not expect and full broker volumes.
+// fenced brokers the operation does not expect and full volumes of the brokers that receive
+// replicas next.
 func HealthProblems(v *cluster.View, args HealthGateArgs) []string {
 	h := v.Health
 	var p []string
@@ -154,7 +158,7 @@ func HealthProblems(v *cluster.View, args HealthGateArgs) []string {
 		if (b.Fenced || !b.Alive) && !slices.Contains(args.ExpectFenced, b.ID) {
 			down = append(down, fmt.Sprint(b.ID))
 		}
-		if used := cluster.DiskUsedPercent(b); used >= cluster.DiskFullPercent {
+		if used := cluster.DiskUsedPercent(b); used >= cluster.DiskFullPercent && slices.Contains(args.Receivers, b.ID) {
 			full = append(full, fmt.Sprintf("%d (%.0f%%)", b.ID, used))
 		}
 	}
@@ -162,7 +166,8 @@ func HealthProblems(v *cluster.View, args HealthGateArgs) []string {
 		p = append(p, fmt.Sprintf("broker(s) %s fenced or offline", strings.Join(down, ", ")))
 	}
 	if len(full) > 0 {
-		p = append(p, fmt.Sprintf("broker(s) %s with volumes at least %d%% full", strings.Join(full, ", "), cluster.DiskFullPercent))
+		p = append(p, fmt.Sprintf("broker(s) %s receive replicas next and have volumes at least %d%% full",
+			strings.Join(full, ", "), cluster.DiskFullPercent))
 	}
 	return p
 }

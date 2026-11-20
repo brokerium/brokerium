@@ -19,6 +19,23 @@ func entries(settings map[string]string) []kafka.ConfigEntry {
 	return out
 }
 
+func TestAgentKafkaVersion(t *testing.T) {
+	t.Parallel()
+	for status, want := range map[string]string{
+		`{"activeVersion":"4.3.1"}`: "4.3.1",
+		`{"activeVersion":"4.4.0","kafkaProcess":{"pid":4711,"version":"4.3.1","mixedVersions":false}}`: "4.3.1",
+		`{"activeVersion":"4.4.0","kafkaProcess":{"pid":0,"version":""}}`:                               "4.4.0",
+		`{"activeVersion":"4.4.0","kafkaProcess":{"pid":4711,"version":"4.3.1","mixedVersions":true}}`:  "4.4.0",
+		`{"activeVersion":"","kafkaProcess":{"pid":4711,"version":"7.5.0-ccs"}}`:                        "",
+		`{"activeVersion":"4.3"}`: "",
+		`{}`:                      "",
+	} {
+		if got := AgentKafkaVersion(&store.Node{Status: json.RawMessage(status)}); got != want {
+			t.Errorf("AgentKafkaVersion(%s) = %q, want %q", status, got, want)
+		}
+	}
+}
+
 func TestCompleteBrokers(t *testing.T) {
 	t.Parallel()
 	zookeeper := map[string]string{"zookeeper.connect": "zk:2181/kafka", "process.roles": "",
@@ -28,7 +45,8 @@ func TestCompleteBrokers(t *testing.T) {
 	kraft := map[string]string{"process.roles": "broker", "inter.broker.protocol.version": "4.0-IV3"}
 	id := func(v int32) *int32 { return &v }
 	status := func(version string) json.RawMessage {
-		raw, _ := json.Marshal(map[string]any{"running": true, "activeVersion": version})
+		raw, _ := json.Marshal(map[string]any{"running": true, "activeVersion": "4.4.0",
+			"kafkaProcess": map[string]any{"pid": 4711, "version": version}})
 		return raw
 	}
 	tests := []struct {
