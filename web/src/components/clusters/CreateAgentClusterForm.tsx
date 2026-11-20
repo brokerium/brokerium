@@ -2,6 +2,7 @@
 
 import {
   Alert,
+  Anchor,
   Badge,
   Button,
   EmptyState,
@@ -16,11 +17,12 @@ import {
   TextInput,
   Tooltip,
 } from '@mantine/core';
-import { IconAlertTriangle, IconServerBolt } from '@tabler/icons-react';
+import { IconAlertTriangle, IconLockOpen, IconServerBolt } from '@tabler/icons-react';
 import { useState } from 'react';
 
 import { type PlannedCluster, useCreateNewCluster } from '../../api/clusters';
 import { useNodes, useUpdateNode } from '../../api/nodes';
+import { useDefaultKafkaVersion } from '../../api/server';
 import {
   type HostPlan,
   type HostRole,
@@ -40,6 +42,8 @@ import { NODE_ROLE_LABELS } from '../../lib/labels';
 import { quorumHint } from '../../lib/quorum';
 import { AddHost } from '../nodes/JoinCommand';
 import { PlannedClusterPreview, type Quorum, QuorumField } from './NewClusterParts';
+
+const SECURITY_DOCS = 'https://brokerium.kaufen/docs/guide/security/#clusters-that-brokerium-creates';
 
 const ROLE_OPTIONS: { value: HostRole; label: string }[] = [
   { value: 'unused', label: 'Not used' },
@@ -62,8 +66,10 @@ interface CreateAgentClusterFormProps {
 export function CreateAgentClusterForm({ onCancel, onDone }: CreateAgentClusterFormProps) {
   const create = useCreateNewCluster();
   const update = useUpdateNode();
+  const defaultVersion = useDefaultKafkaVersion();
   const [name, setName] = useState('');
-  const [version, setVersion] = useState('4.4.0');
+  const [editedVersion, setVersion] = useState<string | null>(null);
+  const version = editedVersion ?? defaultVersion ?? '';
   const [quorum, setQuorum] = useState<Quorum>('dynamic');
   const [edits, setEdits] = useState<Record<string, HostEdit>>({});
   const [waiting, setWaiting] = useState(false);
@@ -81,7 +87,7 @@ export function CreateAgentClusterForm({ onCancel, onDone }: CreateAgentClusterF
   const voters = chosen.filter((h) => isVoter(h.role)).length;
   const brokers = chosen.filter((h) => isBroker(h.role)).length;
   const nameError = name !== '' && !CLUSTER_NAME_PATTERN.test(name) ? 'Lowercase letters, digits and dashes' : undefined;
-  const versionError = newClusterVersionError(version);
+  const versionError = newClusterVersionError(version, defaultVersion);
   const valid = name !== '' && !nameError && !versionError && check.errors.length === 0;
 
   const edit = (id: string, change: HostEdit) => setEdits((all) => ({ ...all, [id]: { ...all[id], ...change } }));
@@ -266,6 +272,14 @@ export function CreateAgentClusterForm({ onCancel, onDone }: CreateAgentClusterF
           {KAFKA_20979_WARNING}
         </Alert>
       )}
+      <Alert color="blue" variant="light" icon={<IconLockOpen size={18} />} title="Clients connect without authentication">
+        The cluster listens in PLAINTEXT, so every client connects as User:ANONYMOUS, which is a super user: clients
+        can do anything, including deleting topics, and ACLs do not restrict them. Keep its hosts on a network you
+        trust.{' '}
+        <Anchor href={SECURITY_DOCS} target="_blank" rel="noreferrer" size="sm">
+          Security of created clusters
+        </Anchor>
+      </Alert>
       <Group justify="flex-end">
         <Button variant="default" onClick={onCancel}>
           Cancel

@@ -109,6 +109,21 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ServerInfo" }
         "401": { $ref: "#/components/responses/Error" }
+  /api/v1/notices:
+    get:
+      tags: [system]
+      summary: License and notice files of the server
+      description: >-
+        Role: viewer. The files built into the server, named as in `/licenses` of the container
+        images: `LICENSE`, `LICENSE-enterprise` (Enterprise builds), `NOTICE` and
+        `THIRD_PARTY_NOTICES` with the licenses of the third-party software.
+      responses:
+        "200":
+          description: The files.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Notices" }
+        "401": { $ref: "#/components/responses/Error" }
 
   /api/v1/auth/login:
     post:
@@ -246,7 +261,8 @@ paths:
       tags: [clusters]
       summary: Update a cluster profile
       description: >-
-        Role: operator. Omitted fields keep their values; secrets are write-only. Changing the
+        Role: operator. Omitted fields keep their values; secrets are write-only. `settings` is
+        merged key by key into the saved settings, and `null` removes a key. Changing the
         provider to `docker` needs a server that offers Docker clusters, otherwise 409
         `docker_unavailable`.
       parameters: [{ $ref: "#/components/parameters/CSRF" }]
@@ -1432,7 +1448,20 @@ components:
         labels:
           type: object
           additionalProperties: { type: string }
-        settings: { type: object }
+        settings:
+          type: object
+          description: >-
+            Provider settings. On update the given keys are merged into the saved settings: other
+            keys keep their values and `null` removes a key. Brokerium checks the keys it reads,
+            in the merged settings: `brokerHeap` and `controllerHeap` (only `-Xms<size>` and
+            `-Xmx<size>`), `kafkaVersion` (a release such as `4.4.0`), `quorum` (`static` or
+            `dynamic`), `replicationFactor` and `minIsr` (whole numbers of at least 1, `minIsr` at
+            most the replication factor, 3 when not set), `racks` (rack names of at most 64
+            letters, digits, `.`, `_` and `-`) and `portBase` (0, or 1024 to 64536 for Docker
+            clusters, whose nodes publish ports up to the base + 999). Other keys are kept as
+            given.
+          examples:
+            - { brokerHeap: "-Xms1g -Xmx1g", racks: null }
         skipTest: { type: boolean }
     TestResult:
       type: object
@@ -1876,7 +1905,13 @@ components:
       type: object
       required: [resourceType, resourceName, patternType, principal, host, operation, permission]
       properties:
-        resourceType: { type: string, enum: [TOPIC, GROUP, CLUSTER, TRANSACTIONAL_ID, DELEGATION_TOKEN, USER] }
+        resourceType:
+          type: string
+          enum: [TOPIC, GROUP, CLUSTER, TRANSACTIONAL_ID, DELEGATION_TOKEN, USER]
+          description: >-
+            `USER` resources are principals, such as `User:alice`, that delegation tokens are
+            created for, with the operations `CREATE_TOKENS` and `DESCRIBE_TOKENS`. The name of the
+            `CLUSTER` resource is always `kafka-cluster`.
         resourceName: { type: string }
         patternType: { type: string, enum: [LITERAL, PREFIXED] }
         principal: { type: string, examples: ["User:alice"] }
@@ -2052,8 +2087,9 @@ components:
               description: "Docker clusters; 3 when 0 and `combined` is 0."
             version:
               type: string
-              default: "4.3.1"
-              description: Kafka release `x.y.z`; new clusters run 4.2.0 or later.
+              description: >-
+                The Kafka release `x.y.z`, 4.2.0 or later; `defaultKafkaVersion` of
+                `GET /api/v1/server` by default.
             racks: { type: array, items: { type: string }, description: "Docker clusters." }
             quorum: { type: string, enum: [dynamic, static] }
             portBase: { type: integer, description: "Docker clusters." }
@@ -2209,9 +2245,7 @@ components:
           description: >-
             Transport of the last enrollment: mtls (client certificate) or insecure (signed
             messages for agents behind a TLS-terminating proxy, no certificate).
-        status:
-          type: object
-          description: Last status reported by the agent.
+        status: { $ref: "#/components/schemas/NodeStatus" }
         labels:
           type: [object, "null"]
           additionalProperties: { type: string }
@@ -2229,6 +2263,58 @@ components:
           description: >-
             expiring means the certificate is close to its expiry and was not renewed; agents renew
             it after two thirds of its lifetime. Empty when the expiry is unknown.
+    NodeStatus:
+      type: object
+      description: Last status reported by the agent; agents of earlier versions report fewer fields.
+      properties:
+        running: { type: boolean }
+        activeVersion: { type: string, description: The Kafka release the agent starts. }
+        installedVersions: { type: [array, "null"], items: { type: string } }
+        meta:
+          type: object
+          description: meta.properties of the data directory.
+          properties:
+            clusterId: { type: string }
+            nodeId: { type: integer }
+            directoryId: { type: string }
+            formatted: { type: boolean }
+        dataBytes: { type: integer, format: int64 }
+        diskFreeBytes: { type: integer, format: int64 }
+        hostname: { type: string }
+        pid: { type: integer, format: int64, description: "Process of the agent's Kafka: its child, or the main process of its systemd unit; 0 when none runs." }
+        lastExit: { type: string }
+        processRoles: { type: string }
+        javaVersion: { type: string }
+        adopted: { type: boolean }
+        kafkaDataDir:
+          type: string
+          description: >-
+            Kafka data directory of the node, which Brokerium configures as `log.dirs`. Agents
+            before 0.3.2 do not report it; their nodes get `/var/lib/kafka/data`.
+        kafkaProcess:
+          allOf: [{ $ref: "#/components/schemas/KafkaProcess" }]
+          description: >-
+            The Kafka process the agent runs, with pid 0 when none runs. Restarts and upgrades
+            wait for a new process and check its version. Agents before 0.3.2 do not report it.
+        foreignKafka:
+          type: array
+          items: { $ref: "#/components/schemas/KafkaProcess" }
+          description: >-
+            Kafka processes on the host that the agent does not run, such as the operator's own
+            unit of an adopted node. Steps that start Kafka on the node fail while one runs.
+    KafkaProcess:
+      type: object
+      description: A Kafka broker or controller JVM (main class `kafka.Kafka`), read from `/proc`.
+      properties:
+        pid: { type: integer, format: int64 }
+        startTimeMs: { type: integer, format: int64, description: Start time in Unix milliseconds; 0 when unknown. }
+        version:
+          type: string
+          description: >-
+            Version of the first kafka-clients jar on the classpath, else of the first Kafka core
+            jar; empty when the classpath names neither.
+        mixedVersions: { type: boolean, description: The classpath holds jars of several Kafka versions. }
+        user: { type: string, description: "Account that runs the process, or its uid." }
     AuditEntry:
       type: object
       properties:
@@ -2306,7 +2392,7 @@ components:
 
     ServerInfo:
       type: object
-      required: [version, commit, date, edition, providers]
+      required: [version, commit, date, edition, providers, defaultKafkaVersion]
       properties:
         version: { type: string }
         commit: { type: string }
@@ -2317,6 +2403,13 @@ components:
           required: [docker]
           properties:
             docker: { $ref: "#/components/schemas/ProviderAvailability" }
+        defaultKafkaVersion:
+          type: string
+          examples: ["4.4.0"]
+          description: >-
+            The Kafka release of new clusters when `bootstrap-cluster` names none; the dashboard
+            proposes it for new clusters and upgrades. Clusters whose settings record no version
+            keep 4.3.1 for the nodes they add.
     ProviderAvailability:
       type: object
       required: [available, reason]
@@ -2329,3 +2422,19 @@ components:
           description: >-
             Why the provider is unavailable, for example which condition of the Docker installation
             failed; empty when it is available.
+    Notices:
+      type: object
+      required: [files]
+      properties:
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/LegalFile" }
+    LegalFile:
+      type: object
+      required: [name, title, text]
+      properties:
+        name:
+          type: string
+          enum: [LICENSE, LICENSE-enterprise, NOTICE, THIRD_PARTY_NOTICES]
+        title: { type: string, examples: ["Third-party notices"] }
+        text: { type: string }

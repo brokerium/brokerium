@@ -253,6 +253,39 @@ func resumeWarnings(members []member) []string {
 	return out
 }
 
+// foreignWarnings name the Kafka processes that the agents of nodes report but do not run, as
+// the operator's own unit of an adopted node does; steps that start Kafka on such a node fail.
+func foreignWarnings(nodes []*store.Node) []string {
+	var out []string
+	for _, n := range nodes {
+		var st struct {
+			ForeignKafka []struct {
+				Pid  int64  `json:"pid"`
+				User string `json:"user"`
+			} `json:"foreignKafka"`
+		}
+		if n == nil || json.Unmarshal(n.Status, &st) != nil {
+			continue
+		}
+		for _, p := range st.ForeignKafka {
+			out = append(out, fmt.Sprintf("%s runs Kafka process %d of user %s, which brokerium-agent does not manage; "+
+				"stop the operator's own Kafka unit first, or starting Kafka on %s fails", n.Name, p.Pid, p.User, n.Name))
+		}
+	}
+	return out
+}
+
+// memberNodes are the agent nodes of members.
+func memberNodes(members []member) []*store.Node {
+	var out []*store.Node
+	for _, mb := range members {
+		if mb.node != nil {
+			out = append(out, mb.node)
+		}
+	}
+	return out
+}
+
 // rackWarnings warns when only some brokers have a rack: rebalancing then ignores racks.
 func rackWarnings(existing []kafka.Broker, added []member) []string {
 	var with, without []string

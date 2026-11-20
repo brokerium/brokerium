@@ -154,22 +154,32 @@ func TestDataPlane(t *testing.T) {
 	c.must(http.StatusBadRequest, "GET", messages+"?from=after&cursor=x", nil, nil)
 
 	// ACLs.
-	acl := map[string]any{"resourceType": "TOPIC", "resourceName": topic, "patternType": "LITERAL",
-		"principal": "User:e2e", "host": "*", "operation": "READ", "permission": "ALLOW"}
-	c.must(http.StatusCreated, "POST", base+"/acls", acl, nil)
-	var acls struct {
-		ACLs []map[string]any `json:"acls"`
-	}
-	waitFor("the ACL", func() bool {
+	listed := func(acl map[string]any) bool {
+		var acls struct {
+			ACLs []map[string]any `json:"acls"`
+		}
 		c.must(http.StatusOK, "GET", base+"/acls", nil, &acls)
 		for _, a := range acls.ACLs {
-			if a["resourceName"] == topic && a["principal"] == "User:e2e" {
+			if a["resourceType"] == acl["resourceType"] && a["resourceName"] == acl["resourceName"] &&
+				a["principal"] == acl["principal"] && a["operation"] == acl["operation"] {
 				return true
 			}
 		}
 		return false
-	})
+	}
+	acl := map[string]any{"resourceType": "TOPIC", "resourceName": topic, "patternType": "LITERAL",
+		"principal": "User:e2e", "host": "*", "operation": "READ", "permission": "ALLOW"}
+	c.must(http.StatusCreated, "POST", base+"/acls", acl, nil)
+	waitFor("the ACL", func() bool { return listed(acl) })
 	c.must(http.StatusNoContent, "DELETE", base+"/acls", acl, nil)
+
+	// An ACL on a USER resource: User:e2e may create delegation tokens for that user.
+	tokens := map[string]any{"resourceType": "USER", "resourceName": "User:" + topic, "patternType": "LITERAL",
+		"principal": "User:e2e", "host": "*", "operation": "CREATE_TOKENS", "permission": "ALLOW"}
+	c.must(http.StatusCreated, "POST", base+"/acls", tokens, nil)
+	waitFor("the USER ACL", func() bool { return listed(tokens) })
+	c.must(http.StatusNoContent, "DELETE", base+"/acls", tokens, nil)
+	waitFor("the USER ACL to be deleted", func() bool { return !listed(tokens) })
 
 	// SCRAM users.
 	c.must(http.StatusCreated, "POST", base+"/scram-users", map[string]any{"user": "e2e-dp", "mechanism": "SCRAM-SHA-256",

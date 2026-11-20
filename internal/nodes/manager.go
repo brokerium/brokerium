@@ -281,7 +281,7 @@ func (m *Manager) planBootstrap(ctx context.Context, p *ops.Planner, raw json.Ra
 
 func (m *Manager) bootstrapPlan(p *ops.Planner, f fleet, params bootstrapParams, usedPortBases map[int]bool) (*ops.Planned, error) {
 	if params.Version == "" {
-		params.Version = "4.3.1"
+		params.Version = DefaultKafkaVersion
 	}
 	if params.Quorum == "" {
 		params.Quorum = "dynamic"
@@ -381,6 +381,7 @@ func (m *Manager) bootstrapPlan(p *ops.Planner, f fleet, params bootstrapParams,
 		doc.Summary += " on " + describe(members)
 		doc.Details["hosts"] = hostDetails(members)
 		doc.Warnings = append(doc.Warnings, rackWarnings(nil, members)...)
+		doc.Warnings = append(doc.Warnings, foreignWarnings(memberNodes(members))...)
 	}
 	if combined > 0 {
 		doc.Warnings = append(doc.Warnings, "combined nodes run broker and controller in one process, which Apache Kafka recommends only "+
@@ -660,6 +661,7 @@ func addBrokerPlan(p *ops.Planner, f fleet, params addBrokerParams) (*ops.Planne
 	if !docker {
 		doc.Details = map[string]any{"hosts": hostDetails(members)}
 		doc.Warnings = append(resumeWarnings(members), rackWarnings(p.View.Snapshot.Brokers, members)...)
+		doc.Warnings = append(doc.Warnings, foreignWarnings(memberNodes(members))...)
 	}
 	return &ops.Planned{Doc: doc, Steps: steps}, nil
 }
@@ -813,6 +815,7 @@ func replacePlan(p *ops.Planner, f fleet, params replaceParams) (*ops.Planned, e
 			warnings = append(warnings, fmt.Sprintf("broker %d was in rack %s; host %s is in rack %s, so rebalance afterwards to restore rack-aware placement",
 				old, rack, n.Name, n.Rack))
 		}
+		warnings = append(warnings, foreignWarnings([]*store.Node{n})...)
 		var others []*store.Node
 		for _, o := range mn.nodes {
 			if oldNode == nil || o.ID != oldNode.ID {
@@ -986,7 +989,7 @@ func addControllerPlan(p *ops.Planner, f fleet, params addControllerParams) (*op
 	doc := ops.PlanDoc{Summary: fmt.Sprintf("Add controller %d (%s): %d -> %d voters", mb.id, mb.name, len(q.Voters), len(q.Voters)+1)}
 	if mb.node != nil {
 		doc.Details = map[string]any{"hosts": hostDetails([]member{mb})}
-		doc.Warnings = resumeWarnings([]member{mb})
+		doc.Warnings = append(resumeWarnings([]member{mb}), foreignWarnings([]*store.Node{mb.node})...)
 	}
 	if (len(q.Voters)+1)%2 == 0 {
 		doc.Warnings = append(doc.Warnings, fmt.Sprintf("%d voters tolerate as many failures as %d; add one more for an odd quorum",
@@ -1116,7 +1119,8 @@ func migratePlan(p *ops.Planner, mn managed) (*ops.Planned, error) {
 	steps = append(steps, syncSteps(p.Cluster, mn)...)
 	return &ops.Planned{Doc: ops.PlanDoc{Summary: fmt.Sprintf(
 		"Migrate the static quorum of %d voter(s) to a dynamic quorum and restart %d node(s) one by one", len(mn.controllers), len(nodes)),
-		Irreversible: true, Warnings: []string{"kraft.version cannot be downgraded from 1 to 0"}}, Steps: steps}, nil
+		Irreversible: true, Warnings: append([]string{"kraft.version cannot be downgraded from 1 to 0"}, foreignWarnings(nodes)...)},
+		Steps: steps}, nil
 }
 
 func rackOf(p *ops.Planner, n *store.Node) string {
@@ -1156,7 +1160,7 @@ func restartPlan(p *ops.Planner, mn managed, params restartParams) (*ops.Planned
 		only[id] = true
 	}
 	steps := []ops.StepSpec{{Name: "Check cluster health", Kind: ops.KindHealthGate, Args: ops.HealthGateArgs{}}}
-	count := 0
+	var restarted []*store.Node
 	for _, n := range orderedNodes(mn, p.View.Health.QuorumLeader) {
 		if len(only) > 0 && !only[*n.KafkaNodeID] {
 			continue
@@ -1166,15 +1170,15 @@ func restartPlan(p *ops.Planner, mn managed, params restartParams) (*ops.Planned
 		steps = append(steps,
 			ops.StepSpec{Name: "Restart " + n.Name, Kind: KindRestart, Args: a},
 			ops.StepSpec{Name: "Check health after " + n.Name, Kind: ops.KindHealthGate, Args: ops.HealthGateArgs{}})
-		count++
+		restarted = append(restarted, n)
 	}
-	if count == 0 {
+	if len(restarted) == 0 {
 		return nil, errors.New("no managed nodes to restart")
 	}
 	steps = append(steps, ops.StepSpec{Name: "Elect preferred leaders", Kind: ops.KindElectPreferred, Args: ops.ReassignArgs{}})
 	steps = append(steps, syncSteps(p.Cluster, mn)...)
-	return &ops.Planned{Doc: ops.PlanDoc{Summary: fmt.Sprintf("Restart %d node(s) one at a time, controllers first and the quorum leader last", count)},
-		Steps: steps}, nil
+	return &ops.Planned{Doc: ops.PlanDoc{Summary: fmt.Sprintf("Restart %d node(s) one at a time, controllers first and the quorum leader last",
+		len(restarted)), Warnings: foreignWarnings(restarted)}, Steps: steps}, nil
 }
 
 type upgradeParams struct {
@@ -1314,6 +1318,7 @@ func upgradePlan(p *ops.Planner, mn managed, params upgradeParams) (*ops.Planned
 			return nil, fmt.Errorf("%s runs Java %d; Kafka 4.x needs Java %d or later", n.Name, major, minJavaMajor)
 		}
 	}
+	doc.Warnings = append(doc.Warnings, foreignWarnings(nodes)...)
 	doc.Warnings = append(doc.Warnings, "metadata.version stays at the old level until you run finalize-upgrade; you can still roll back binaries before that")
 	steps := []ops.StepSpec{{Name: "Check cluster health", Kind: ops.KindHealthGate, Args: ops.HealthGateArgs{}}}
 	for _, n := range nodes {

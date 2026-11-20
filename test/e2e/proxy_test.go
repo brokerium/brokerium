@@ -106,7 +106,7 @@ func TestInsecureAgentBehindProxy(t *testing.T) {
 	// Installing, configuring, formatting and starting Kafka are signed commands; every step
 	// waits for the authenticated result.
 	nodes := proxiedNodes(c)
-	op := c.run(id, name, "bootstrap-cluster", map[string]any{"nodes": []map[string]any{
+	op := c.run(id, name, "bootstrap-cluster", map[string]any{"version": labKafkaVersion, "nodes": []map[string]any{
 		{"node": nodes["proxied-c1"].ID, "role": "controller"},
 		{"node": nodes["proxied-b101"].ID, "role": "broker", "rack": "r1"},
 	}}, 10*time.Minute)

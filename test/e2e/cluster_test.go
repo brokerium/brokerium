@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+// labKafkaVersion is the Kafka release of the lab scenarios. The lab node image ships it, so
+// Docker clusters start without downloading Kafka.
+const labKafkaVersion = "4.3.1"
+
 // dockerCluster creates a Docker lab cluster through the API (scenario 1) and deletes its
 // nodes and registration when the test ends, unless BROKERIUM_E2E_KEEP=1.
 func dockerCluster(t *testing.T, c *client, name string, params map[string]any) string {
@@ -125,7 +129,7 @@ func TestScaleOutAndBalance(t *testing.T) {
 	c := newClient(t)
 	name := uniqueName("e2e-scale-")
 	// One rack per broker, so rack awareness does not force an uneven spread (lab finding 1).
-	id := dockerCluster(t, c, name, map[string]any{"controllers": 1, "brokers": 3,
+	id := dockerCluster(t, c, name, map[string]any{"controllers": 1, "brokers": 3, "version": labKafkaVersion,
 		"racks": []string{"r1", "r2", "r3", "r4", "r5"}})
 	v := waitView(t, c, id, 2*time.Minute, "3 live brokers", func(v view) bool {
 		return v.Health.Status == "ok" && len(v.Snapshot.Brokers) == 3

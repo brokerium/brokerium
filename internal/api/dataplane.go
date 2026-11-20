@@ -15,6 +15,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
 
 	"github.com/brokerium/brokerium/internal/cluster"
@@ -362,45 +363,104 @@ func (s *Server) handleListACLs(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, map[string]any{"acls": out})
 }
 
-func aclBuilder(a ACL) (*kadm.ACLBuilder, error) {
-	b := kadm.NewACLs()
-	switch strings.ToUpper(a.ResourceType) {
-	case "TOPIC":
-		b = b.Topics(a.ResourceName)
-	case "GROUP":
-		b = b.Groups(a.ResourceName)
-	case "CLUSTER":
-		b = b.Clusters()
-	case "TRANSACTIONAL_ID":
-		b = b.TransactionalIDs(a.ResourceName)
-	case "DELEGATION_TOKEN":
-		b = b.DelegationTokens(a.ResourceName)
-	default:
-		return nil, fmt.Errorf("unsupported resource type %q", a.ResourceType)
+// aclResourceTypes are the resource types of ACLs. USER resources are the principals that
+// delegation tokens are created for.
+var aclResourceTypes = map[string]kmsg.ACLResourceType{
+	"TOPIC": kmsg.ACLResourceTypeTopic, "GROUP": kmsg.ACLResourceTypeGroup, "CLUSTER": kmsg.ACLResourceTypeCluster,
+	"TRANSACTIONAL_ID": kmsg.ACLResourceTypeTransactionalId, "DELEGATION_TOKEN": kmsg.ACLResourceTypeDelegationToken,
+	"USER": kmsg.ACLResourceTypeUser,
+}
+
+// aclBinding is one ACL as CreateACLs carries it. The only CLUSTER resource is kafka-cluster.
+func aclBinding(a ACL) (kmsg.CreateACLsRequestCreation, error) {
+	b := kmsg.NewCreateACLsRequestCreation()
+	typ, ok := aclResourceTypes[strings.ToUpper(a.ResourceType)]
+	if !ok {
+		return b, fmt.Errorf("unsupported resource type %q", a.ResourceType)
+	}
+	b.ResourceType, b.ResourceName = typ, a.ResourceName
+	if typ == kmsg.ACLResourceTypeCluster {
+		b.ResourceName = "kafka-cluster"
 	}
 	pattern, err := kmsg.ParseACLResourcePatternType(strings.ToUpper(orDefault(a.PatternType, "LITERAL")))
 	if err != nil {
-		return nil, err
+		return b, err
 	}
-	b = b.ResourcePatternType(pattern)
+	if pattern != kmsg.ACLResourcePatternTypeLiteral && pattern != kmsg.ACLResourcePatternTypePrefixed {
+		return b, errors.New("patternType must be LITERAL or PREFIXED")
+	}
 	op, err := kmsg.ParseACLOperation(strings.ToUpper(a.Operation))
 	if err != nil {
-		return nil, err
+		return b, err
 	}
-	b = b.Operations(op)
-	host := orDefault(a.Host, "*")
+	if op == kmsg.ACLOperationAny || op == kmsg.ACLOperationUnknown {
+		return b, fmt.Errorf("invalid operation %s", op)
+	}
 	if !strings.HasPrefix(a.Principal, "User:") {
-		return nil, errors.New("principal must look like User:<name>")
+		return b, errors.New("principal must look like User:<name>")
 	}
 	switch strings.ToUpper(a.Permission) {
 	case "ALLOW":
-		b = b.Allow(a.Principal).AllowHosts(host)
+		b.PermissionType = kmsg.ACLPermissionTypeAllow
 	case "DENY":
-		b = b.Deny(a.Principal).DenyHosts(host)
+		b.PermissionType = kmsg.ACLPermissionTypeDeny
 	default:
-		return nil, errors.New("permission must be ALLOW or DENY")
+		return b, errors.New("permission must be ALLOW or DENY")
 	}
+	b.ResourcePatternType, b.Operation, b.Principal, b.Host = pattern, op, a.Principal, orDefault(a.Host, "*")
 	return b, nil
+}
+
+// aclFilter matches exactly the ACL of a binding.
+func aclFilter(b kmsg.CreateACLsRequestCreation) kmsg.DeleteACLsRequestFilter {
+	f := kmsg.NewDeleteACLsRequestFilter()
+	f.ResourceType, f.ResourceName, f.ResourcePatternType = b.ResourceType, kmsg.StringPtr(b.ResourceName), b.ResourcePatternType
+	f.Principal, f.Host, f.Operation, f.PermissionType = kmsg.StringPtr(b.Principal), kmsg.StringPtr(b.Host), b.Operation, b.PermissionType
+	return f
+}
+
+// aclError is the error of a CreateACLs or DeleteACLs result with the message of the broker.
+func aclError(code int16, message *string) error {
+	err := kerr.ErrorForCode(code)
+	if err != nil && message != nil && *message != "" {
+		return fmt.Errorf("%w: %s", err, *message)
+	}
+	return err
+}
+
+func createACL(ctx context.Context, cl *kgo.Client, b kmsg.CreateACLsRequestCreation) error {
+	req := kmsg.NewPtrCreateACLsRequest()
+	req.Creations = append(req.Creations, b)
+	resp, err := req.RequestWith(ctx, cl)
+	if err != nil {
+		return err
+	}
+	if len(resp.Results) != 1 {
+		return fmt.Errorf("received %d results for one ACL", len(resp.Results))
+	}
+	return aclError(resp.Results[0].ErrorCode, resp.Results[0].ErrorMessage)
+}
+
+func deleteACL(ctx context.Context, cl *kgo.Client, b kmsg.CreateACLsRequestCreation) error {
+	req := kmsg.NewPtrDeleteACLsRequest()
+	req.Filters = append(req.Filters, aclFilter(b))
+	resp, err := req.RequestWith(ctx, cl)
+	if err != nil {
+		return err
+	}
+	if len(resp.Results) != 1 {
+		return fmt.Errorf("received %d results for one ACL filter", len(resp.Results))
+	}
+	res := resp.Results[0]
+	if err := aclError(res.ErrorCode, res.ErrorMessage); err != nil {
+		return err
+	}
+	for _, m := range res.MatchingACLs {
+		if err := aclError(m.ErrorCode, m.ErrorMessage); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func orDefault(s, def string) string {
@@ -419,21 +479,14 @@ func (s *Server) handleCreateACL(w http.ResponseWriter, r *http.Request) {
 	if !Decode(w, r, &req) {
 		return
 	}
-	b, err := aclBuilder(req)
+	b, err := aclBinding(req)
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
 	ctx, cancel := timeout(r)
 	defer cancel()
-	results, err := cl.Adm.CreateACLs(ctx, b)
-	if err == nil {
-		for _, res := range results {
-			if res.Err != nil {
-				err = res.Err
-			}
-		}
-	}
+	err = createACL(ctx, cl.KGO, b)
 	s.Audit(r, "acl.create", r.PathValue("id"), req.ResourceType+":"+req.ResourceName, req, err)
 	if err != nil {
 		kafkaErr(w, err)
@@ -451,21 +504,14 @@ func (s *Server) handleDeleteACL(w http.ResponseWriter, r *http.Request) {
 	if !Decode(w, r, &req) {
 		return
 	}
-	b, err := aclBuilder(req)
+	b, err := aclBinding(req)
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
 	ctx, cancel := timeout(r)
 	defer cancel()
-	results, err := cl.Adm.DeleteACLs(ctx, b)
-	if err == nil {
-		for _, res := range results {
-			if res.Err != nil {
-				err = res.Err
-			}
-		}
-	}
+	err = deleteACL(ctx, cl.KGO, b)
 	s.Audit(r, "acl.delete", r.PathValue("id"), req.ResourceType+":"+req.ResourceName, req, err)
 	if err != nil {
 		kafkaErr(w, err)
