@@ -1,11 +1,12 @@
-Brokerium Commercial License 1.0
+Brokerium Commercial License 1.1
 
 Copyright (c) 2026 Bulat Valiev
 
 The files in this directory and its subdirectories, and the files in web/src/ee of this
 repository (together "the Enterprise Software"), are licensed under these terms, not under the
-PolyForm Shield License 1.0.0 that covers the rest of Brokerium. The licensor is Bulat Valiev
-and anyone to whom he transfers the rights to Brokerium.
+PolyForm Shield License 1.0.0 that covers the rest of Brokerium. The licensor is Bulat Valiev,
+the author of Brokerium, or a person to whom he has granted an exclusive license to Brokerium
+that includes the right to grant licenses under these terms.
 
 1. Production use. You may use the Enterprise Software in production only with a valid
    subscription and a license key issued for it by the licensor, within the features, limits
@@ -45,5 +46,12 @@ and anyone to whom he transfers the rights to Brokerium.
 
 10. Precedence. If your subscription agreement differs from these terms, the agreement
     applies.
+
+11. Governing law and courts. These terms, and any dispute arising from them or from the use of
+    the Enterprise Software under them, are governed by the law of the Czech Republic, without
+    regard to its conflict of laws rules. The United Nations Convention on Contracts for the
+    International Sale of Goods does not apply. The courts of the Czech Republic have exclusive
+    jurisdiction, unless your subscription agreement provides otherwise or mandatory law gives
+    you the right to bring proceedings elsewhere.
 
 Contact: licensing@brokerium.kaufen

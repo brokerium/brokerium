@@ -44,4 +44,4 @@ releases must be verifiable.
 - Since 0.2.0 the Helm chart is published to https://charts.brokerium.kaufen and GHCR
   (ADR 0015).
 - Since 0.3.2 images and releases carry `THIRD_PARTY_NOTICES` with the licenses of the
-  third-party software, and `NOTICE` reproduces their notice files (ADR 0022).
+  third-party software, and `NOTICE` reproduces their notice files (ADR 0030).

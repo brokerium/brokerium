@@ -75,7 +75,7 @@ personally.
 | Path | License |
 | --- | --- |
 | Everything in this repository unless stated otherwise | PolyForm Shield License 1.0.0 |
-| `ee/` and `web/src/ee/` (Brokerium Enterprise) | [Brokerium Commercial License 1.0](ee/LICENSE) |
+| `ee/` and `web/src/ee/` (Brokerium Enterprise) | [Brokerium Commercial License 1.1](ee/LICENSE) |
 | Third-party Go modules and npm packages of the dashboard | Their own licenses, listed with their full texts in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES); their notice files are reproduced in [NOTICE](NOTICE) |
 | Container base images, including Apache Kafka in the lab node image | Their own licenses, kept inside the images (Apache Kafka: `LICENSE`, `NOTICE` and `licenses/` in `/opt/kafka`) |
 

@@ -1,4 +1,4 @@
-# ADR 0022: Third-party notices in every artifact
+# ADR 0030: Third-party notices in every artifact
 
 - Status: accepted
 - Date: 2026-11-20
