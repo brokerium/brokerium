@@ -454,7 +454,7 @@ const installTemplate = `#!/bin/sh
 #   BROKERIUM_AGENT_VERSION                        release tag, default: latest
 #   BROKERIUM_AGENT_URL                            download URL of the binary (air-gapped installs)
 #   BROKERIUM_AGENT_SHA256                         expected SHA-256 of that binary
-#   BROKERIUM_AGENT_KAFKA_DATA_DIR                 log.dirs of new nodes, default {{.DataDir}}
+#   BROKERIUM_AGENT_KAFKA_DATA_DIR                 Kafka data directory (log.dirs), default {{.DataDir}}
 #   BROKERIUM_AGENT_KAFKA_CONFIG                   adopt a running node: its server.properties
 #   BROKERIUM_AGENT_PREINSTALLED                   and its Kafka installation directory
 #   HTTPS_PROXY, NO_PROXY                          HTTP CONNECT proxy for the downloads and for the

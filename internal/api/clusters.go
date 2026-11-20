@@ -14,9 +14,9 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kadm"
 
-	"github.com/brokerium/brokerium/internal/agentcfg"
 	"github.com/brokerium/brokerium/internal/cluster"
 	"github.com/brokerium/brokerium/internal/kafka"
+	"github.com/brokerium/brokerium/internal/nodes"
 	"github.com/brokerium/brokerium/internal/store"
 )
 
@@ -95,8 +95,15 @@ func (req *ClusterRequest) apply(c *store.Cluster) error {
 	if req.Labels != nil {
 		c.Labels = req.Labels
 	}
-	if req.Settings != nil {
-		c.Settings = req.Settings
+	if req.Settings != nil && c.Settings == nil {
+		c.Settings = map[string]any{}
+	}
+	for key, value := range req.Settings {
+		if value == nil {
+			delete(c.Settings, key)
+		} else {
+			c.Settings[key] = value
+		}
 	}
 	if c.Provider == "" {
 		c.Provider = store.ProviderExternal
@@ -120,12 +127,8 @@ func (req *ClusterRequest) apply(c *store.Cluster) error {
 	default:
 		return fmt.Errorf("unknown provider %q", c.Provider)
 	}
-	for _, key := range []string{"brokerHeap", "controllerHeap"} {
-		if heap, ok := c.Settings[key].(string); ok {
-			if err := agentcfg.ValidateHeap(heap); err != nil {
-				return fmt.Errorf("settings.%s: %w", key, err)
-			}
-		}
+	if err := nodes.ValidateSettings(c.Settings); err != nil {
+		return err
 	}
 	switch c.Flavor {
 	case store.FlavorApache, store.FlavorMSK, store.FlavorConfluentCloud, store.FlavorAiven:

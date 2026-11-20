@@ -1,8 +1,9 @@
 name: release
 
 # Builds the release binaries of both editions and the Helm chart for a version tag and publishes
-# them with checksums and an SBOM, pushes the chart to GHCR and updates the Helm repository on
-# GitHub Pages. Container images for the tag are built by the CI workflow.
+# them with the license files (LICENSE, LICENSE-enterprise, NOTICE, THIRD_PARTY_NOTICES),
+# checksums and an SBOM, pushes the chart to GHCR and updates the Helm repository on GitHub Pages.
+# Container images for the tag are built by the CI workflow.
 on:
   push:
     tags: ["v*"]
@@ -32,6 +33,12 @@ jobs:
           cd web && pnpm install --frozen-lockfile && pnpm build && node scripts/check-edition.mjs community dist && cd ..
           find internal/webui/dist -mindepth 1 ! -name .gitkeep -delete
           cp -R web/dist/. internal/webui/dist/
+      # The binaries embed these files; a Dependabot update may have left them behind.
+      - name: Third-party notices
+        run: |
+          go run ./internal/tools/notices
+          git diff --quiet -- NOTICE THIRD_PARTY_NOTICES ||
+            echo "::warning::NOTICE and THIRD_PARTY_NOTICES of $GITHUB_REF_NAME were out of date; the release uses regenerated ones."
       - name: Binaries
         env:
           VERSION: ${{ github.ref_name }}
@@ -69,8 +76,12 @@ jobs:
         env:
           VERSION: ${{ github.ref_name }}
         run: helm package deploy/helm/brokerium --version "${VERSION#v}" --app-version "${VERSION#v}" -d dist
+      - name: License files
+        run: |
+          cp LICENSE NOTICE THIRD_PARTY_NOTICES dist/
+          cp ee/LICENSE dist/LICENSE-enterprise
       - name: Checksums
-        run: cd dist && sha256sum brokerium-* > SHA256SUMS
+        run: cd dist && sha256sum brokerium-* LICENSE LICENSE-enterprise NOTICE THIRD_PARTY_NOTICES > SHA256SUMS
       - uses: anchore/sbom-action@v0.24.3
         with:
           path: .

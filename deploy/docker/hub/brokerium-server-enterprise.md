@@ -52,7 +52,8 @@ For Kubernetes, use the Helm chart with `edition: enterprise`; see the
 | `edge` | A nightly build of the `main` branch, for testing |
 
 The tags match those of `bvaliev/brokerium-server`. Images are built for `linux/amd64` and
-`linux/arm64`, run as the non-root user 65532 and carry the licenses in `/licenses`.
+`linux/arm64`, run as the non-root user 65532 and carry the licenses, `NOTICE` and
+`THIRD_PARTY_NOTICES` (the licenses of the third-party software) in `/licenses`.
 
 ## License
 

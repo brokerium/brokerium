@@ -58,6 +58,7 @@ export const routes: RouteObject[] = [
               { path: 'users', lazy: page(() => import('./UsersPage')) },
               { path: 'audit', lazy: page(() => import('./AuditPage')) },
               { path: 'license', lazy: page(() => import('./LicensePage')) },
+              { path: 'licenses', lazy: page(() => import('./LicensesPage')) },
               ...enterpriseRoutes,
               { path: '*', lazy: page(() => import('./NotFoundPage')) },
             ],

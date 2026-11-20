@@ -75,6 +75,16 @@ func TestValidateHost(t *testing.T) {
 	}
 }
 
+func TestValidateDataDir(t *testing.T) {
+	t.Parallel()
+	for dir, ok := range map[string]bool{"/var/lib/kafka/data": true, "/data/kafka-1": true, "/mnt/disk@2/kafka+logs:a": true,
+		"": false, "data/kafka": false, "/data/a,/data/b": false, "/data/kafka 1": false, "/data/kafka\nx": false, "/data/ü": false} {
+		if err := ValidateDataDir(dir); (err == nil) != ok {
+			t.Errorf("ValidateDataDir(%q) = %v, want ok=%v", dir, err, ok)
+		}
+	}
+}
+
 func TestValidateRack(t *testing.T) {
 	t.Parallel()
 	for rack, ok := range map[string]bool{"": true, "rack-a": true, "eu-west-1a": true, "Rack_1.2": true,

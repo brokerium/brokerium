@@ -34,6 +34,7 @@ func TestMiddleware(t *testing.T) {
 		{"POST with the CSRF header", http.MethodPost, "/api/v1/auth/logout", true, http.StatusNoContent, ""},
 		{"protected route without a session", http.MethodGet, "/api/v1/auth/me", false, http.StatusUnauthorized, "unauthenticated"},
 		{"server info without a session", http.MethodGet, "/api/v1/server", false, http.StatusUnauthorized, "unauthenticated"},
+		{"notices without a session", http.MethodGet, "/api/v1/notices", false, http.StatusUnauthorized, "unauthenticated"},
 		{"unknown API path", http.MethodGet, "/api/v1/nope", false, http.StatusNotFound, ""},
 		{"dashboard fallback", http.MethodGet, "/clusters/abc", false, http.StatusOK, ""},
 	}
@@ -77,13 +78,14 @@ func TestServerInfo(t *testing.T) {
 	}{
 		{"Docker clusters on", edition.Community, docker.NewDetector(docker.ModeOn, "unix:///nonexistent/docker.sock"),
 			`{"version":"v0.3.1","commit":"abc1234","date":"2026-10-21T10:00:00Z","edition":"community",` +
-				`"providers":{"docker":{"available":true,"reason":""}}}`},
+				`"providers":{"docker":{"available":true,"reason":""}},"defaultKafkaVersion":"4.4.0"}`},
 		{"Docker clusters off", edition.Enterprise, docker.NewDetector(docker.ModeOff, "unix:///nonexistent/docker.sock"),
 			`{"version":"v0.3.1","commit":"abc1234","date":"2026-10-21T10:00:00Z","edition":"enterprise",` +
-				`"providers":{"docker":{"available":false,"reason":"Docker clusters are turned off on this server (BROKERIUM_DOCKER_PROVIDER=off)"}}}`},
+				`"providers":{"docker":{"available":false,"reason":"Docker clusters are turned off on this server (BROKERIUM_DOCKER_PROVIDER=off)"}},` +
+				`"defaultKafkaVersion":"4.4.0"}`},
 		{"no detector", edition.Community, nil,
 			`{"version":"v0.3.1","commit":"abc1234","date":"2026-10-21T10:00:00Z","edition":"community",` +
-				`"providers":{"docker":{"available":false,"reason":"Docker clusters are not set up on this server"}}}`},
+				`"providers":{"docker":{"available":false,"reason":"Docker clusters are not set up on this server"}},"defaultKafkaVersion":"4.4.0"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -94,5 +96,31 @@ func TestServerInfo(t *testing.T) {
 				t.Errorf("GET /server = %d %s, want 200 %s", rec.Code, rec.Body, tt.want)
 			}
 		})
+	}
+}
+
+func TestNotices(t *testing.T) {
+	t.Parallel()
+	rec := httptest.NewRecorder()
+	(&Server{}).handleNotices(rec, httptest.NewRequest(http.MethodGet, "/api/v1/notices", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /notices = %d %s", rec.Code, rec.Body)
+	}
+	var body Notices
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	texts := map[string]string{}
+	for _, f := range body.Files {
+		texts[f.Name] = f.Text
+	}
+	for name, want := range map[string]string{
+		"LICENSE":             "PolyForm Shield License 1.0.0",
+		"NOTICE":              "Required Notice:",
+		"THIRD_PARTY_NOTICES": "google.golang.org/grpc",
+	} {
+		if !strings.Contains(texts[name], want) {
+			t.Errorf("%s does not contain %q", name, want)
+		}
 	}
 }

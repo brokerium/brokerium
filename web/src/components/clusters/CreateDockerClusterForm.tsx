@@ -5,9 +5,10 @@ import { IconAlertTriangle } from '@tabler/icons-react';
 import { useState } from 'react';
 
 import { type PlannedCluster, useCreateNewCluster } from '../../api/clusters';
+import { useDefaultKafkaVersion } from '../../api/server';
 import { COMBINED_WARNING, MAX_VOTERS } from '../../lib/bootstrap';
 import { CLUSTER_NAME_PATTERN } from '../../lib/clusterForm';
-import { KAFKA_20979_WARNING, affectedByKafka20979, parseKafkaVersion } from '../../lib/kafkaVersion';
+import { KAFKA_20979_WARNING, affectedByKafka20979, kafkaVersionError } from '../../lib/kafkaVersion';
 import { quorumHint } from '../../lib/quorum';
 import { PlannedClusterPreview, type Quorum, QuorumField } from './NewClusterParts';
 
@@ -22,8 +23,10 @@ interface CreateDockerClusterFormProps {
  */
 export function CreateDockerClusterForm({ onCancel, onDone }: CreateDockerClusterFormProps) {
   const create = useCreateNewCluster();
+  const defaultVersion = useDefaultKafkaVersion();
   const [name, setName] = useState('');
-  const [version, setVersion] = useState('4.3.1');
+  const [editedVersion, setVersion] = useState<string | null>(null);
+  const version = editedVersion ?? defaultVersion ?? '';
   const [controllers, setControllers] = useState(3);
   const [combined, setCombined] = useState(0);
   const [brokers, setBrokers] = useState(3);
@@ -32,7 +35,7 @@ export function CreateDockerClusterForm({ onCancel, onDone }: CreateDockerCluste
   const [planned, setPlanned] = useState<PlannedCluster | null>(null);
 
   const nameError = name !== '' && !CLUSTER_NAME_PATTERN.test(name) ? 'Lowercase letters, digits and dashes' : undefined;
-  const versionError = parseKafkaVersion(version) ? undefined : 'A release such as 4.3.1';
+  const versionError = kafkaVersionError(version, defaultVersion);
   const voters = controllers + combined;
   const countError =
     voters < 1 || voters > MAX_VOTERS

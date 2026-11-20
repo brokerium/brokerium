@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 
 import {
+  Anchor,
   AppShell,
   Box,
   Burger,
@@ -52,7 +53,7 @@ const NAV_ITEMS: NavItem[] = [
     adminOnly,
     active: (p: string) => p.startsWith(to),
   })),
-  { to: '/license', label: 'License', icon: IconLicense, active: (p) => p.startsWith('/license') },
+  { to: '/license', label: 'License', icon: IconLicense, active: (p) => p === '/license' },
 ];
 
 function Dot({ color, label }: { color: string; label: string }) {
@@ -148,7 +149,10 @@ export function AppLayout({ user }: { user: User }) {
           <Text size="xs" c="dimmed" px="sm" py={4}>
             Brokerium {license?.edition === 'enterprise' ? 'Enterprise ' : ''}
             {version?.version ?? ''}
-            {version?.commit ? ` · ${version.commit.slice(0, 7)}` : ''}
+            {version?.commit ? ` · ${version.commit.slice(0, 7)}` : ''} ·{' '}
+            <Anchor component={Link} to="/licenses" inherit c="dimmed" onClick={close}>
+              Licenses
+            </Anchor>
           </Text>
         </AppShell.Section>
       </AppShell.Navbar>

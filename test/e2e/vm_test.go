@@ -105,7 +105,7 @@ func TestAgentVMs(t *testing.T) {
 	}
 
 	// vm-host-1 runs broker and controller 1 in one process, vm-host-2 broker 101.
-	op := c.run(id, name, "bootstrap-cluster", map[string]any{"nodes": []map[string]any{
+	op := c.run(id, name, "bootstrap-cluster", map[string]any{"version": labKafkaVersion, "nodes": []map[string]any{
 		{"node": combined.ID, "role": "combined", "rack": "r0"}, {"node": broker.ID, "role": "broker"},
 	}}, 20*time.Minute)
 	t.Logf("bootstrap on the hosts: %s", op.Summary)

@@ -44,6 +44,8 @@ type Kafka struct {
 	run       runFunc
 	systemctl string
 	unitFile  string
+	// proc is the proc file system the agent finds Kafka processes in.
+	proc fs.FS
 
 	mu       sync.Mutex
 	cmd      *exec.Cmd
@@ -66,7 +68,7 @@ type nodeState struct {
 
 func newKafka(cfg Config) *Kafka {
 	k := &Kafka{cfg: cfg, state: nodeState{Installed: map[string]string{}}, root: os.Geteuid() == 0,
-		run: runCommand, systemctl: lookSystemctl(), unitFile: filepath.Join(agenthost.UnitDir, kafkaUnit)}
+		run: runCommand, systemctl: lookSystemctl(), unitFile: filepath.Join(agenthost.UnitDir, kafkaUnit), proc: os.DirFS("/proc")}
 	if raw, err := os.ReadFile(k.statePath()); err == nil {
 		_ = json.Unmarshal(raw, &k.state)
 	}
@@ -635,17 +637,20 @@ func (k *Kafka) Status() *agentv1.NodeStatus {
 	if systemd {
 		_, err := k.run(context.Background(), nil, k.systemctl, "is-active", "--quiet", kafkaUnit)
 		st.Running = err == nil
+		st.Pid = k.mainPID()
 	}
 	sort.Strings(st.InstalledVersions)
-	st.Meta = readMeta(filepath.Join(k.dataDir(), "meta.properties"))
+	st.KafkaDataDir = k.dataDir()
+	st.Meta = readMeta(filepath.Join(st.KafkaDataDir, "meta.properties"))
 	st.ProcessRoles = readProperty(k.configPath(), "process.roles")
 	var fs unix.Statfs_t
-	if unix.Statfs(k.dataDir(), &fs) == nil {
+	if unix.Statfs(st.KafkaDataDir, &fs) == nil {
 		st.DiskFreeBytes = int64(uint64(fs.Bavail) * uint64(fs.Bsize)) //nolint:unconvert,gosec // field types differ between Linux and macOS; disks are far below 2^63 bytes
 	}
 	st.DataBytes = k.dataBytes()
 	st.JavaVersion = k.javaVersion()
 	st.Adopted = k.Adopted()
+	st.KafkaProcess, st.ForeignKafka = procFS{k.proc}.kafkaProcesses(int(st.Pid))
 	return st
 }
 

@@ -24,7 +24,7 @@ import { Link } from 'react-router';
 
 import { useOverview } from '../api/clusters';
 import { type NodeUpdate, useCreateJoinToken, useDeleteNode, useNodes, useUpdateNode } from '../api/nodes';
-import type { AgentNode, JoinTokenResponse } from '../api/types';
+import type { AgentNode, JoinTokenResponse, KafkaProcess, NodeStatus } from '../api/types';
 import { confirmAction } from '../components/confirm';
 import { CommandBlock, JoinCommand } from '../components/nodes/JoinCommand';
 import { notifySuccess } from '../components/notify';
@@ -92,6 +92,36 @@ function Certificate({ node }: { node: AgentNode }) {
       return unhandled;
     }
   }
+}
+
+function describeProcess(p: KafkaProcess): string {
+  const parts = [`pid ${p.pid}`, `Kafka ${p.version || 'version unknown'}`];
+  if (p.user) parts.push(`user ${p.user}`);
+  if (p.startTimeMs > 0) parts.push(`started ${formatRelativeTime(p.startTimeMs)}`);
+  return parts.join(', ');
+}
+
+/** The Kafka process of the agent; agents before 0.3.2 report only the pid of their child. */
+function processLine(status: NodeStatus): string | null {
+  if (status.kafkaProcess?.pid) return `process: ${describeProcess(status.kafkaProcess)}`;
+  if (status.pid) return `pid: ${status.pid}`;
+  return null;
+}
+
+/** The Kafka process the agent runs and the Kafka processes on the host it does not run. */
+function KafkaProcesses({ status }: { status: NodeStatus }) {
+  const line = processLine(status);
+  return (
+    <>
+      {line && <Text size="xs">{line}</Text>}
+      {status.kafkaProcess?.mixedVersions && <Text size="xs">the classpath holds jars of several Kafka versions</Text>}
+      {(status.foreignKafka ?? []).map((p) => (
+        <Text size="xs" key={p.pid}>
+          not managed by the agent: {describeProcess(p)}
+        </Text>
+      ))}
+    </>
+  );
 }
 
 function AddNodeModal({ opened, onClose }: { opened: boolean; onClose: () => void }) {
@@ -459,12 +489,13 @@ export default function NodesPage() {
                             label={
                               <Stack gap={0}>
                                 {n.status.processRoles && <Text size="xs">process.roles: {n.status.processRoles}</Text>}
+                                {n.status.kafkaDataDir && <Text size="xs">data directory: {n.status.kafkaDataDir}</Text>}
                                 {n.status.dataBytes !== undefined && <Text size="xs">data: {formatBytes(n.status.dataBytes)}</Text>}
                                 {n.status.diskFreeBytes !== undefined && (
                                   <Text size="xs">disk free: {formatBytes(n.status.diskFreeBytes)}</Text>
                                 )}
                                 {n.status.lastExit && <Text size="xs">last exit: {n.status.lastExit}</Text>}
-                                {n.status.pid ? <Text size="xs">pid: {n.status.pid}</Text> : null}
+                                <KafkaProcesses status={n.status} />
                               </Stack>
                             }
                             withArrow
@@ -477,6 +508,11 @@ export default function NodesPage() {
                               <Text size="sm" ff="monospace">
                                 {n.status.activeVersion || '—'}
                               </Text>
+                              {(n.status.foreignKafka?.length ?? 0) > 0 && (
+                                <Badge size="sm" variant="light" color="red">
+                                  unmanaged Kafka
+                                </Badge>
+                              )}
                             </Group>
                           </Tooltip>
                         </Table.Td>

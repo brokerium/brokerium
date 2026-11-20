@@ -71,7 +71,8 @@ func flags() (*flag.FlagSet, *agent.Config) {
 	fs.StringVar(&cfg.CAFile, "ca-file", env("BROKERIUM_AGENT_CA_FILE", ""), "insecure transport: PEM file with extra CAs for --tls system")
 	fs.StringVar(&cfg.DataDir, "data-dir", env("BROKERIUM_AGENT_DATA_DIR", agenthost.StateDir), "agent state directory")
 	fs.StringVar(&cfg.KafkaDir, "kafka-dir", env("BROKERIUM_AGENT_KAFKA_DIR", agenthost.KafkaDir), "where Kafka releases are installed")
-	fs.StringVar(&cfg.KafkaDataDir, "kafka-data-dir", env("BROKERIUM_AGENT_KAFKA_DATA_DIR", agenthost.DataDir), "Kafka log.dirs")
+	fs.StringVar(&cfg.KafkaDataDir, "kafka-data-dir", env("BROKERIUM_AGENT_KAFKA_DATA_DIR", agenthost.DataDir),
+		"Kafka data directory; the server configures it as log.dirs")
 	fs.StringVar(&cfg.Preinstalled, "preinstalled", env("BROKERIUM_AGENT_PREINSTALLED", ""), "existing Kafka installation to adopt")
 	fs.StringVar(&cfg.Process, "process", env("BROKERIUM_AGENT_PROCESS", "child"), "process manager: child or systemd")
 	fs.StringVar(&cfg.KafkaConfig, "kafka-config", env("BROKERIUM_AGENT_KAFKA_CONFIG", ""),

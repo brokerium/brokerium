@@ -26,7 +26,7 @@ func TestCombinedNodes(t *testing.T) {
 	c := newClient(t)
 	name := uniqueName("e2e-combined-")
 	id := dockerCluster(t, c, name, map[string]any{"controllers": 2, "combined": 1, "brokers": 2,
-		"racks": []string{"r1", "r2", "r3"}})
+		"version": labKafkaVersion, "racks": []string{"r1", "r2", "r3"}})
 	v := waitView(t, c, id, 2*time.Minute, "a healthy cluster", healthy)
 	if got := voterIDs(v); !slices.Equal(got, []int32{1, 2, 3}) {
 		t.Errorf("voters %v, want 1, 2 and the combined node 3", got)
