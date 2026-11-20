@@ -33,6 +33,9 @@ func TestCatalog(t *testing.T) {
 	if f, ok := Lookup(MessageTools); !ok || f.Title != "Message tools" {
 		t.Errorf("Lookup(%q) = %+v, %v", MessageTools, f, ok)
 	}
+	if f, ok := Lookup(Problems); !ok || f.Title != "Problems" {
+		t.Errorf("Lookup(%q) = %+v, %v", Problems, f, ok)
+	}
 	if _, ok := Lookup("nope"); ok {
 		t.Error("Lookup found an unknown feature")
 	}

@@ -14,6 +14,14 @@ import (
 
 // Helpers for extensions in other packages, such as the features of Brokerium Enterprise.
 
+// Route is an HTTP route of an extension: a pattern of http.ServeMux, the role a user needs at
+// least and the handler.
+type Route struct {
+	Pattern string
+	Role    string
+	Handler http.HandlerFunc
+}
+
 // Capable answers 403 when the cluster of the request lacks the capability; otherwise it returns
 // the Kafka client and the view of the cluster.
 func (s *Server) Capable(w http.ResponseWriter, r *http.Request, capability string) (*kafka.Client, *cluster.View, bool) {

@@ -67,6 +67,8 @@ type Options struct {
 	// Evacuate lists brokers that must end up without replicas.
 	Evacuate []int32
 	Weights  Weights
+	// ChangeReplicationFactor lets Apply give partitions more or fewer replicas than they have.
+	ChangeReplicationFactor bool
 }
 
 // Move changes the replica list of one partition.
@@ -192,9 +194,12 @@ func Apply(m Model, targets map[string][]int32, o Options) (*Plan, error) {
 		if !ok {
 			continue
 		}
-		if len(target) != len(p.Replicas) {
+		if len(target) != len(p.Replicas) && !o.ChangeReplicationFactor {
 			return nil, fmt.Errorf("%s-%d: changing the replication factor is not supported (%d -> %d)",
 				p.Topic, p.Partition, len(p.Replicas), len(target))
+		}
+		if len(target) == 0 {
+			return nil, fmt.Errorf("%s-%d: a partition needs at least one replica", p.Topic, p.Partition)
 		}
 		for _, r := range s.replicas[pi] {
 			s.add(pi, r, -1)
@@ -218,7 +223,7 @@ func Apply(m Model, targets map[string][]int32, o Options) (*Plan, error) {
 				}
 				return len(m)
 			}
-			if distinct(target) < distinct(p.Replicas) {
+			if distinct(target) < min(distinct(p.Replicas), len(target)) {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("%s-%d: the new replicas span fewer racks", p.Topic, p.Partition))
 			}
 		}

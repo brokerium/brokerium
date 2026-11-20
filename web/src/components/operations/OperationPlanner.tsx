@@ -5,6 +5,7 @@ import { IconPlayerPlay } from '@tabler/icons-react';
 import { type ReactNode, useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 
+import { useLicense } from '../../api/license';
 import {
   operationTitle,
   useConfirmOperation,
@@ -14,7 +15,12 @@ import {
 } from '../../api/operations';
 import type { Capabilities, Operation } from '../../api/types';
 import { usePermissions } from '../../hooks/usePermissions';
-import { type OperationTypeName, operationAvailability, withRole } from '../../lib/capabilities';
+import {
+  namedOperationAvailability,
+  type OperationTypeName,
+  operationAvailability,
+  withRole,
+} from '../../lib/capabilities';
 import { IrreversibleBadge, OperationStatusBadge } from '../badges';
 import { notifySuccess } from '../notify';
 import { PlanPreview } from './PlanPreview';
@@ -35,6 +41,7 @@ export function OperationPlannerProvider({ clusterId, clusterName, capabilities,
   const navigate = useNavigate();
   const { user } = usePermissions();
   const { data: types } = useOperationTypes();
+  const { data: license } = useLicense();
   const { mutateAsync: createOperation } = useCreateOperation(clusterId);
   const confirm = useConfirmOperation();
   const discard = useDiscardOperation();
@@ -42,7 +49,7 @@ export function OperationPlannerProvider({ clusterId, clusterName, capabilities,
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [typed, setTyped] = useState('');
 
-  const plan = useCallback<Planner['plan']>(
+  const planNamed = useCallback<Planner['planNamed']>(
     async (type, params, options) => {
       setPendingKey(options?.key ?? type);
       try {
@@ -60,12 +67,22 @@ export function OperationPlannerProvider({ clusterId, clusterName, capabilities,
     [createOperation],
   );
 
+  const plan = useCallback<Planner['plan']>((type, params, options) => planNamed(type, params, options), [planNamed]);
+
   const availability = useCallback(
     (type: OperationTypeName) => withRole(operationAvailability(type, capabilities, types), user?.role),
     [capabilities, types, user?.role],
   );
 
-  const planner = useMemo<Planner>(() => ({ plan, pendingKey, availability }), [plan, pendingKey, availability]);
+  const namedAvailability = useCallback(
+    (type: string) => withRole(namedOperationAvailability(type, capabilities, types, license), user?.role),
+    [capabilities, types, license, user?.role],
+  );
+
+  const planner = useMemo<Planner>(
+    () => ({ plan, planNamed, pendingKey, availability, namedAvailability }),
+    [plan, planNamed, pendingKey, availability, namedAvailability],
+  );
 
   const irreversible = Boolean(operation && (operation.irreversible || operation.plan?.irreversible));
   const ready = !irreversible || typed === clusterName;

@@ -182,6 +182,40 @@ func TestNoEligibleBrokersFails(t *testing.T) {
 	}
 }
 
+func TestApplyReplicationFactor(t *testing.T) {
+	m := cluster([]string{"a", "b", "c"}, 1, map[string]int{"orders": 2}, 1)
+	targets := map[string][]int32{"orders-0": {101, 102, 103}, "orders-1": {101, 103}}
+	if _, err := Apply(m, targets, Options{}); err == nil {
+		t.Fatal("Apply changed the replication factor without ChangeReplicationFactor")
+	}
+	p, err := Apply(m, targets, Options{ChangeReplicationFactor: true, RackAware: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Moves) != 2 || p.Moves[0].ReplicaMoves != 2 || p.Moves[1].ReplicaMoves != 1 || p.Moves[0].LeaderChange {
+		t.Fatalf("moves = %+v", p.Moves)
+	}
+	if want := int64(2*1_000_000 + 1*2_000_000); p.DataToMoveBytes != want {
+		t.Errorf("data to move = %d, want %d", p.DataToMoveBytes, want)
+	}
+	replicas := map[int32]int{}
+	for _, b := range p.After.Brokers {
+		replicas[b.ID] = b.Replicas
+	}
+	if replicas[101] != 2 || replicas[102] != 1 || replicas[103] != 2 || len(p.Warnings) != 0 {
+		t.Errorf("replicas after = %v, warnings %v", replicas, p.Warnings)
+	}
+
+	shrink := cluster([]string{"a", "b", "c"}, 3, map[string]int{"orders": 1}, 3)
+	p, err = Apply(shrink, map[string][]int32{"orders-0": {101, 102}}, Options{ChangeReplicationFactor: true, RackAware: true})
+	if err != nil || len(p.Moves) != 1 || p.Moves[0].ReplicaMoves != 0 || p.DataToMoveBytes != 0 || len(p.Warnings) != 0 {
+		t.Fatalf("lowering the replication factor: %+v, %v", p, err)
+	}
+	if _, err := Apply(shrink, map[string][]int32{"orders-0": {}}, Options{ChangeReplicationFactor: true}); err == nil {
+		t.Error("Apply accepted a partition without replicas")
+	}
+}
+
 func TestDeterministic(t *testing.T) {
 	m := cluster([]string{"a", "b", "c", "a", "b", "c"}, 3, map[string]int{"orders": 30, "payments": 7, "clicks": 11}, 3)
 	p1, _ := Compute(m, Options{Mode: ModeEven, RackAware: true})

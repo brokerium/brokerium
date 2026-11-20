@@ -22,6 +22,7 @@ features behave correctly and safely.
 | Feature | What it adds |
 | --- | --- |
 | Message tools | Delete records and empty topics, search, export and copy messages ([Topics and messages](messages.md)). |
+| Problems | Rules that find risks in the replication, the settings and the placement of clusters, with explanations and planned fixes such as changing the replication factor ([Problems](problems.md)). |
 
 The **License** page of the dashboard lists these features in both editions and shows which ones
 the license covers.
@@ -30,7 +31,7 @@ Planned for the next releases:
 
 | Release | Features |
 | --- | --- |
-| 0.4.0 | Problems with explanations and fixes, including changing the replication factor; monitoring with metrics from Prometheus and a Prometheus endpoint of the server. |
+| 0.4.0 | Monitoring with metrics from Prometheus and a Prometheus endpoint of the server. |
 | 0.5.0 | Configuration of clusters with the defaults of each Kafka version, paths, listeners, ports, TLS and SASL for created clusters, takeover of existing nodes, the JMX exporter, consumer group tools. |
 | 0.6.0 | ZooKeeper-based clusters: adoption, upgrades with hints and the migration to KRaft. |
 

@@ -3,7 +3,7 @@ name: e2e
 # Lab scenarios against a real server and PostgreSQL in three parallel jobs: api (scenarios against
 # the lab cluster beta and a small Docker cluster, then agents behind a TLS-terminating proxy),
 # docker-clusters (scenarios that create Docker clusters with the Docker provider) and enterprise
-# (the scenarios of Brokerium Enterprise against beta). Runs on pull requests, nightly and on
+# (the scenarios of Brokerium Enterprise against alpha and beta). Runs on pull requests, nightly and on
 # demand. Pull requests run only the jobs their changes need; the job e2e, a required check,
 # passes when every job succeeded or was skipped.
 on:
@@ -29,6 +29,7 @@ env:
   API_SCENARIOS: TestMultiClusterOverview|TestDataPlane|TestSecureConnections|TestUsersRolesAudit|TestLicenseCommunity|TestControllersDirect|TestAgentCertificateRenewal
   PROXY_SCENARIOS: TestInsecureAgentBehindProxy
   DOCKER_SCENARIOS: TestScaleOutAndBalance|TestNodeLifecycle|TestMigrateStaticQuorum|TestRollingUpgrade|TestCombinedNodes
+  ENTERPRISE_SCENARIOS: TestEnterpriseMessageTools|TestEnterpriseProblems
   OTHER_SCENARIOS: TestStrimzi|TestAgentVMs
 
 jobs:
@@ -93,9 +94,9 @@ jobs:
           install_args: go
       - name: Every scenario has a job
         run: |
-          scenarios=$(go test -tags e2e -list . ./test/e2e)
-          missing=$(grep '^Test' <<< "$scenarios" |
-            grep -vxE "$API_SCENARIOS|$PROXY_SCENARIOS|$DOCKER_SCENARIOS|$OTHER_SCENARIOS" || true)
+          scenarios=$(go test -tags e2e -list . ./test/e2e && go test -tags e2e,enterprise -list . ./test/e2e)
+          missing=$(grep '^Test' <<< "$scenarios" | sort -u |
+            grep -vxE "$API_SCENARIOS|$PROXY_SCENARIOS|$DOCKER_SCENARIOS|$ENTERPRISE_SCENARIOS|$OTHER_SCENARIOS" || true)
           if [ -n "$missing" ]; then
             echo "::error::Scenarios that no job of e2e.yml runs: $(tr '\n' ' ' <<< "$missing")"
             exit 1
@@ -284,15 +285,17 @@ jobs:
     needs: changes
     if: needs.changes.outputs.enterprise == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: jdx/mise-action@v5.2.8
         with:
           install: true
           install_args: go
-      - name: Lab (PostgreSQL and beta)
-        run: docker compose -f deploy/lab/compose.yaml --profile beta up -d --wait postgres beta-c1 beta-b1
+      - name: Lab (PostgreSQL, alpha and beta)
+        run: |
+          docker compose -f deploy/lab/compose.yaml --profile alpha --profile beta up -d --wait postgres \
+            alpha-c1 alpha-c2 alpha-c3 alpha-b1 alpha-b2 alpha-b3 beta-c1 beta-b1
       # licensetest makes the server trust the public test signing key, with which the scenarios
       # sign their license keys. The scenarios use the API only, so there is no dashboard build.
       - name: Build
@@ -301,13 +304,14 @@ jobs:
         run: |
           nohup ./bin/brokerium-server-enterprise > server.log 2>&1 &
           for _ in $(seq 1 60); do curl -fs localhost:8080/readyz && break; sleep 1; done
-      - name: Register beta
+      - name: Register alpha and beta
         run: |
           api() { curl -fsS -b jar -c jar -H 'Content-Type: application/json' -H 'X-Brokerium-Request: 1' "$@"; }
           api -d '{"username":"admin","password":"brokerium-admin"}' localhost:8080/api/v1/auth/login > /dev/null
+          api -d '{"name":"alpha","bootstrapServers":["localhost:19101"]}' localhost:8080/api/v1/clusters > /dev/null
           api -d '{"name":"beta","bootstrapServers":["localhost:29101"]}' localhost:8080/api/v1/clusters > /dev/null
       - name: Scenarios
-        run: go test -tags e2e,enterprise -count=1 -timeout 10m -v -run '^TestEnterprise' ./test/e2e
+        run: go test -tags e2e,enterprise -count=1 -timeout 15m -v -run "^($ENTERPRISE_SCENARIOS)$" ./test/e2e
       - name: Diagnostics
         if: failure()
         run: |

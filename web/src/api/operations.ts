@@ -22,6 +22,12 @@ export interface CreateOperationRequest<T extends OperationTypeName = OperationT
   params: OperationParams[T];
 }
 
+/** A request for an operation type that the dashboard knows only by its name from the server. */
+export interface NamedOperationRequest {
+  type: string;
+  params: object;
+}
+
 export interface ConfirmOperationRequest {
   /** Required (the cluster name) when the operation is irreversible. */
   confirmName?: string;
@@ -83,7 +89,8 @@ export function useOperation(id: string) {
 export function useCreateOperation(clusterId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (req: CreateOperationRequest) => api.post<Operation>(clusterPath(clusterId, '/operations'), req),
+    mutationFn: (req: CreateOperationRequest | NamedOperationRequest) =>
+      api.post<Operation>(clusterPath(clusterId, '/operations'), req),
     onSuccess: (op) => {
       qc.setQueryData(operationKeys.detail(op.id), op);
       void qc.invalidateQueries({ queryKey: operationKeys.cluster(clusterId) });

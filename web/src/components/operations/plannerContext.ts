@@ -13,10 +13,17 @@ export interface PlanOptions {
 export interface Planner {
   /** Creates a planned operation and opens its preview; resolves to false when planning failed. */
   plan: <T extends OperationTypeName>(type: T, params: OperationParams[T], options?: PlanOptions) => Promise<boolean>;
+  /**
+   * Like plan, for an operation that the dashboard knows only by its name from the server, such as
+   * an Enterprise operation or a fix that the server suggests.
+   */
+  planNamed: (type: string, params: object, options?: PlanOptions) => Promise<boolean>;
   /** Key of the plan request in flight, if any. */
   pendingKey: string | null;
   /** Combines cluster capabilities, server support and the user's role. */
   availability: (type: OperationTypeName) => Availability;
+  /** Availability for planNamed: server support, the license, cluster capabilities and the user's role. */
+  namedAvailability: (type: string) => Availability;
 }
 
 export const PlannerContext = createContext<Planner | null>(null);

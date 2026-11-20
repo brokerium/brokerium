@@ -34,7 +34,10 @@ const (
 // HealthGateArgs configure the health gate.
 type HealthGateArgs struct {
 	AllowUnderReplicated bool `json:"allowUnderReplicated,omitempty"`
-	TimeoutSeconds       int  `json:"timeoutSeconds,omitempty"`
+	// IgnoreTopics lists topics whose under-replicated and under-min-ISR partitions do not stop
+	// the gate, because the operation changes the replication of these topics.
+	IgnoreTopics   []string `json:"ignoreTopics,omitempty"`
+	TimeoutSeconds int      `json:"timeoutSeconds,omitempty"`
 }
 
 // ReassignArgs are the target assignments of one batch.
@@ -155,7 +158,7 @@ func stepHealthGate(ctx context.Context, x *Exec, raw json.RawMessage) (any, err
 		if err != nil {
 			problems = []string{err.Error()}
 		} else {
-			problems = HealthProblems(v.Health, args.AllowUnderReplicated)
+			problems = HealthProblems(cluster.WithoutTopics(v.Health, v.Snapshot, args.IgnoreTopics), args.AllowUnderReplicated)
 			if len(v.Snapshot.Reassignments) > 0 {
 				problems = append(problems, fmt.Sprintf("%d reassignment(s) in progress", len(v.Snapshot.Reassignments)))
 			}

@@ -11,7 +11,9 @@ case. Only one operation runs per cluster. Each step and its result are in the a
 
 - A health gate runs before the first step and after every batch or node: no offline
   partitions, nothing under `min.insync.replicas`, no under-replicated partitions except
-  those being moved, a quorum leader, no lagging voters.
+  those being moved, a quorum leader, no lagging voters. Changing the replication factor of
+  topics does not count the under-replicated and under-`min.insync.replicas` partitions of these
+  topics, which are often the reason for the change.
 - Reassignments carry full target replica lists, run in batches, and are throttled on the
   brokers and topics involved; throttles are always removed afterwards.
 - Cordoned and offline brokers never receive replicas; racks are respected.
@@ -38,6 +40,9 @@ case. Only one operation runs per cluster. Each step and its result are in the a
 | Finalize upgrade | Raises `metadata.version` and other features. Irreversible. |
 | Scale node pool | Strimzi broker pools, see [clusters](clusters.md#strimzi). |
 | Create / delete cluster nodes | Creates the controllers, brokers and combined nodes of a cluster on agent hosts you choose ([agent clusters](clusters.md#agent-clusters)) or in Docker; deletes Docker lab clusters. |
+| Change replication factor (Enterprise) | Raises or lowers the replication factor of topics, internal topics included. New replicas go to the least loaded brokers by replicas and data, on racks the partition uses least; lowering removes replicas from the end of the list, those on stopped brokers and out of sync first, and keeps the leader and the preferred replica. Runs as throttled, batched reassignments and ends with a preferred leader election. Refuses a replication factor above the serving brokers and warns about one below `min.insync.replicas`. |
+| Change topic configs (Enterprise) | Sets or removes configs of topics, such as `min.insync.replicas`. The brokers validate the change when it is planned; the plan shows the old and the new values and warns when producers with `acks=all` would fail. |
+| Align broker configs (Enterprise) | Gives dynamic broker configs one cluster-wide value, the value most brokers have or one you choose, and removes the values of single brokers. Refuses read-only and sensitive configs and those that differ by design (ids, listeners, log directories, racks, TLS stores). |
 
 The runbooks in [docs/runbooks](../runbooks/) show the same procedures with the Kafka CLI, and
 [test/e2e](../../test/e2e) runs every scenario against the lab.

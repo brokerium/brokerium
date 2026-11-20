@@ -32,9 +32,13 @@ type Feature struct {
 // MessageTools is the id of the message tools feature.
 const MessageTools = "message-tools"
 
+// Problems is the id of the problems feature (ADR 0023).
+const Problems = "problems"
+
 // Catalog lists the features of Brokerium Enterprise.
 var Catalog = []Feature{
 	{ID: MessageTools, Title: "Message tools", Description: "Delete records and empty topics, search, export and copy messages."},
+	{ID: Problems, Title: "Problems", Description: "Find risky settings and placement in clusters, with explanations and planned fixes such as changing the replication factor."},
 }
 
 // Lookup returns the catalog entry of a feature.

@@ -118,6 +118,8 @@ make dev         # Brokerium server on http://localhost:8080
 - [Clusters and providers](docs/guide/clusters.md): existing clusters, agents, Strimzi,
   Amazon MSK, Confluent Cloud, Aiven
 - [Operations](docs/guide/operations.md): what each operation does and how it stays safe
+- [Problems](docs/guide/problems.md): risks in the replication, settings and placement of
+  clusters with planned fixes (Enterprise)
 - [Security](docs/guide/security.md): users, roles, sessions, credentials, the agent channel
 - [Editions and license keys](docs/guide/enterprise.md): Community and Enterprise, adding a
   license key

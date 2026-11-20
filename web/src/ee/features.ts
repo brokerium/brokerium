@@ -2,3 +2,6 @@
 
 /** Id of the message tools in the Enterprise feature catalog. */
 export const MESSAGE_TOOLS = 'message-tools';
+
+/** Id of the problems in the Enterprise feature catalog. */
+export const PROBLEMS = 'problems';
