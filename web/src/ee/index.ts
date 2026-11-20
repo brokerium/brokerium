@@ -2,7 +2,14 @@
 
 import type { RouteObject } from 'react-router';
 
-import type { DashboardEdition, TopicAction, TopicTab } from '../lib/edition';
+import type {
+  ClusterTabExtension,
+  DashboardEdition,
+  NavExtension,
+  OverviewColumn,
+  TopicAction,
+  TopicTab,
+} from '../lib/edition';
 import { MESSAGE_TOOLS } from './features';
 import { CopyMessagesAction } from './topic/CopyMessagesAction';
 import { DeleteRecordsAction } from './topic/DeleteRecordsAction';
@@ -14,6 +21,12 @@ export const dashboardEdition: DashboardEdition = { edition: 'enterprise', marke
 
 /** Pages of Enterprise features, inside the signed-in layout. */
 export const enterpriseRoutes: RouteObject[] = [];
+
+export const navExtensions: NavExtension[] = [];
+
+export const clusterTabs: ClusterTabExtension[] = [];
+
+export const overviewColumns: OverviewColumn[] = [];
 
 export const topicActions: TopicAction[] = [
   { feature: MESSAGE_TOOLS, label: 'Copy messages', Component: CopyMessagesAction },
