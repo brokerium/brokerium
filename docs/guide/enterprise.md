@@ -13,6 +13,10 @@ Brokerium comes in two editions, both built from this repository
 The Community binaries and images contain none of the Enterprise code, and features that were free
 in a published version never move to Enterprise.
 
+From 0.4.0, new features are part of Enterprise. The Community edition keeps everything published
+up to 0.3.1 and keeps receiving bug fixes, license compliance and corrections that make existing
+features behave correctly and safely.
+
 ## Enterprise features
 
 | Feature | What it adds |
@@ -21,6 +25,14 @@ in a published version never move to Enterprise.
 
 The **License** page of the dashboard lists these features in both editions and shows which ones
 the license covers.
+
+Planned for the next releases:
+
+| Release | Features |
+| --- | --- |
+| 0.4.0 | Problems with explanations and fixes, including changing the replication factor; monitoring with metrics from Prometheus and a Prometheus endpoint of the server. |
+| 0.5.0 | Configuration of clusters with the defaults of each Kafka version, paths, listeners, ports, TLS and SASL for created clusters, takeover of existing nodes, the JMX exporter, consumer group tools. |
+| 0.6.0 | ZooKeeper-based clusters: adoption, upgrades with hints and the migration to KRaft. |
 
 ## Install Brokerium Enterprise
 

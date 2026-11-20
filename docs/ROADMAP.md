@@ -94,7 +94,41 @@ the lab scenarios with the Kafka CLI, code skeleton, CI and the first container 
 
 ## Phase 12: v0.3.2 (next)
 
+- Fixes: `log.dirs` from the data directory of the agent, merged cluster settings, the `USER`
+  resource type in ACLs, one default Kafka version, a check of the running Kafka process after
+  restarts and upgrades, node deletion that closes the agent session and an uninstall script.
+- Third-party license notices in the images, the binaries and the dashboard; governing law and
+  licence wording in the license texts; editions from 0.4.0
+  ([ADR 0016](adr/0016-editions-and-license-keys.md)).
 - Node.js 26 LTS for the dashboard build.
+
+## Phase 13: v0.4.0
+
+From 0.4.0 new features are part of Brokerium Enterprise; items marked (Community) are fixes and
+corrections of existing features.
+
+- (Community) The mode and version of every broker, operations offered by Kafka mode and version,
+  the health of ZooKeeper-based clusters, health gates that stop on fenced brokers and full disks.
+  Existing clusters from Kafka 3.5.0 in ZooKeeper or KRaft mode, new clusters from 4.2.0.
+- Problems with explanations and fixes, including a change-replication-factor operation.
+- Monitoring with metrics from Prometheus and a Prometheus endpoint of the server.
+
+## Phase 14: v0.5.0
+
+- Configuration of clusters with the defaults of each Kafka version, as typed settings with planned
+  changes; the creation wizard with every setting and a chosen cluster id.
+- Paths per host and moving replicas between log directories.
+- Listeners, ports, bind addresses, TLS and SASL for created clusters, and changing them on
+  running clusters.
+- Takeover of existing nodes: configuration, unit and installation.
+- The JMX exporter on managed nodes with Prometheus service discovery; host facts and host checks;
+  consumer group and broker configuration tools.
+- (Community) The Kafka unit enabled for autostart, bounded Kafka log files on managed nodes.
+
+## Phase 15: v0.6.0
+
+- ZooKeeper-based clusters: adoption of their brokers, upgrades with a release list, a
+  compatibility matrix and next-version hints, and the migration to KRaft on dedicated controllers.
 
 ## Later: Enterprise
 

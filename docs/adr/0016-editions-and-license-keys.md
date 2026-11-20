@@ -66,3 +66,19 @@ readable, and a license check must work in air-gapped networks without contactin
   prevent.
 - Every Enterprise feature declares its feature id and checks it in the API and in the
   operations engine; the dashboard shows locked features with an Enterprise badge.
+
+## Amendment 2026-11-20: new features from 0.4.0
+
+- Everything published up to 0.3.1 stays in the Community edition.
+- From 0.4.0 new features are part of Brokerium Enterprise. The Community edition keeps
+  receiving bug fixes, license compliance and corrections that make existing features behave
+  correctly and safely, for example offering only the operations the version and the mode of a
+  Kafka cluster support.
+- The catalog in `internal/edition` gets the feature ids `problems`, `monitoring`,
+  `configuration`, `security`, `node-takeover` and `zookeeper` as they ship. Keys with `*`
+  cover them without being issued again.
+- The Community code offers extension points (contributions to the rendered `server.properties`,
+  settings sections, problem rules, cluster tabs in the dashboard); the Enterprise code that uses
+  them stays in `ee/` and `web/src/ee/`.
+- The agent stays one binary under the PolyForm Shield License for both editions. Its commands
+  stay typed and narrow; the Enterprise server decides when to send them.
