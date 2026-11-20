@@ -165,7 +165,7 @@ func TestEnterpriseProblems(t *testing.T) {
 		t.Error("the unmuted problem is not listed")
 	}
 
-	op := c.run(alpha, "alpha", p.Fixes[0].Operation, json.RawMessage(p.Fixes[0].Params), 5*time.Minute)
+	op := c.run(alpha, "alpha", p.Fixes[0].Operation, p.Fixes[0].Params, 5*time.Minute)
 	if !strings.Contains(op.Summary, "to 3") {
 		t.Errorf("summary %q", op.Summary)
 	}
