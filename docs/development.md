@@ -33,7 +33,7 @@ rules are in [CONTRIBUTING.md](../CONTRIBUTING.md).
 | `web/src/ee`, `web/src/ee-community` | Enterprise dashboard code and its Community stand-in, imported as `@ee` |
 | `api/openapi.yaml` | Public REST API description |
 | `proto/brokerium/agent/v1` | Agent protocol (generated Go code is committed) |
-| `deploy/lab` | Docker Compose lab (alpha, beta, gamma), `strimzi/` (kind + Strimzi), `vm/` (systemd hosts), `gencerts/` |
+| `deploy/lab` | Docker Compose lab (KRaft clusters alpha, beta, gamma; ZooKeeper-based delta, epsilon), `strimzi/` (kind + Strimzi), `vm/` (systemd hosts), `gencerts/` |
 | `deploy/docker`, `deploy/helm` | Images (server, agent, lab node) and their Docker Hub texts in `hub/`, Helm chart |
 | `docs/guide` | User guide: install, clusters, operations, security |
 | `docs/adr`, `docs/runbooks` | Architecture decisions, operating procedures |
@@ -48,6 +48,7 @@ activate mise in your shell.
 | --- | --- |
 | `make lab-up` | Start PostgreSQL and Kafka cluster alpha (3 controllers + 3 brokers, dynamic quorum) |
 | `make lab-up PROFILES="alpha beta gamma"` | Start more lab clusters |
+| `make lab-up PROFILES="delta epsilon"` | Start the ZooKeeper-based clusters on Kafka 3.5.2 and 3.9.2 |
 | `make lab-down` / `make lab-reset` | Stop the lab / stop and delete all lab volumes |
 | `make dev` | Run the server on the host against the lab (http://localhost:8080), with Docker clusters (`BROKERIUM_DOCKER_PROVIDER=on`) |
 | `make web-dev` | Vite dev server for the dashboard with API proxy |
@@ -124,20 +125,22 @@ go build -tags enterprise,licensetest -o bin/brokerium-server-enterprise ./cmd/b
 go test -tags e2e,enterprise -count=1 -run TestEnterprise ./test/e2e
 ```
 
-In CI, the `e2e` workflow runs on pull requests, nightly and on demand, in three parallel jobs:
+In CI, the `e2e` workflow runs on pull requests, nightly and on demand, in four parallel jobs:
 
 - `api`: the scenarios against beta and the small Docker cluster `ci-small`, then the scenario of
   agents behind OpenResty;
 - `docker-clusters`: the scenarios that create Docker clusters. Their agents download the Kafka
   releases they install from a mirror on the runner (`BROKERIUM_KAFKA_MIRROR`), which serves
   archives cached from the Apache mirrors;
+- `zookeeper`: the scenarios against the ZooKeeper-based lab clusters delta and epsilon, which
+  they register themselves; the Kafka 3.5.2 release for the image of delta is cached;
 - `enterprise`: the Enterprise scenarios against beta.
 
 Pull requests skip the jobs their changes do not need, for example changes of the documentation,
 the dashboard or the Helm chart, and the job `e2e`, the required check, passes when every other
 job passed or was skipped. Each Community scenario belongs to one job (`API_SCENARIOS`,
-`PROXY_SCENARIOS` and `DOCKER_SCENARIOS` in the workflow), and the `api` job fails for a scenario
-that is in none of them. The `e2e-strimzi` workflow runs `TestStrimzi` on a kind cluster nightly,
+`PROXY_SCENARIOS`, `DOCKER_SCENARIOS` and `ZOOKEEPER_SCENARIOS` in the workflow), and the `api`
+job fails for a scenario that is in none of them. The `e2e-strimzi` workflow runs `TestStrimzi` on a kind cluster nightly,
 on demand and on pull requests that change the Strimzi support.
 
 ## Lab
@@ -146,7 +149,13 @@ The clusters, ports and node ids are described in [deploy/lab/README.md](../depl
 A few facts that matter while developing:
 
 - Node ids: controllers `1..5`, brokers `101..106`. The host listener of broker `N` is
-  `localhost:<cluster base port + N>` (alpha 19000, beta 29000, gamma 39000).
+  `localhost:<cluster base port + N>` (alpha 19000, beta 29000, gamma 39000, delta 61000,
+  epsilon 62000).
+- delta (Kafka 3.5.2) and epsilon (Kafka 3.9.2) run in ZooKeeper mode with one ZooKeeper and
+  brokers 101-103 each. apache/kafka images start at 3.7.0, so compose builds the image of delta
+  from the Apache release (`deploy/lab/kafka/Dockerfile`, SHA-512 pinned in `compose.yaml`); a
+  tarball in `deploy/lab/kafka/dist/` saves the slow download from archive.apache.org.
+  `TestZooKeeperClusters` registers both clusters itself.
 - The lab needs about 6 CPUs and 16 GB of memory for Docker; JVM heaps are 512 MB for brokers
   and 384 MB for controllers. Start only the profiles you need.
 - Docker clusters created by the Docker provider get their own port base and use the lab node

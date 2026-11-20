@@ -1542,11 +1542,34 @@ components:
         voters: { type: integer }
         votersLagging: { type: integer }
         diskUsedPercentMax: { type: number }
-        metadataVersion: { type: string }
+        metadataVersion: { type: string, description: Empty on ZooKeeper-based clusters. }
         kraftVersion: { type: integer }
+        mode:
+          type: string
+          enum: [kraft, zookeeper, migration, ""]
+          description: >-
+            `kraft` when every broker runs KRaft, `zookeeper` when every broker runs ZooKeeper,
+            `migration` otherwise or when a broker has `zookeeper.metadata.migration.enable`;
+            empty while no broker could be told.
+        controller:
+          type: integer
+          description: >-
+            The active controller: the quorum leader, or on ZooKeeper-based clusters the
+            controller broker that Metadata names; -1 when there is none or it is not known.
+        versions:
+          type: array
+          description: Distinct Kafka versions of the brokers (see `Broker.version`), oldest first.
+          items: { type: string }
+        mixedVersions: { type: boolean, description: The brokers run different Kafka releases. }
     Capabilities:
       type: object
-      description: Actions available for this cluster; the dashboard shows only these.
+      description: >-
+        Actions available for this cluster; the dashboard shows only these. They follow the
+        provider, the flavor, the Kafka mode and versions of the brokers and the quorum type:
+        ZooKeeper-based clusters offer no quorum, controller, unregistration, finalization,
+        cordoning, migration or node operations; cordoning and `drain-broker` need every broker
+        on Kafka 4.3 or later, `migrate-quorum` 4.1 or later; static quorums (kraft.version 0,
+        or no kraft.version on Kafka 3.3 to 3.8) cannot add or remove controllers.
       properties:
         manageTopics: { type: boolean }
         manageConfigs: { type: boolean }
@@ -1646,6 +1669,18 @@ components:
         replicas: { type: integer }
         leaders: { type: integer }
         preferredLeaders: { type: integer }
+        version:
+          type: string
+          description: >-
+            Kafka release of the broker: the exact one its agent reports (`4.3.1`), else the
+            estimate from its ApiVersions (`3.5`, `3.4 to 3.5`, `4.4 or later`); empty when
+            unknown.
+          examples: ["3.5", "4.3.1"]
+        versionExact: { type: boolean, description: An agent reported `version`. }
+        mode: { type: string, enum: [kraft, zookeeper, migration, ""], description: Empty when unknown. }
+        processRoles: { type: string, description: "`process.roles` of KRaft brokers." }
+        zookeeperConnect: { type: string, description: "`zookeeper.connect` of ZooKeeper and migrating brokers." }
+        interBrokerProtocolVersion: { type: string, description: "`inter.broker.protocol.version` of ZooKeeper-based brokers." }
     Partition:
       type: object
       properties:
@@ -1722,6 +1757,13 @@ components:
         collectedAt: { type: string, format: date-time }
         durationMs: { type: integer, format: int64 }
         clusterId: { type: string }
+        mode: { type: string, enum: [kraft, zookeeper, migration, ""], description: See `Health.mode`. }
+        mixedVersions: { type: boolean }
+        controllerId:
+          type: integer
+          description: >-
+            The controller that Metadata names: the active controller of a ZooKeeper-based
+            cluster, -1 for none. KRaft brokers name any broker instead (KIP-590).
         brokers:
           type: array
           items: { $ref: "#/components/schemas/Broker" }
@@ -1741,6 +1783,10 @@ components:
         errors:
           type: array
           items: { type: string }
+        skipped:
+          type: array
+          description: Parts the cluster does not offer, for example `quorum` on ZooKeeper-based clusters.
+          items: { type: string, enum: [quorum, logDirs, reassignments] }
     ConfigEntry:
       type: object
       properties:
@@ -2082,7 +2128,9 @@ components:
               description: "Docker clusters; 3 when 0 and `combined` is 0."
             version:
               type: string
-              description: The Kafka release; `defaultKafkaVersion` of `GET /api/v1/server` by default.
+              description: >-
+                The Kafka release `x.y.z`, 4.2.0 or later; `defaultKafkaVersion` of
+                `GET /api/v1/server` by default.
             racks: { type: array, items: { type: string }, description: "Docker clusters." }
             quorum: { type: string, enum: [dynamic, static] }
             portBase: { type: integer, description: "Docker clusters." }
@@ -2128,6 +2176,7 @@ components:
             nodeId: { type: integer, minimum: 0 }
         migrate-quorum:
           type: object
+          description: Needs Kafka 4.1 or later on every node; refused for dynamic quorums.
         rolling-restart:
           type: object
           description: >-

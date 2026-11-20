@@ -7,6 +7,8 @@
 #   alpha-replace  replacement broker 106 (scenario 4)
 #   beta           1 controller + 1 broker, dynamic quorum (standalone bootstrap)
 #   gamma          3 controllers + 1 broker, static quorum on the stock entrypoint
+#   delta          ZooKeeper + 3 brokers (101-103) on Kafka 3.5.2, image built from the release
+#   epsilon        ZooKeeper + 3 brokers (101-103) on Kafka 3.9.2
 name: brokerium-lab
 
 x-kafka-image: &kafka-image ${KAFKA_IMAGE:-apache/kafka:4.3.1}
@@ -63,6 +65,55 @@ x-gamma-controller-env: &gamma-controller-env
   KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT
   KAFKA_HEAP_OPTS: -Xmx384m -Xms384m
 
+# ZooKeeper-based clusters with one ZooKeeper each. apache/kafka images start at 3.7.0, so the
+# brokers of delta run an image built from the release tarball (kafka/Dockerfile).
+x-zookeeper: &zookeeper
+  image: zookeeper:3.8.8
+  networks: [lab]
+  environment:
+    JVMFLAGS: -Xmx256m -Xms256m
+    ZOO_ADMINSERVER_ENABLED: "false"
+  mem_limit: 512m
+  healthcheck:
+    test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/2181"]
+    interval: 5s
+    timeout: 3s
+    retries: 30
+    start_period: 10s
+
+x-zk-broker: &zk-broker
+  command: ["bash", "/lab/start-zk-broker.sh"]
+  networks: [lab]
+  mem_limit: 1g
+  healthcheck: *broker-health
+
+x-delta-broker: &delta-broker
+  <<: *zk-broker
+  image: brokerium-lab/kafka:3.5.2
+  build:
+    context: ./kafka
+    args:
+      KAFKA_VERSION: 3.5.2
+      KAFKA_SHA512: 229ccc5e3e6b3b9845f59f6e829d70711c5a5a2293f32b6bcabc37350666f874bc7d8f08130f712a1b32915205c10f2847f04908c20d5f7fdb4b62d058c9defe
+  profiles: [delta]
+  depends_on:
+    delta-zk: { condition: service_healthy }
+
+x-delta-env: &delta-env
+  ZOOKEEPER_CONNECT: delta-zk:2181
+  KAFKA_HEAP_OPTS: -Xmx512m -Xms512m
+
+x-epsilon-broker: &epsilon-broker
+  <<: *zk-broker
+  image: apache/kafka:3.9.2
+  profiles: [epsilon]
+  depends_on:
+    epsilon-zk: { condition: service_healthy }
+
+x-epsilon-env: &epsilon-env
+  ZOOKEEPER_CONNECT: epsilon-zk:2181
+  KAFKA_HEAP_OPTS: -Xmx512m -Xms512m
+
 services:
   postgres:
     image: postgres:18-alpine
@@ -81,7 +132,7 @@ services:
 
   tools:
     image: *kafka-image
-    profiles: [alpha, beta, gamma, tools]
+    profiles: [alpha, beta, gamma, delta, epsilon, tools]
     entrypoint: ["sleep", "infinity"]
     environment:
       KAFKA_HEAP_OPTS: -Xmx256m
@@ -260,6 +311,56 @@ services:
     mem_limit: 1g
     healthcheck: *broker-health
 
+  # Cluster delta: ZooKeeper mode on Kafka 3.5.2
+  delta-zk:
+    <<: *zookeeper
+    profiles: [delta]
+    hostname: delta-zk
+    volumes: ["delta-zk:/data", "delta-zk-log:/datalog"]
+  delta-b1:
+    <<: *delta-broker
+    hostname: delta-b1
+    environment: { <<: *delta-env, BROKER_ID: "101", NODE_HOST: delta-b1, EXTERNAL_PORT: "61101", RACK: rack-a }
+    volumes: ["./kafka:/lab:ro", "delta-b1:/var/lib/kafka/data"]
+    ports: ["61101:61101"]
+  delta-b2:
+    <<: *delta-broker
+    hostname: delta-b2
+    environment: { <<: *delta-env, BROKER_ID: "102", NODE_HOST: delta-b2, EXTERNAL_PORT: "61102", RACK: rack-b }
+    volumes: ["./kafka:/lab:ro", "delta-b2:/var/lib/kafka/data"]
+    ports: ["61102:61102"]
+  delta-b3:
+    <<: *delta-broker
+    hostname: delta-b3
+    environment: { <<: *delta-env, BROKER_ID: "103", NODE_HOST: delta-b3, EXTERNAL_PORT: "61103", RACK: rack-c }
+    volumes: ["./kafka:/lab:ro", "delta-b3:/var/lib/kafka/data"]
+    ports: ["61103:61103"]
+
+  # Cluster epsilon: ZooKeeper mode on Kafka 3.9.2
+  epsilon-zk:
+    <<: *zookeeper
+    profiles: [epsilon]
+    hostname: epsilon-zk
+    volumes: ["epsilon-zk:/data", "epsilon-zk-log:/datalog"]
+  epsilon-b1:
+    <<: *epsilon-broker
+    hostname: epsilon-b1
+    environment: { <<: *epsilon-env, BROKER_ID: "101", NODE_HOST: epsilon-b1, EXTERNAL_PORT: "62101", RACK: rack-a }
+    volumes: ["./kafka:/lab:ro", "epsilon-b1:/var/lib/kafka/data"]
+    ports: ["62101:62101"]
+  epsilon-b2:
+    <<: *epsilon-broker
+    hostname: epsilon-b2
+    environment: { <<: *epsilon-env, BROKER_ID: "102", NODE_HOST: epsilon-b2, EXTERNAL_PORT: "62102", RACK: rack-b }
+    volumes: ["./kafka:/lab:ro", "epsilon-b2:/var/lib/kafka/data"]
+    ports: ["62102:62102"]
+  epsilon-b3:
+    <<: *epsilon-broker
+    hostname: epsilon-b3
+    environment: { <<: *epsilon-env, BROKER_ID: "103", NODE_HOST: epsilon-b3, EXTERNAL_PORT: "62103", RACK: rack-c }
+    volumes: ["./kafka:/lab:ro", "epsilon-b3:/var/lib/kafka/data"]
+    ports: ["62103:62103"]
+
 networks:
   lab:
     name: brokerium-lab
@@ -283,3 +384,13 @@ volumes:
   gamma-c2:
   gamma-c3:
   gamma-b1:
+  delta-zk:
+  delta-zk-log:
+  delta-b1:
+  delta-b2:
+  delta-b3:
+  epsilon-zk:
+  epsilon-zk-log:
+  epsilon-b1:
+  epsilon-b2:
+  epsilon-b3:

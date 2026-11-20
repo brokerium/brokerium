@@ -20,9 +20,11 @@ func TestMultiClusterOverview(t *testing.T) {
 				Provider string `json:"provider"`
 			} `json:"cluster"`
 			Health struct {
-				Status  string `json:"status"`
-				Brokers int    `json:"brokers"`
-				Voters  int    `json:"voters"`
+				Status     string `json:"status"`
+				Brokers    int    `json:"brokers"`
+				Voters     int    `json:"voters"`
+				Mode       string `json:"mode"`
+				Controller int32  `json:"controller"`
 			} `json:"health"`
 			Capabilities struct {
 				ProvisionNodes bool `json:"provisionNodes"`
@@ -42,8 +44,10 @@ func TestMultiClusterOverview(t *testing.T) {
 					t.Errorf("%s: an external cluster must offer reassignment but not node provisioning", s.Cluster.Name)
 				}
 			}
-			if s.Health.Brokers == 0 || s.Health.Voters == 0 {
-				t.Errorf("%s: health without brokers or voters", s.Cluster.Name)
+			// ZooKeeper-based clusters have a controller broker instead of voters.
+			zookeeper := s.Health.Mode == "zookeeper" || s.Health.Mode == "migration"
+			if s.Health.Brokers == 0 || (s.Health.Voters == 0 && !zookeeper) || (zookeeper && s.Health.Controller < 0) {
+				t.Errorf("%s: health without brokers or a controller", s.Cluster.Name)
 			}
 		}
 	}

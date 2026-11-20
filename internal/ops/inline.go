@@ -9,7 +9,6 @@ import (
 
 	"github.com/brokerium/brokerium/internal/balancer"
 	"github.com/brokerium/brokerium/internal/cluster"
-	"github.com/brokerium/brokerium/internal/kafka"
 )
 
 // ClusterState is a refreshed view with the set of live brokers.
@@ -40,9 +39,10 @@ func (x *Exec) RunStep(ctx context.Context, kind string, args any) (any, error) 
 	return fn(ctx, x, raw)
 }
 
-// InlineRebalance plans a rebalance from the current state and executes it within one step:
-// throttle, batches with health gates, cleanup of throttles in every case, preferred election.
-// The plan and the throttle are retried on transient errors; reassignment errors fail the step.
+// InlineRebalance plans a rebalance from the current state and executes it within one step, with
+// the steps of a planned rebalance: health gates for the brokers that receive replicas next,
+// throttle, batches, preferred election, and the throttles removed in every case. The plan and
+// the throttle are retried on transient errors; reassignment errors fail the step.
 func InlineRebalance(ctx context.Context, x *Exec, mode string, throttle int64) (any, error) {
 	var plan *balancer.Plan
 	err := transientRetry.run(ctx, x, "the rebalance plan", func() error {
@@ -60,39 +60,32 @@ func InlineRebalance(ctx context.Context, x *Exec, mode string, throttle int64) 
 	if len(plan.Moves) == 0 {
 		return map[string]any{"moves": 0, "summary": "already balanced"}, nil
 	}
-	if throttle <= 0 {
-		throttle = DefaultThrottle
-	}
-	var assignments []kafka.Assignment
-	for _, m := range plan.Moves {
-		assignments = append(assignments, kafka.Assignment{Topic: m.Topic, Partition: m.Partition, Replicas: m.To})
-	}
-	targs := ThrottleArgs{RateBytesPerSec: throttle, Assignments: assignments}
+	steps := reassignStepsGated(plan.Moves, throttle, DefaultBatchSize, HealthGateArgs{})
 	defer func() {
 		cctx := context.WithoutCancel(ctx)
-		_, _ = x.RunStep(cctx, KindClearThrottle, targs)
+		for _, s := range steps {
+			if s.AlwaysRun {
+				_, _ = x.RunStep(cctx, s.Kind, s.Args)
+			}
+		}
 	}()
-	if err := transientRetry.run(ctx, x, "the replication throttle", func() error {
-		_, err := x.RunStep(ctx, KindThrottle, targs)
-		return err
-	}); err != nil {
-		return nil, err
-	}
-	for i := 0; i < len(assignments); i += DefaultBatchSize {
-		batch := assignments[i:min(i+DefaultBatchSize, len(assignments))]
-		x.Progress(map[string]any{"batch": i/DefaultBatchSize + 1, "partitions": len(batch), "totalMoves": len(assignments)})
-		if _, err := x.RunStep(ctx, KindReassign, ReassignArgs{Assignments: batch}); err != nil {
+	for _, s := range steps {
+		if s.AlwaysRun {
+			continue
+		}
+		x.Progress(map[string]any{"step": s.Name, "totalMoves": len(plan.Moves)})
+		run := func() error {
+			_, err := x.RunStep(ctx, s.Kind, s.Args)
+			return err
+		}
+		if s.Kind == KindThrottle {
+			err = transientRetry.run(ctx, x, "the replication throttle", run)
+		} else {
+			err = run()
+		}
+		if err != nil {
 			return nil, err
 		}
-		if _, err := x.RunStep(ctx, KindWaitReassign, ReassignArgs{Assignments: batch}); err != nil {
-			return nil, err
-		}
-		if _, err := x.RunStep(ctx, KindHealthGate, HealthGateArgs{}); err != nil {
-			return nil, err
-		}
-	}
-	if _, err := x.RunStep(ctx, KindElectPreferred, ReassignArgs{Assignments: assignments}); err != nil {
-		return nil, err
 	}
 	return map[string]any{"moves": len(plan.Moves), "dataToMoveBytes": plan.DataToMoveBytes,
 		"replicaSpread": []int{plan.Before.ReplicaSpread, plan.After.ReplicaSpread},

@@ -37,7 +37,7 @@ import {
   isVoter,
 } from '../../lib/bootstrap';
 import { CLUSTER_NAME_PATTERN } from '../../lib/clusterForm';
-import { KAFKA_20979_WARNING, affectedByKafka20979, kafkaVersionError } from '../../lib/kafkaVersion';
+import { KAFKA_20979_WARNING, affectedByKafka20979, newClusterVersionError } from '../../lib/kafkaVersion';
 import { NODE_ROLE_LABELS } from '../../lib/labels';
 import { quorumHint } from '../../lib/quorum';
 import { AddHost } from '../nodes/JoinCommand';
@@ -87,7 +87,7 @@ export function CreateAgentClusterForm({ onCancel, onDone }: CreateAgentClusterF
   const voters = chosen.filter((h) => isVoter(h.role)).length;
   const brokers = chosen.filter((h) => isBroker(h.role)).length;
   const nameError = name !== '' && !CLUSTER_NAME_PATTERN.test(name) ? 'Lowercase letters, digits and dashes' : undefined;
-  const versionError = kafkaVersionError(version, defaultVersion);
+  const versionError = newClusterVersionError(version, defaultVersion);
   const valid = name !== '' && !nameError && !versionError && check.errors.length === 0;
 
   const edit = (id: string, change: HostEdit) => setEdits((all) => ({ ...all, [id]: { ...all[id], ...change } }));

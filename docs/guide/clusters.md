@@ -11,14 +11,46 @@ cluster cannot support are not shown.
 | `strimzi` | the Strimzi operator on Kubernetes | Kafka-protocol features plus node pool scaling with rebalancing, rolling restarts and upgrades through the operator |
 | `docker` | the Docker provider (Docker installation, labs) | everything, with nodes as containers on the server's Docker host |
 
+## Kafka versions and modes
+
+Brokerium works with existing clusters from Apache Kafka 3.5.0, in KRaft or ZooKeeper mode, and
+creates clusters (`bootstrap-cluster` for agent and Docker clusters) from Kafka 4.2.0.
+
+On every snapshot it asks each broker for its ApiVersions. The protocol versions name the release:
+`3.5`, `3.4 to 3.5` when they do not decide, `4.4 or later` for releases newer than Brokerium
+knows. A broker that offers the inter-broker APIs of ZooKeeper mode (LeaderAndIsr) runs in
+ZooKeeper mode. Every five minutes Brokerium also reads the configuration of each broker:
+`process.roles`, `zookeeper.connect`, `zookeeper.metadata.migration.enable` and
+`inter.broker.protocol.version`. On hosts with `brokerium-agent` the agent reports the exact
+release, for example `4.3.1`. The mode of the cluster is
+
+- `kraft` when every broker runs KRaft,
+- `zookeeper` when every broker runs ZooKeeper,
+- `migration` otherwise, or when a broker has `zookeeper.metadata.migration.enable=true`.
+
+The dashboard shows the mode in the cluster header and on the overview, and the version of each
+broker on the **Brokers** tab, with a warning when the brokers run different releases. Brokers
+before Kafka 3.5 appear as a warning in the health of the cluster.
+
+| Feature | Needs |
+| --- | --- |
+| Health, topics, configurations, ACLs, SCRAM users, quotas, groups, messages, rebalancing, partition moves, leader elections | Any supported mode. ZooKeeper-based clusters get their controller broker from Metadata, and `no_controller` is critical when there is none. |
+| Controller quorum, broker unregistration, feature finalization, node operations | KRaft mode. ZooKeeper and migration mode offer none of them, and no quorum migration either. |
+| Cordoning, `drain-broker` | Every broker on Kafka 4.3 or later (KIP-1066). |
+| `migrate-quorum` | Kafka 4.1 or later on every node; its plan checks the versions again. |
+| Adding and removing controllers | A dynamic quorum. KRaft clusters on Kafka 3.3 to 3.8 have no `kraft.version` and run a static quorum. |
+
+The principal needs `DescribeConfigs` on the cluster to read the broker configurations; without
+it, the mode comes from ApiVersions alone and a migration in progress is not recognized.
+
 ## Connection profiles
 
 `PLAINTEXT`, `SSL` (with optional client certificates for mTLS), `SASL_PLAINTEXT` and
 `SASL_SSL` with `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512`, `AWS_MSK_IAM` or `OAUTHBEARER`.
 Passwords, keys, tokens and kubeconfigs are write-only: they are sealed with the server's
 secret key and never returned by the API. The principal needs admin rights for the features
-you use (Describe/Alter on the cluster, topics and groups; `ClusterAction` for
-reassignments and elections).
+you use (Describe/Alter on the cluster, topics and groups; `DescribeConfigs` on the cluster
+for the broker configurations; `ClusterAction` for reassignments and elections).
 
 When no broker answers but the cluster has controller addresses
 (`settings.controllerBootstrapServers`, filled in automatically for agent and Docker

@@ -9,10 +9,14 @@ export function parseKafkaVersion(text: string): KafkaVersion | null {
   return [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)];
 }
 
+function releaseHint(example: string | undefined): string {
+  return example ? `A release such as ${example}` : 'A release version, x.y.z';
+}
+
 /** The error of a Kafka version field; example is the default release of the server, once known. */
 export function kafkaVersionError(text: string, example: string | undefined): string | undefined {
   if (parseKafkaVersion(text)) return undefined;
-  return example ? `A release such as ${example}` : 'A release version, x.y.z';
+  return releaseHint(example);
 }
 
 export function compareKafkaVersions(a: KafkaVersion, b: KafkaVersion): number {
@@ -20,6 +24,22 @@ export function compareKafkaVersions(a: KafkaVersion, b: KafkaVersion): number {
     if (a[i] !== b[i]) return a[i] - b[i];
   }
   return 0;
+}
+
+/** The oldest Kafka release Brokerium creates clusters with. */
+export const MIN_NEW_CLUSTER_VERSION: KafkaVersion = [4, 2, 0];
+
+/**
+ * The error of the Kafka version of a new cluster, a release x.y.z from MIN_NEW_CLUSTER_VERSION
+ * on; example is the default release of the server, once known.
+ */
+export function newClusterVersionError(text: string, example: string | undefined): string | undefined {
+  const version = /^\s*\d+\.\d+\.\d+\s*$/.test(text) ? parseKafkaVersion(text) : null;
+  if (!version) return releaseHint(example);
+  if (compareKafkaVersions(version, MIN_NEW_CLUSTER_VERSION) < 0) {
+    return `New clusters run Kafka ${MIN_NEW_CLUSTER_VERSION.join('.')} or later`;
+  }
+  return undefined;
 }
 
 const KAFKA_20979_FIRST: KafkaVersion = [4, 1, 0];

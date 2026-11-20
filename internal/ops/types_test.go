@@ -4,10 +4,12 @@ package ops
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/brokerium/brokerium/internal/balancer"
 	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/kafka"
 )
 
 func kinds(steps []StepSpec) []string {
@@ -61,22 +63,93 @@ func TestReassignSteps(t *testing.T) {
 	}
 }
 
+// TestReassignStepsNameReceivers checks that every gate of a data move names the brokers that
+// receive replicas in the batch after it and keeps the other arguments of the operation.
+func TestReassignStepsNameReceivers(t *testing.T) {
+	t.Parallel()
+	moves := []balancer.Move{
+		{Topic: "t", Partition: 0, From: []int32{1, 2}, To: []int32{1, 3}, ReplicaMoves: 1},
+		{Topic: "t", Partition: 1, From: []int32{1, 2}, To: []int32{2, 1}, LeaderChange: true},
+		{Topic: "t", Partition: 2, From: []int32{1, 2}, To: []int32{4, 5}, ReplicaMoves: 2},
+	}
+	base := HealthGateArgs{AllowUnderReplicated: true, ExpectFenced: []int32{9}}
+	var gates []HealthGateArgs
+	for _, s := range ReassignStepsGated(moves, 0, 2, base) {
+		if s.Kind == KindHealthGate {
+			gates = append(gates, s.Args.(HealthGateArgs))
+		}
+	}
+	want := [][]int32{{3}, {4, 5}, nil}
+	if len(gates) != len(want) {
+		t.Fatalf("%d gates, want %d: %+v", len(gates), len(want), gates)
+	}
+	for i, g := range gates {
+		if !slices.Equal(g.Receivers, want[i]) || !g.AllowUnderReplicated || !slices.Equal(g.ExpectFenced, []int32{9}) {
+			t.Errorf("gate %d: %+v, want receivers %v with the arguments of the operation", i, g, want[i])
+		}
+	}
+	for _, s := range reassignStepsURP(moves[1:2], 0, 0, false) {
+		if g, ok := s.Args.(HealthGateArgs); ok && len(g.Receivers) > 0 {
+			t.Errorf("a leader change receives no replicas: %+v", g)
+		}
+	}
+}
+
 func TestHealthProblems(t *testing.T) {
 	t.Parallel()
-	ok := cluster.Health{QuorumLeader: 1, Voters: 3}
-	if p := HealthProblems(ok, false); len(p) != 0 {
-		t.Errorf("healthy cluster fails the gate: %v", p)
+	view := func(change func(v *cluster.View)) *cluster.View {
+		v := &cluster.View{Health: cluster.Health{Mode: kafka.ModeKRaft, QuorumLeader: 1, Controller: 1, Voters: 3},
+			Snapshot: &kafka.Snapshot{Mode: kafka.ModeKRaft, Brokers: []kafka.Broker{
+				{ID: 101, Alive: true, DiskTotalBytes: 100, DiskUsableBytes: 50},
+				{ID: 102, Alive: true, DiskTotalBytes: 100, DiskUsableBytes: 50},
+				{ID: 103, Alive: true},
+			}}}
+		change(v)
+		return v
 	}
-	urp := ok
-	urp.UnderReplicated = 2
-	if p := HealthProblems(urp, false); len(p) != 1 {
-		t.Errorf("under-replicated partitions pass the gate: %v", p)
+	tests := []struct {
+		name string
+		v    *cluster.View
+		args HealthGateArgs
+		want []string
+	}{
+		{"healthy", view(func(*cluster.View) {}), HealthGateArgs{}, nil},
+		{"under-replicated partitions", view(func(v *cluster.View) { v.Health.UnderReplicated = 2 }), HealthGateArgs{},
+			[]string{"2 under-replicated partition(s)"}},
+		{"under-replicated partitions allowed", view(func(v *cluster.View) { v.Health.UnderReplicated = 2 }),
+			HealthGateArgs{AllowUnderReplicated: true}, nil},
+		{"partitions and the quorum", view(func(v *cluster.View) {
+			v.Health.QuorumLeader, v.Health.OfflinePartitions, v.Health.UnderMinISR, v.Health.VotersLagging = -1, 1, 1, 1
+		}), HealthGateArgs{AllowUnderReplicated: true}, []string{"1 offline partition(s)", "1 partition(s) under min.insync.replicas",
+			"no controller quorum leader", "1 lagging controller voter(s)"}},
+		{"a fenced broker", view(func(v *cluster.View) { v.Snapshot.Brokers[2].Fenced, v.Snapshot.Brokers[2].Alive = true, false }),
+			HealthGateArgs{}, []string{"broker(s) 103 fenced or offline"}},
+		{"the fenced broker the operation replaces", view(func(v *cluster.View) {
+			v.Snapshot.Brokers[2].Fenced, v.Snapshot.Brokers[2].Alive = true, false
+		}), HealthGateArgs{ExpectFenced: []int32{103}}, nil},
+		{"another fenced broker than the one replaced", view(func(v *cluster.View) {
+			v.Snapshot.Brokers[1].Fenced, v.Snapshot.Brokers[2].Fenced = true, true
+		}), HealthGateArgs{ExpectFenced: []int32{103}}, []string{"broker(s) 102 fenced or offline"}},
+		{"full disks of brokers that receive replicas", view(func(v *cluster.View) {
+			v.Snapshot.Brokers[0].DiskUsableBytes, v.Snapshot.Brokers[1].DiskUsableBytes = 10, 7
+		}), HealthGateArgs{Receivers: []int32{101, 102, 103}},
+			[]string{"broker(s) 101 (90%), 102 (93%) receive replicas next and have volumes at least 90% full"}},
+		{"a full disk of a broker that only loses replicas", view(func(v *cluster.View) {
+			v.Snapshot.Brokers[0].DiskUsableBytes = 5
+		}), HealthGateArgs{Receivers: []int32{102, 103}}, nil},
+		{"full disks without a data move", view(func(v *cluster.View) {
+			v.Snapshot.Brokers[0].DiskUsableBytes, v.Snapshot.Brokers[1].DiskUsableBytes = 5, 5
+		}), HealthGateArgs{}, nil},
+		{"ZooKeeper with a controller", view(func(v *cluster.View) {
+			v.Health = cluster.Health{Mode: kafka.ModeZooKeeper, QuorumLeader: -1, Controller: 101}
+		}), HealthGateArgs{}, nil},
+		{"ZooKeeper without a controller", view(func(v *cluster.View) {
+			v.Health = cluster.Health{Mode: kafka.ModeZooKeeper, QuorumLeader: -1, Controller: -1}
+		}), HealthGateArgs{}, []string{"no active controller"}},
 	}
-	if p := HealthProblems(urp, true); len(p) != 0 {
-		t.Errorf("allowURP still blocks: %v", p)
-	}
-	bad := cluster.Health{QuorumLeader: -1, Voters: 3, OfflinePartitions: 1, UnderMinISR: 1, VotersLagging: 1}
-	if p := HealthProblems(bad, true); len(p) != 4 {
-		t.Errorf("expected 4 problems, got %v", p)
+	for _, tc := range tests {
+		if got := HealthProblems(tc.v, tc.args); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: HealthProblems = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }

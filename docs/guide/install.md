@@ -4,6 +4,10 @@ Brokerium is one server (`brokerium-server`: API, dashboard, operations engine) 
 PostgreSQL database, plus an optional agent (`brokerium-agent`) on Kafka hosts you want
 Brokerium to manage at the node level.
 
+It works with existing clusters from Apache Kafka 3.5.0, in KRaft or ZooKeeper mode, and creates
+clusters from Kafka 4.2.0; what it offers depends on the mode and the versions of the brokers
+([Kafka versions and modes](clusters.md#kafka-versions-and-modes)).
+
 This guide installs the Community edition. Brokerium Enterprise installs the same way from its own
 image and binaries and needs a license key; see [Editions and license keys](enterprise.md).
 
@@ -419,7 +423,8 @@ configuration and never formats storage; the server binds the node to the cluste
 you. A node with `process.roles=broker,controller` becomes a
 [combined node](clusters.md#combined-nodes). The agent reads that `server.properties`
 and the `meta.properties` of the first log directory as `brokerium-agent`, so both must be
-readable for the `kafka` group or for everyone.
+readable for the `kafka` group or for everyone. Agents on the brokers of a ZooKeeper-based
+cluster report the exact Kafka release of their node; node operations need KRaft.
 
 ### Remove an agent
 

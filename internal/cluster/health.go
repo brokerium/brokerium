@@ -49,14 +49,42 @@ type Health struct {
 	DiskUsedPercentMax float64 `json:"diskUsedPercentMax"`
 	MetadataVersion    string  `json:"metadataVersion"`
 	KRaftVersion       int16   `json:"kraftVersion"`
+	// Mode is kraft, zookeeper or migration; empty when unknown.
+	Mode string `json:"mode"`
+	// Controller is the active controller: the quorum leader, or the controller broker of a
+	// ZooKeeper-based cluster; -1 when there is none or it is not known.
+	Controller int32 `json:"controller"`
+	// Versions are the Kafka versions of the brokers, oldest first.
+	Versions      []string `json:"versions"`
+	MixedVersions bool     `json:"mixedVersions"`
 }
 
 // VoterLagThreshold is the metadata offset lag above which a voter counts as lagging.
 const VoterLagThreshold = 5000
 
+// DiskFullPercent is the disk usage at which a broker volume counts as full.
+const DiskFullPercent = 90
+
+// Oldest Kafka release Brokerium supports for existing clusters (ADR 0022).
+const minMajor, minMinor = 3, 5
+
+// ZooKeeperBased reports whether a cluster mode still involves ZooKeeper.
+func ZooKeeperBased(mode string) bool {
+	return mode == kafka.ModeZooKeeper || mode == kafka.ModeMigration
+}
+
+// DiskUsedPercent is how full the volumes of a broker are; 0 when unknown.
+func DiskUsedPercent(b kafka.Broker) float64 {
+	if b.DiskTotalBytes <= 0 {
+		return 0
+	}
+	return 100 * float64(b.DiskTotalBytes-b.DiskUsableBytes) / float64(b.DiskTotalBytes)
+}
+
 // Evaluate derives health from a snapshot.
 func Evaluate(s *kafka.Snapshot, now time.Time) Health {
-	h := Health{Status: HealthOK, QuorumLeader: -1, Issues: []Issue{}}
+	h := Health{Status: HealthOK, QuorumLeader: -1, Controller: -1, Mode: s.Mode, MixedVersions: s.MixedVersions,
+		Versions: []string{}, Issues: []Issue{}}
 	add := func(sev, code, format string, args ...any) {
 		h.Issues = append(h.Issues, Issue{Severity: sev, Code: code, Message: fmt.Sprintf(format, args...)})
 	}
@@ -83,12 +111,21 @@ func Evaluate(s *kafka.Snapshot, now time.Time) Health {
 		if b.Cordoned {
 			h.BrokersCordoned++
 		}
-		if b.DiskTotalBytes > 0 {
-			used := 100 * float64(b.DiskTotalBytes-b.DiskUsableBytes) / float64(b.DiskTotalBytes)
-			if used > h.DiskUsedPercentMax {
-				h.DiskUsedPercentMax = used
-			}
+		h.DiskUsedPercentMax = max(h.DiskUsedPercentMax, DiskUsedPercent(b))
+	}
+	h.Versions = brokerVersions(s.Brokers)
+	if s.MixedVersions {
+		add("info", "mixed_versions", "the brokers run different Kafka versions: %s", versionsByBroker(s.Brokers))
+	}
+	var old []string
+	for _, b := range s.Brokers {
+		if r, ok := kafka.ParseVersion(b.Version); ok && r.Below(minMajor, minMinor) {
+			old = append(old, fmt.Sprintf("%d (%s)", b.ID, b.Version))
 		}
+	}
+	if len(old) > 0 {
+		add(HealthWarning, "unsupported_version", "broker(s) %s run Kafka before %d.%d, the oldest release Brokerium supports",
+			strings.Join(old, ", "), minMajor, minMinor)
 	}
 	var fenced []string
 	for _, b := range s.Brokers {
@@ -102,7 +139,7 @@ func Evaluate(s *kafka.Snapshot, now time.Time) Health {
 	if h.BrokersCordoned > 0 {
 		add("info", "broker_cordoned", "%d broker(s) cordoned: no new replicas are placed there", h.BrokersCordoned)
 	}
-	if h.DiskUsedPercentMax >= 90 {
+	if h.DiskUsedPercentMax >= DiskFullPercent {
 		add(HealthCritical, "disk_full", "a broker volume is %.0f%% full", h.DiskUsedPercentMax)
 	} else if h.DiskUsedPercentMax >= 80 {
 		add(HealthWarning, "disk_high", "a broker volume is %.0f%% full", h.DiskUsedPercentMax)
@@ -140,7 +177,7 @@ func Evaluate(s *kafka.Snapshot, now time.Time) Health {
 	}
 
 	if q := s.Quorum; q != nil {
-		h.QuorumLeader = q.LeaderID
+		h.QuorumLeader, h.Controller = q.LeaderID, q.LeaderID
 		h.Voters = len(q.Voters)
 		for _, v := range q.Voters {
 			stale := v.LastCaughtUpTimestamp > 0 && now.Sub(time.UnixMilli(v.LastCaughtUpTimestamp)) > 30*time.Second
@@ -170,6 +207,11 @@ func Evaluate(s *kafka.Snapshot, now time.Time) Health {
 		}
 		if len(stale) > 0 {
 			add("info", "stale_observers", "node(s) %s stopped fetching metadata (removed controllers or stopped nodes)", strings.Join(stale, ", "))
+		}
+	} else if ZooKeeperBased(s.Mode) {
+		h.Controller = s.ControllerID
+		if s.ControllerID < 0 {
+			add(HealthCritical, "no_controller", "the cluster has no active controller")
 		}
 	} else if s.Has(kafka.PartQuorum) {
 		add(HealthWarning, "quorum_unknown", "the controller quorum could not be described")
@@ -235,9 +277,46 @@ func severityRank(s string) int {
 	}
 }
 
+// brokerVersions lists the distinct versions of the brokers, oldest first.
+func brokerVersions(brokers []kafka.Broker) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, b := range brokers {
+		if b.Version != "" && !seen[b.Version] {
+			seen[b.Version] = true
+			out = append(out, b.Version)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, _ := kafka.ParseVersion(out[i])
+		b, _ := kafka.ParseVersion(out[j])
+		if a.Min != b.Min {
+			return a.Min.Less(b.Min)
+		}
+		return out[i] < out[j]
+	})
+	return out
+}
+
+// versionsByBroker renders the brokers of each version, for example "3.9 (101, 102), 4.0 (103)".
+func versionsByBroker(brokers []kafka.Broker) string {
+	ids := map[string][]string{}
+	for _, b := range brokers {
+		if b.Version != "" {
+			ids[b.Version] = append(ids[b.Version], fmt.Sprint(b.ID))
+		}
+	}
+	var parts []string
+	for _, v := range brokerVersions(brokers) {
+		parts = append(parts, fmt.Sprintf("%s (%s)", v, strings.Join(ids[v], ", ")))
+	}
+	return strings.Join(parts, ", ")
+}
+
 // metadataVersions maps metadata.version feature levels to release names, taken from
 // MetadataVersion.java on the Kafka 4.4 branch.
 var metadataVersions = map[int16]string{
+	1: "3.0-IV1", 2: "3.1-IV0", 3: "3.2-IV0", 4: "3.3-IV0", 5: "3.3-IV1", 6: "3.3-IV2",
 	7: "3.3-IV3", 8: "3.4-IV0", 9: "3.5-IV0", 10: "3.5-IV1", 11: "3.5-IV2", 12: "3.6-IV0", 13: "3.6-IV1",
 	14: "3.6-IV2", 15: "3.7-IV0", 16: "3.7-IV1", 17: "3.7-IV2", 18: "3.7-IV3", 19: "3.7-IV4", 20: "3.8-IV0",
 	21: "3.9-IV0", 22: "4.0-IV0", 23: "4.0-IV1", 24: "4.0-IV2", 25: "4.0-IV3", 26: "4.1-IV0", 27: "4.1-IV1",
