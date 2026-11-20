@@ -15,12 +15,18 @@ retention, threads, buffers or topic defaults when they create a cluster.
 ## Decision
 
 - **Catalog.** For every supported Kafka minor release from 3.5, the server embeds a catalog of
-  broker and topic keys: type, default, documentation, sensitivity, whether the key is read-only
-  and its update mode (`read-only`, `per-broker`, `cluster-wide`). `make catalog` generates it in
-  the lab: it starts each release, reads DescribeConfigs with documentation and synonyms from a
-  broker and a new topic, and takes the update modes from the configuration pages of the Kafka
-  documentation of that release. The catalog is data in `internal/kafkaconfig`; adding a release
-  means generating one more file.
+  broker and topic keys: type, default, documentation, importance, sensitivity, whether the key
+  is read-only and its update mode (`read-only`, `per-broker`, `cluster-wide`). `make catalog`
+  generates it in the lab: it starts each release, reads DescribeConfigs with documentation and
+  synonyms from a broker and a new topic, and takes the update modes and the importance from the
+  configuration pages of the Kafka documentation of that release. The catalog is data in
+  `internal/kafkaconfig`; adding a release means generating one more file. Defaults are the
+  DEFAULT_CONFIG synonyms; a topic key defaults to the synonym of the broker key it inherits
+  from or, where Kafka reports none (`retention.ms`, `segment.ms`), to the value of the new topic
+  on a node that sets nothing topics inherit. Where the documentation and the read-only flag of
+  Kafka disagree, Kafka decides; a line without configuration pages uses those of the closest
+  line, and its file says so. The throttles of reassignments, which Kafka reports only once they
+  are set, are not in the catalog.
 - **Typed configuration.** A cluster has a desired configuration: values for broker keys for the
   whole cluster and, where a key is per-broker, for single nodes. Brokerium owns the keys it
   derives from other models (`node.id`, `process.roles`, the quorum, listeners, `log.dirs` and
@@ -58,3 +64,5 @@ retention, threads, buffers or topic defaults when they create a cluster.
 - Every change has a plan; static changes cost a rolling restart, dynamic ones do not.
 - The catalog has to be generated for every new Kafka minor release; a cluster on a release
   without a catalog uses the catalog of the closest older release and says so.
+- Kafka from 4.1 records `min.insync.replicas` as a cluster-wide dynamic value, equal to its
+  default, when it creates a cluster: a dynamic value is not always one an operator set.

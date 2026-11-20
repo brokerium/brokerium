@@ -10,6 +10,7 @@ rules are in [CONTRIBUTING.md](../CONTRIBUTING.md).
 | `cmd/brokerium-server` | Server entrypoint (API, dashboard, operations engine) |
 | `cmd/brokerium-agent` | Agent entrypoint (runs on Kafka hosts or as lab node PID 1) |
 | `internal/kafka` | franz-go client factory, KRaft wrappers over `kmsg`, direct controller access, cluster snapshots |
+| `internal/kafkaconfig` | Catalog of the broker and topic keys of each supported Kafka minor release, generated data in `catalog/` |
 | `internal/cluster` | Cluster registry, connection profiles, capabilities, health evaluation |
 | `internal/metrics` | Agentless sampler: log dir sizes and offsets to rates |
 | `internal/balancer` | Pure rebalancing planner (no I/O, deterministic) |
@@ -24,6 +25,7 @@ rules are in [CONTRIBUTING.md](../CONTRIBUTING.md).
 | `internal/config`, `internal/version` | Environment configuration, build version |
 | `internal/edition` | Edition of the build, catalog of Enterprise features, license manager interface |
 | `internal/webui` | Embedded dashboard build output |
+| `internal/tools/catalog` | Generator of the Kafka configuration catalog (`make catalog`) |
 | `internal/tools/notices` | Generator of `THIRD_PARTY_NOTICES` and of the third-party section of `NOTICE` (`make notices`) |
 | `notices.go` | Embeds `LICENSE`, `NOTICE` and `THIRD_PARTY_NOTICES` into the server for the Licenses page |
 | `ee/` | Brokerium Enterprise server code (build tag `enterprise`): `ee.Setup`, `ee/licensing` (license keys and their manager) |
@@ -55,6 +57,7 @@ activate mise in your shell.
 | `make test` | Unit tests (Go and web), the Go tests for both editions |
 | `make lint` | golangci-lint for both editions and web lint |
 | `make proto` | Regenerate the agent protocol code |
+| `make catalog` | Generate the Kafka configuration catalog in Docker; `VERSIONS="4.4.0"` for one release |
 | `make notices` | Regenerate `THIRD_PARTY_NOTICES` and the third-party section of `NOTICE` after a dependency change |
 | `make lab-certs` | Throwaway CA and certificates for the SASL and SSL listeners of beta |
 | `make images` | Build the server, agent and lab node images locally |
@@ -165,6 +168,52 @@ A few facts that matter while developing:
   and `brokers` (ids 100+), node ports 32100-32105 on localhost.
 - VM lab: Debian containers with systemd (`vm-host-1` to `vm-host-3`) and the server container on
   port 18080.
+
+## Kafka configuration catalog
+
+`internal/kafkaconfig` embeds the broker and topic keys of every supported Kafka minor release
+([ADR 0025](adr/0025-kafka-configuration.md)), one file per release line in `catalog/<line>.json`:
+type, default, documentation, sensitivity, importance and, for broker keys, whether they are
+read-only and their update mode. A cluster on a release without a catalog uses the catalog of the
+closest older line.
+
+`make catalog` regenerates the files from the releases listed in `internal/tools/catalog/main.go`,
+the latest patch of each line. For every release it starts a single combined KRaft node in Docker
+(`brokerium-catalog-<version>`, removed afterwards), creates a topic and reads DescribeConfigs of
+the broker and the topic with synonyms and documentation. The update modes and the importance
+come from the configuration pages of the Kafka documentation of the line,
+`https://kafka.apache.org/<line without the dot>/generated/kafka_config.html` and
+`topic_config.html`; a line without those pages uses the closest line that has them, and the file
+names the pages it used. Releases from 3.7 run the `apache/kafka` image. 3.5 and 3.6 run the
+image of the lab, `brokerium-lab/kafka:<version>`; when it is missing, the generator builds it
+with `deploy/lab/kafka/Dockerfile` and the SHA-512 sum Apache publishes, and a tarball in
+`deploy/lab/kafka/dist/` saves the slow download from archive.apache.org.
+
+To add a Kafka release:
+
+1. Put the release into `releases` of `internal/tools/catalog/main.go`, in place of the older
+   patch of its line; a new line also goes into `supported` of
+   `internal/kafkaconfig/kafkaconfig_test.go`.
+2. Run `make catalog VERSIONS="4.5.0"`, which takes a few seconds once the image is pulled.
+3. Read the warnings of the generator, where Kafka and its documentation disagree, and the
+   difference to the previous line, for example
+   `diff internal/kafkaconfig/catalog/4.4.json internal/kafkaconfig/catalog/4.5.json`.
+4. Run `go test ./internal/kafkaconfig/ ./internal/tools/catalog/`, and extend the known keys of
+   `kafkaconfig_test.go` where a default or an update mode changed.
+
+The generator takes the default of a broker key from its DEFAULT_CONFIG synonym, because the value
+reflects the configuration of the node; a key without that synonym has no default. A topic key
+defaults to the DEFAULT_CONFIG synonym of the broker key it inherits from, or, for keys whose
+synonyms Kafka drops (`retention.ms`, `segment.ms`), to the value of the new topic. That is why
+the node sets only the keys it needs to start, and the generator stops when any other key comes
+from anywhere but the defaults. Kafka from 4.1 records `min.insync.replicas` as a cluster-wide
+dynamic value when it creates a cluster; it equals the default and is accepted. When the
+documentation and the read-only flag of Kafka disagree, Kafka decides, and a dynamic key the
+documentation does not place counts as per-broker, the update every dynamic key accepts. The
+throttles of reassignments (`leader.replication.throttled.rate`,
+`follower.replication.throttled.rate`, `replica.alter.log.dirs.io.max.bytes.per.second`) are in
+the documentation from 4.3, but Kafka reports them only once they are set and the operations
+engine owns them, so they are not in the catalog.
 
 ## Releases
 
