@@ -109,6 +109,21 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ServerInfo" }
         "401": { $ref: "#/components/responses/Error" }
+  /api/v1/notices:
+    get:
+      tags: [system]
+      summary: License and notice files of the server
+      description: >-
+        Role: viewer. The files built into the server, named as in `/licenses` of the container
+        images: `LICENSE`, `LICENSE-enterprise` (Enterprise builds), `NOTICE` and
+        `THIRD_PARTY_NOTICES` with the licenses of the third-party software.
+      responses:
+        "200":
+          description: The files.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Notices" }
+        "401": { $ref: "#/components/responses/Error" }
 
   /api/v1/auth/login:
     post:
@@ -2279,3 +2294,19 @@ components:
           description: >-
             Why the provider is unavailable, for example which condition of the Docker installation
             failed; empty when it is available.
+    Notices:
+      type: object
+      required: [files]
+      properties:
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/LegalFile" }
+    LegalFile:
+      type: object
+      required: [name, title, text]
+      properties:
+        name:
+          type: string
+          enum: [LICENSE, LICENSE-enterprise, NOTICE, THIRD_PARTY_NOTICES]
+        title: { type: string, examples: ["Third-party notices"] }
+        text: { type: string }

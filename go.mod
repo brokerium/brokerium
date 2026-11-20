@@ -4,6 +4,7 @@ go 1.27.4
 
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.33.18
+	github.com/google/licensecheck v0.3.1
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/twmb/franz-go v1.22.3
 	github.com/twmb/franz-go/pkg/kadm v1.20.0

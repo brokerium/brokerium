@@ -135,7 +135,8 @@ make dev         # Brokerium server on http://localhost:8080
 Brokerium is **source-available** under the
 [PolyForm Shield License 1.0.0](LICENSE): free to use, including in production,
 but you may not use it to build a competing product. Read the plain-language
-summary in [LICENSING.md](LICENSING.md).
+summary in [LICENSING.md](LICENSING.md). The third-party software in Brokerium and its
+licenses are listed in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
 
 Contributions are welcome under the [CLA](CLA.md); see [CONTRIBUTING.md](CONTRIBUTING.md).
 

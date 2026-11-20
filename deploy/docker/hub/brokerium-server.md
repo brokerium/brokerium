@@ -39,7 +39,8 @@ For Kubernetes, use the Helm chart in the repository; see the
 | `edge` | A nightly build of the `main` branch, for testing |
 
 Images are built for `linux/amd64` and `linux/arm64`, run as the non-root user 65532 and carry
-the license in `/licenses`.
+the license, `NOTICE` and `THIRD_PARTY_NOTICES` (the licenses of the third-party software) in
+`/licenses`.
 
 ## License
 

@@ -641,6 +641,18 @@ export interface ServerInfo {
   providers: { docker: ProviderAvailability };
 }
 
+/** A license or notice file of the server, named as in /licenses of the container images. */
+export interface LegalFile {
+  name: string;
+  title: string;
+  text: string;
+}
+
+/** GET /notices: LICENSE, LICENSE-enterprise in Enterprise builds, NOTICE and THIRD_PARTY_NOTICES. */
+export interface Notices {
+  files: LegalFile[];
+}
+
 export interface ApiErrorBody {
   error: { code: string; message: string };
 }
