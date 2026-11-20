@@ -300,6 +300,54 @@ func TestSessionAccept(t *testing.T) {
 	}
 }
 
+func TestNodeDeleted(t *testing.T) {
+	t.Parallel()
+	ca := newTestCA(t)
+	foreign := newTestCA(t)
+	secret := random(SecretSize)
+	hello := NewHello("0123456789abcdef", secret, time.Now())
+	answer, err := NodeDeleted(ca.key, hello)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, accept, err := Accept(ca.key, secret, hello, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherNode := proto.Clone(hello).(*agentv1.SessionHello)
+	otherNode.NodeId = "fedcba9876543210"
+	foreignAnswer, err := NodeDeleted(foreign.key, hello)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		hello  *agentv1.SessionHello
+		answer *agentv1.NodeDeleted
+		ok     bool
+	}{
+		{"valid", hello, answer, true},
+		{"signed by another CA", hello, foreignAnswer, false},
+		{"answer to an earlier hello", NewHello("0123456789abcdef", secret, time.Now()), answer, false},
+		{"answer for another node", otherNode, answer, false},
+		{"signature of the session answer", hello, &agentv1.NodeDeleted{Signature: accept.GetSignature()}, false},
+		{"no answer", hello, nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if err := VerifyNodeDeleted(&ca.key.PublicKey, tt.hello, tt.answer); (err == nil) != tt.ok {
+				t.Errorf("VerifyNodeDeleted = %v, want ok=%v", err, tt.ok)
+			}
+		})
+	}
+	malformed := proto.Clone(hello).(*agentv1.SessionHello)
+	malformed.AgentNonce = malformed.AgentNonce[:4]
+	if _, err := NodeDeleted(ca.key, malformed); err == nil {
+		t.Error("a hello with a short nonce was answered")
+	}
+}
+
 // sessions opens a session and returns both of its sides.
 func sessions(t *testing.T, ca *testCA, nodeID string, secret []byte) (*ServerSession, *AgentSession) {
 	t.Helper()

@@ -130,6 +130,12 @@ func (a *Agent) insecureSession(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if answer := in.GetNodeDeleted(); answer != nil {
+		if err := agentauth.VerifyNodeDeleted(caKey, hello, answer); err != nil {
+			return fmt.Errorf("verifying the server: %w", err)
+		}
+		return ErrNodeDeleted
+	}
 	sess, err := agentauth.Join(caKey, secret, hello, in.GetSessionAccept())
 	if err != nil {
 		return fmt.Errorf("verifying the server: %w", err)

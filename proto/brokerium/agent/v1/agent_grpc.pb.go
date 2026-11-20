@@ -39,7 +39,9 @@ type AgentServiceClient interface {
 	// transport).
 	Enroll(ctx context.Context, in *EnrollRequest, opts ...grpc.CallOption) (*EnrollResponse, error)
 	// Connect is the long-lived command stream: the server sends commands, the agent answers
-	// with results and periodic status reports.
+	// with results and periodic status reports. A stream of a node that does not exist, because it
+	// was deleted, ends with NOT_FOUND; the insecure transport first answers the session hello
+	// with NodeDeleted.
 	Connect(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[AgentMessage, ServerMessage], error)
 	// RenewCertificate signs a new client certificate for the node of the calling mTLS client
 	// certificate. Agents call it after two thirds of the lifetime of their certificate.
@@ -100,7 +102,9 @@ type AgentServiceServer interface {
 	// transport).
 	Enroll(context.Context, *EnrollRequest) (*EnrollResponse, error)
 	// Connect is the long-lived command stream: the server sends commands, the agent answers
-	// with results and periodic status reports.
+	// with results and periodic status reports. A stream of a node that does not exist, because it
+	// was deleted, ends with NOT_FOUND; the insecure transport first answers the session hello
+	// with NodeDeleted.
 	Connect(grpc.BidiStreamingServer[AgentMessage, ServerMessage]) error
 	// RenewCertificate signs a new client certificate for the node of the calling mTLS client
 	// certificate. Agents call it after two thirds of the lifetime of their certificate.

@@ -37,6 +37,7 @@ const (
 	domainSession        = "brokerium-session-v1"
 	domainCommand        = "brokerium-command-v1"
 	domainAgent          = "brokerium-agent-v1"
+	domainNodeDeleted    = "brokerium-node-deleted-v1"
 )
 
 // hkdfInfo derives the key that encrypts the node secret at enrollment.
@@ -388,6 +389,32 @@ func Join(ca *ecdsa.PublicKey, secret []byte, hello *agentv1.SessionHello, accep
 		return nil, errors.New("invalid signature on the session answer")
 	}
 	return &AgentSession{binding: b, ca: ca, secret: secret}, nil
+}
+
+// NodeDeleted answers the session hello of a node that does not exist. Without the node there is
+// no secret to check the hello with; the signature covers its node id and fresh nonce, so the
+// answer convinces only the agent that sent this hello.
+func NodeDeleted(caKey *ecdsa.PrivateKey, hello *agentv1.SessionHello) (*agentv1.NodeDeleted, error) {
+	if len(hello.GetAgentNonce()) != NonceSize {
+		return nil, errors.New("malformed session hello")
+	}
+	sig, err := sign(caKey, nodeDeletedInput(hello))
+	if err != nil {
+		return nil, err
+	}
+	return &agentv1.NodeDeleted{Signature: sig}, nil
+}
+
+// VerifyNodeDeleted checks the answer that the node of a session hello was deleted.
+func VerifyNodeDeleted(ca *ecdsa.PublicKey, hello *agentv1.SessionHello, answer *agentv1.NodeDeleted) error {
+	if !verify(ca, nodeDeletedInput(hello), answer.GetSignature()) {
+		return errors.New("invalid signature on the answer that the node was deleted")
+	}
+	return nil
+}
+
+func nodeDeletedInput(h *agentv1.SessionHello) []byte {
+	return input(domainNodeDeleted, []byte(h.GetNodeId()), h.GetAgentNonce())
 }
 
 // Seal authenticates a message for the server.

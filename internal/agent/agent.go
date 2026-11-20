@@ -19,6 +19,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -28,12 +29,18 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 
 	"github.com/brokerium/brokerium/internal/version"
 	agentv1 "github.com/brokerium/brokerium/proto/brokerium/agent/v1"
 )
+
+// ErrNodeDeleted is returned by Run when the server answers that the node of the agent, or of its
+// join token, does not exist: it was deleted in Brokerium.
+var ErrNodeDeleted = errors.New("the node was deleted in Brokerium")
 
 // Transports and their TLS modes (ADR 0017).
 const (
@@ -129,7 +136,8 @@ func (a *Agent) path(name string) string { return filepath.Join(a.cfg.DataDir, n
 
 // Run enrolls if needed and keeps the command stream open until ctx ends. An agent whose
 // certificate expired, or that is configured for another transport than it enrolled with,
-// enrolls again when it is given a join token.
+// enrolls again when it is given a join token. It returns ErrNodeDeleted once the server answers
+// that the node was deleted; every other failure of the stream is retried.
 func (a *Agent) Run(ctx context.Context) error {
 	if err := a.kafka.prepareUnit(); err != nil {
 		a.log.Warn("preparing the kafka unit", "error", err)
@@ -147,6 +155,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 		if err := a.enroll(ctx); err != nil {
 			switch {
+			case errors.Is(err, ErrNodeDeleted):
+				return a.deleted()
 			case expired:
 				return fmt.Errorf("the agent certificate expired; enrolling again needs a new join token: %w", err)
 			case switched:
@@ -166,6 +176,10 @@ func (a *Agent) Run(ctx context.Context) error {
 			_ = a.kafka.Shutdown(2 * time.Minute)
 			return nil
 		}
+		if errors.Is(err, ErrNodeDeleted) {
+			_ = a.kafka.Shutdown(2 * time.Minute)
+			return a.deleted()
+		}
 		a.log.Warn("connection to server lost", "error", err, "retryIn", backoff)
 		select {
 		case <-ctx.Done():
@@ -175,6 +189,23 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 		backoff = min(backoff*2, 30*time.Second)
 	}
+}
+
+// deleted reports that the node was deleted in Brokerium and returns ErrNodeDeleted.
+func (a *Agent) deleted() error {
+	a.log.Error("the node was deleted in Brokerium; the agent stops and is not restarted. "+
+		"The uninstall script of the server (/api/v1/agent/uninstall.sh) removes it from this host",
+		"node", a.node.NodeName, "id", a.node.NodeID)
+	return ErrNodeDeleted
+}
+
+// mtlsStatus turns NotFound into ErrNodeDeleted. With mutual TLS the status comes from the
+// server; the insecure transport trusts only a signed answer.
+func mtlsStatus(err error) error {
+	if status.Code(err) == codes.NotFound {
+		return fmt.Errorf("%w: %s", ErrNodeDeleted, status.Convert(err).Message())
+	}
+	return err
 }
 
 func (a *Agent) loadIdentity() error {
@@ -279,7 +310,7 @@ func (a *Agent) enrollMTLS(ctx context.Context, wantCA string) error {
 	resp, err := agentv1.NewAgentServiceClient(conn).Enroll(cctx, &agentv1.EnrollRequest{
 		Token: a.cfg.Token, CsrDer: csr, Hostname: host, AgentVersion: version.Version})
 	if err != nil {
-		return err
+		return mtlsStatus(err)
 	}
 	if err := a.saveCredentials(resp.GetCertDer(), key); err != nil {
 		return err
@@ -356,7 +387,7 @@ func (a *Agent) mtlsSession(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return a.serve(ctx, sctx, stream, func() { go a.keepCertificateRenewed(sctx, conn, cert.Leaf, pool) })
+	return mtlsStatus(a.serve(ctx, sctx, stream, func() { go a.keepCertificateRenewed(sctx, conn, cert.Leaf, pool) }))
 }
 
 var keepaliveOption = grpc.WithKeepaliveParams(keepalive.ClientParameters{Time: 30 * time.Second, Timeout: 10 * time.Second,
@@ -381,6 +412,10 @@ func (a *Agent) serve(ctx, sctx context.Context, stream commandStream, connected
 	}
 	if err := send(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_Hello{Hello: &agentv1.Hello{
 		AgentVersion: version.Version, Status: a.kafka.Status()}}}); err != nil {
+		if errors.Is(err, io.EOF) {
+			// The server ended the stream; Recv returns the status it ended it with.
+			_, err = stream.Recv()
+		}
 		return err
 	}
 	a.log.Info("connected to server", "server", a.cfg.Server, "transport", a.node.transport())
