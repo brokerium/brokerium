@@ -8,6 +8,7 @@ import (
 
 	"github.com/brokerium/brokerium/internal/balancer"
 	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/kafka"
 )
 
 func kinds(steps []StepSpec) []string {
@@ -45,7 +46,7 @@ func TestReassignSteps(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			steps := reassignStepsURP(tc.moves, 0, tc.batch, false)
+			steps := reassignSteps(tc.moves, 0, tc.batch, HealthGateArgs{})
 			if got := kinds(steps); !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("kinds = %v\nwant    %v", got, tc.want)
 			}
@@ -63,20 +64,52 @@ func TestReassignSteps(t *testing.T) {
 
 func TestHealthProblems(t *testing.T) {
 	t.Parallel()
-	ok := cluster.Health{QuorumLeader: 1, Voters: 3}
-	if p := HealthProblems(ok, false); len(p) != 0 {
-		t.Errorf("healthy cluster fails the gate: %v", p)
+	view := func(change func(v *cluster.View)) *cluster.View {
+		v := &cluster.View{Health: cluster.Health{Mode: kafka.ModeKRaft, QuorumLeader: 1, Controller: 1, Voters: 3},
+			Snapshot: &kafka.Snapshot{Mode: kafka.ModeKRaft, Brokers: []kafka.Broker{
+				{ID: 101, Alive: true, DiskTotalBytes: 100, DiskUsableBytes: 50},
+				{ID: 102, Alive: true, DiskTotalBytes: 100, DiskUsableBytes: 50},
+				{ID: 103, Alive: true},
+			}}}
+		change(v)
+		return v
 	}
-	urp := ok
-	urp.UnderReplicated = 2
-	if p := HealthProblems(urp, false); len(p) != 1 {
-		t.Errorf("under-replicated partitions pass the gate: %v", p)
+	tests := []struct {
+		name string
+		v    *cluster.View
+		args HealthGateArgs
+		want []string
+	}{
+		{"healthy", view(func(*cluster.View) {}), HealthGateArgs{}, nil},
+		{"under-replicated partitions", view(func(v *cluster.View) { v.Health.UnderReplicated = 2 }), HealthGateArgs{},
+			[]string{"2 under-replicated partition(s)"}},
+		{"under-replicated partitions allowed", view(func(v *cluster.View) { v.Health.UnderReplicated = 2 }),
+			HealthGateArgs{AllowUnderReplicated: true}, nil},
+		{"partitions and the quorum", view(func(v *cluster.View) {
+			v.Health.QuorumLeader, v.Health.OfflinePartitions, v.Health.UnderMinISR, v.Health.VotersLagging = -1, 1, 1, 1
+		}), HealthGateArgs{AllowUnderReplicated: true}, []string{"1 offline partition(s)", "1 partition(s) under min.insync.replicas",
+			"no controller quorum leader", "1 lagging controller voter(s)"}},
+		{"a fenced broker", view(func(v *cluster.View) { v.Snapshot.Brokers[2].Fenced, v.Snapshot.Brokers[2].Alive = true, false }),
+			HealthGateArgs{}, []string{"broker(s) 103 fenced or offline"}},
+		{"the fenced broker the operation replaces", view(func(v *cluster.View) {
+			v.Snapshot.Brokers[2].Fenced, v.Snapshot.Brokers[2].Alive = true, false
+		}), HealthGateArgs{ExpectFenced: []int32{103}}, nil},
+		{"another fenced broker than the one replaced", view(func(v *cluster.View) {
+			v.Snapshot.Brokers[1].Fenced, v.Snapshot.Brokers[2].Fenced = true, true
+		}), HealthGateArgs{ExpectFenced: []int32{103}}, []string{"broker(s) 102 fenced or offline"}},
+		{"full disks", view(func(v *cluster.View) {
+			v.Snapshot.Brokers[0].DiskUsableBytes, v.Snapshot.Brokers[1].DiskUsableBytes = 10, 7
+		}), HealthGateArgs{}, []string{"broker(s) 101 (90%), 102 (93%) with volumes at least 90% full"}},
+		{"ZooKeeper with a controller", view(func(v *cluster.View) {
+			v.Health = cluster.Health{Mode: kafka.ModeZooKeeper, QuorumLeader: -1, Controller: 101}
+		}), HealthGateArgs{}, nil},
+		{"ZooKeeper without a controller", view(func(v *cluster.View) {
+			v.Health = cluster.Health{Mode: kafka.ModeZooKeeper, QuorumLeader: -1, Controller: -1}
+		}), HealthGateArgs{}, []string{"no active controller"}},
 	}
-	if p := HealthProblems(urp, true); len(p) != 0 {
-		t.Errorf("allowURP still blocks: %v", p)
-	}
-	bad := cluster.Health{QuorumLeader: -1, Voters: 3, OfflinePartitions: 1, UnderMinISR: 1, VotersLagging: 1}
-	if p := HealthProblems(bad, true); len(p) != 4 {
-		t.Errorf("expected 4 problems, got %v", p)
+	for _, tc := range tests {
+		if got := HealthProblems(tc.v, tc.args); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: HealthProblems = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }

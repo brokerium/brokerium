@@ -8,12 +8,14 @@ import type {
   Edition,
   Flavor,
   HealthStatus,
+  KafkaMode,
   LicenseState,
   OperationStatus,
   Provider,
   Role,
   Severity,
 } from '../api/types';
+import { modeColor, modeDescription, modeLabel } from '../lib/kafkaMode';
 import { FLAVOR_LABELS, PROVIDER_LABELS, ROLE_COLORS, ROLE_LABELS } from '../lib/labels';
 import { editionLabel, licenseStateColor, licenseStateLabel } from '../lib/license';
 import { brokerState, brokerStateColor, healthColor, healthLabel, operationStatusColor, severityColor } from '../lib/status';
@@ -41,6 +43,18 @@ export function FlavorBadge({ flavor, size = 'sm' }: { flavor: Flavor } & SizePr
     <Badge variant="light" color="grape" size={size}>
       {FLAVOR_LABELS[flavor] ?? flavor}
     </Badge>
+  );
+}
+
+/** The Kafka mode of a cluster; nothing while it is not known. */
+export function ModeBadge({ mode, size = 'sm' }: { mode: KafkaMode } & SizeProps) {
+  if (mode === '') return null;
+  return (
+    <Tooltip label={modeDescription(mode)} withArrow multiline maw={320}>
+      <Badge variant="light" color={modeColor(mode)} size={size}>
+        {modeLabel(mode)}
+      </Badge>
+    </Tooltip>
   );
 }
 

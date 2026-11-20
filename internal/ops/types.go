@@ -136,8 +136,8 @@ func racksKnown(v *cluster.View) bool {
 	return len(v.Snapshot.Brokers) > 0
 }
 
-// reassignStepsURP turns moves into throttled, batched, health-gated steps.
-func reassignStepsURP(moves []balancer.Move, throttle int64, batch int, allowURP bool) []StepSpec {
+// reassignSteps turns moves into throttled, batched steps behind health gates with gate.
+func reassignSteps(moves []balancer.Move, throttle int64, batch int, gate HealthGateArgs) []StepSpec {
 	if throttle <= 0 {
 		throttle = DefaultThrottle
 	}
@@ -152,7 +152,7 @@ func reassignStepsURP(moves []balancer.Move, throttle int64, batch int, allowURP
 	}
 	throttleArgs := ThrottleArgs{RateBytesPerSec: throttle, Assignments: assignments}
 	steps := []StepSpec{
-		{Name: "Check cluster health", Kind: KindHealthGate, Args: HealthGateArgs{AllowUnderReplicated: allowURP}},
+		{Name: "Check cluster health", Kind: KindHealthGate, Args: gate},
 	}
 	if copiesData {
 		steps = append(steps, StepSpec{Name: fmt.Sprintf("Throttle replication to %s/s", humanBytes(throttle)), Kind: KindThrottle, Args: throttleArgs})
@@ -164,7 +164,7 @@ func reassignStepsURP(moves []balancer.Move, throttle int64, batch int, allowURP
 		steps = append(steps,
 			StepSpec{Name: fmt.Sprintf("Start batch %d (%d partitions)", n, len(part)), Kind: KindReassign, Args: ReassignArgs{Assignments: part}},
 			StepSpec{Name: fmt.Sprintf("Wait for batch %d", n), Kind: KindWaitReassign, Args: ReassignArgs{Assignments: part}},
-			StepSpec{Name: fmt.Sprintf("Check health after batch %d", n), Kind: KindHealthGate, Args: HealthGateArgs{AllowUnderReplicated: allowURP}},
+			StepSpec{Name: fmt.Sprintf("Check health after batch %d", n), Kind: KindHealthGate, Args: gate},
 		)
 	}
 	if copiesData {
@@ -173,10 +173,10 @@ func reassignStepsURP(moves []balancer.Move, throttle int64, batch int, allowURP
 	return append(steps, StepSpec{Name: "Elect preferred leaders", Kind: KindElectPreferred, Args: ReassignArgs{Assignments: assignments}})
 }
 
-// ReassignSteps exposes reassignSteps to node lifecycle operations. allowURP lets the health
-// gates pass while partitions are under-replicated, for replacing a failed broker.
-func ReassignSteps(moves []balancer.Move, throttle int64, batch int, allowURP bool) []StepSpec {
-	return reassignStepsURP(moves, throttle, batch, allowURP)
+// ReassignSteps exposes reassignSteps to node lifecycle operations, whose health gates may let
+// under-replicated partitions and a fenced broker pass while a failed broker is replaced.
+func ReassignSteps(moves []balancer.Move, throttle int64, batch int, gate HealthGateArgs) []StepSpec {
+	return reassignSteps(moves, throttle, batch, gate)
 }
 
 // EvacuateSteps plans moving every replica off the given brokers: throttled, batched
@@ -196,7 +196,7 @@ func EvacuateSteps(p *Planner, brokers []int32) ([]StepSpec, *balancer.Plan, err
 			return nil, nil, fmt.Errorf("brokers %v cannot be emptied: %s", brokers, w)
 		}
 	}
-	steps := reassignStepsURP(plan.Moves, 0, 0, false)
+	steps := reassignSteps(plan.Moves, 0, 0, HealthGateArgs{})
 	for _, b := range brokers {
 		steps = append(steps, StepSpec{Name: fmt.Sprintf("Verify broker %d is empty", b), Kind: KindVerifyEmpty, Args: BrokerArgs{BrokerID: b}})
 	}
@@ -258,7 +258,7 @@ func planFromMoves(p *Planner, plan *balancer.Plan, title string, throttle int64
 	doc.Summary = fmt.Sprintf("%s: %d partition(s) change, %d replica move(s) (%s), %d leader-only change(s); replica spread %d -> %d, leader spread %d -> %d",
 		title, len(plan.Moves), moved, humanBytes(plan.DataToMoveBytes), leaderOnly,
 		plan.Before.ReplicaSpread, plan.After.ReplicaSpread, plan.Before.LeaderSpread, plan.After.LeaderSpread)
-	steps := reassignStepsURP(plan.Moves, throttle, batch, false)
+	steps := reassignSteps(plan.Moves, throttle, batch, HealthGateArgs{})
 	return &Planned{Doc: doc, Steps: append(steps, extra...)}, nil
 }
 

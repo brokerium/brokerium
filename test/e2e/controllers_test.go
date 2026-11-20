@@ -21,7 +21,7 @@ import (
 // alone (no brokers involved). Controller listeners are usually reachable only inside the
 // cluster network, so run it there:
 //
-//	BROKERIUM_E2E_CONTROLLERS=delta-c1:9093,delta-c2:9093,delta-c3:9093
+//	BROKERIUM_E2E_CONTROLLERS=alpha-c1:9093,alpha-c2:9093,alpha-c3:9093
 func TestControllersDirect(t *testing.T) {
 	addrs := os.Getenv("BROKERIUM_E2E_CONTROLLERS")
 	if addrs == "" {

@@ -16,6 +16,19 @@ export function compareKafkaVersions(a: KafkaVersion, b: KafkaVersion): number {
   return 0;
 }
 
+/** The oldest Kafka release Brokerium creates clusters with. */
+export const MIN_NEW_CLUSTER_VERSION: KafkaVersion = [4, 2, 0];
+
+/** Why a Kafka version cannot be used for a new cluster; undefined when it can. */
+export function newClusterVersionError(text: string): string | undefined {
+  const version = /^\s*\d+\.\d+\.\d+\s*$/.test(text) ? parseKafkaVersion(text) : null;
+  if (!version) return 'A release such as 4.3.1';
+  if (compareKafkaVersions(version, MIN_NEW_CLUSTER_VERSION) < 0) {
+    return `New clusters run Kafka ${MIN_NEW_CLUSTER_VERSION.join('.')} or later`;
+  }
+  return undefined;
+}
+
 const KAFKA_20979_FIRST: KafkaVersion = [4, 1, 0];
 const KAFKA_20979_FIXED_43: KafkaVersion = [4, 3, 2];
 

@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { affectedByKafka20979, compareKafkaVersions, parseKafkaVersion } from './kafkaVersion';
+import { affectedByKafka20979, compareKafkaVersions, newClusterVersionError, parseKafkaVersion } from './kafkaVersion';
 
 describe('parseKafkaVersion', () => {
   it('parses release versions', () => {
@@ -19,6 +19,20 @@ describe('parseKafkaVersion', () => {
   it('compares versions numerically', () => {
     expect(compareKafkaVersions([4, 10, 0], [4, 9, 9])).toBeGreaterThan(0);
     expect(compareKafkaVersions([4, 3, 1], [4, 3, 1])).toBe(0);
+  });
+});
+
+describe('newClusterVersionError', () => {
+  it.each([
+    ['4.2.0', undefined],
+    ['4.4.0', undefined],
+    [' 4.3.1 ', undefined],
+    ['4.1.2', 'New clusters run Kafka 4.2.0 or later'],
+    ['3.9.2', 'New clusters run Kafka 4.2.0 or later'],
+    ['4.3', 'A release such as 4.3.1'],
+    ['latest', 'A release such as 4.3.1'],
+  ])('%s -> %s', (version, expected) => {
+    expect(newClusterVersionError(version)).toBe(expected);
   });
 });
 

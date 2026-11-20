@@ -22,6 +22,7 @@ import (
 	"github.com/brokerium/brokerium/internal/agentgw"
 	"github.com/brokerium/brokerium/internal/balancer"
 	"github.com/brokerium/brokerium/internal/cluster"
+	"github.com/brokerium/brokerium/internal/kafka"
 	"github.com/brokerium/brokerium/internal/ops"
 	"github.com/brokerium/brokerium/internal/provider/docker"
 	"github.com/brokerium/brokerium/internal/store"
@@ -53,6 +54,13 @@ type Manager struct {
 }
 
 var versionRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+
+// Kafka releases that node lifecycle operations need (ADR 0022): the oldest one bootstrap-cluster
+// installs, and the oldest one that migrates a static quorum to a dynamic one (KIP-853).
+const (
+	minNewClusterVersion = "4.2.0"
+	minMigrateVersion    = "4.1.0"
+)
 
 // Types lists node lifecycle operation types.
 func (m *Manager) Types() []ops.OpType {
@@ -281,6 +289,8 @@ func (m *Manager) bootstrapPlan(p *ops.Planner, f fleet, params bootstrapParams,
 	switch {
 	case !versionRe.MatchString(params.Version):
 		return nil, fmt.Errorf("invalid version %q", params.Version)
+	case compareVersions(params.Version, minNewClusterVersion) < 0:
+		return nil, fmt.Errorf("new clusters run Kafka %s or later, not %s", minNewClusterVersion, params.Version)
 	case params.Quorum != "dynamic" && params.Quorum != "static":
 		return nil, errors.New("quorum must be dynamic or static")
 	case p.Cluster.Provider != store.ProviderDocker && p.Cluster.Provider != store.ProviderAgent:
@@ -822,8 +832,8 @@ func replacePlan(p *ops.Planner, f fleet, params replaceParams) (*ops.Planned, e
 	if !docker {
 		on = " on host " + mb.name
 	}
-	steps := []ops.StepSpec{{Name: "Check health (under-replicated partitions allowed)", Kind: ops.KindHealthGate,
-		Args: ops.HealthGateArgs{AllowUnderReplicated: true}}}
+	gate := ops.HealthGateArgs{AllowUnderReplicated: true, ExpectFenced: []int32{old}}
+	steps := []ops.StepSpec{{Name: "Check health (under-replicated partitions allowed)", Kind: ops.KindHealthGate, Args: gate}}
 	if !docker {
 		steps = append(steps, checkHostsStep(s.KafkaClusterID, []member{mb}))
 	}
@@ -864,7 +874,7 @@ func replacePlan(p *ops.Planner, f fleet, params replaceParams) (*ops.Planned, e
 	steps = append(steps, startSteps(a)...)
 	steps = append(steps, ops.StepSpec{Name: fmt.Sprintf("Wait for broker %d", id), Kind: KindWaitBroker, Args: NodeArgs{NodeID: id}})
 	if len(moves) > 0 {
-		steps = append(steps, ops.ReassignSteps(moves, 0, 0, true)...)
+		steps = append(steps, ops.ReassignSteps(moves, 0, 0, gate)...)
 	}
 	steps = append(steps, ops.StepSpec{Name: fmt.Sprintf("Unregister broker %d", old), Kind: ops.KindUnregisterBroker, Args: ops.BrokerArgs{BrokerID: old}})
 	if remove != nil {
@@ -1080,6 +1090,10 @@ func migratePlan(p *ops.Planner, mn managed) (*ops.Planned, error) {
 	if len(mn.controllers) == 0 {
 		return nil, errors.New("no managed controllers; adopt the nodes with brokerium-agent first")
 	}
+	if old := olderNodes(p, mn, minMigrateVersion); len(old) > 0 {
+		return nil, fmt.Errorf("migrating to a dynamic quorum needs Kafka %s or later on every node: %s",
+			minMigrateVersion, strings.Join(old, ", "))
+	}
 	docker := p.Cluster.Provider == store.ProviderDocker
 	var hosts []string
 	for _, c := range mn.controllers {
@@ -1213,6 +1227,39 @@ func adopted(n *store.Node) bool {
 		Adopted bool `json:"adopted"`
 	}
 	return json.Unmarshal(n.Status, &st) == nil && st.Adopted
+}
+
+// kafkaVersionOf returns the Kafka release the node's agent runs, empty when unknown.
+func kafkaVersionOf(n *store.Node) string {
+	var st struct {
+		ActiveVersion string `json:"activeVersion"`
+	}
+	if json.Unmarshal(n.Status, &st) != nil || !versionRe.MatchString(st.ActiveVersion) {
+		return ""
+	}
+	return st.ActiveVersion
+}
+
+// olderNodes names what runs a Kafka release before version: the release in the cluster
+// settings, brokers whose version in the snapshot may be older, and managed controllers whose
+// agents report an older one.
+func olderNodes(p *ops.Planner, mn managed, version string) []string {
+	var out []string
+	if v := settingsOf(p.Cluster).KafkaVersion; v != "" && compareVersions(v, version) < 0 {
+		out = append(out, "the cluster settings name "+v)
+	}
+	want, _ := kafka.ParseVersion(version)
+	for _, b := range p.View.Snapshot.Brokers {
+		if r, ok := kafka.ParseVersion(b.Version); ok && !r.AtLeast(want.Min.Major, want.Min.Minor) {
+			out = append(out, fmt.Sprintf("broker %d runs %s", b.ID, b.Version))
+		}
+	}
+	for _, n := range mn.controllers {
+		if v := kafkaVersionOf(n); v != "" && compareVersions(v, version) < 0 {
+			out = append(out, fmt.Sprintf("%s runs %s", n.Name, v))
+		}
+	}
+	return out
 }
 
 // javaMajor returns the Java feature release reported by the node's agent, 0 when unknown.

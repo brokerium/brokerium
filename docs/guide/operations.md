@@ -11,7 +11,10 @@ case. Only one operation runs per cluster. Each step and its result are in the a
 
 - A health gate runs before the first step and after every batch or node: no offline
   partitions, nothing under `min.insync.replicas`, no under-replicated partitions except
-  those being moved, a quorum leader, no lagging voters.
+  those being moved, a quorum leader (the controller broker on ZooKeeper-based clusters), no
+  lagging voters, no fenced or offline broker except the one the operation replaces, and no
+  broker volume 90% full or more. Free space first, for example by lowering `retention.ms` of
+  large topics: data does not move while a volume is that full.
 - Reassignments carry full target replica lists, run in batches, and are throttled on the
   brokers and topics involved; throttles are always removed afterwards.
 - Cordoned and offline brokers never receive replicas; racks are respected.
@@ -26,18 +29,22 @@ case. Only one operation runs per cluster. Each step and its result are in the a
 | Rebalance | Plans moves with the built-in balancer (hard goals: replication factor, racks, capacity, excluded brokers; soft goals: replicas, leaders, data, traffic and per-topic spread), then executes them throttled in batches and elects preferred leaders. Modes: even, replicas only, leaders only. |
 | Move partitions | Your own target replica lists, with the same preview and execution. |
 | Elect preferred leaders | Moves leadership back to the first replica. |
-| Cordon broker | Excludes a broker from new replicas (KIP-1066, Kafka 4.3+). |
-| Drain / decommission broker | Cordons, moves every replica away, then (decommission) stops the node, releases its agent host and unregisters the broker. Refused for [combined nodes](clusters.md#combined-nodes). |
+| Cordon broker | Excludes a broker from new replicas (KIP-1066, Kafka 4.3+ on every broker). |
+| Drain / decommission broker | Cordons, moves every replica away, then (decommission) stops the node, releases its agent host and unregisters the broker. Kafka 4.3+ on every broker. Refused for [combined nodes](clusters.md#combined-nodes). |
 | Unregister broker | Removes a dead broker's registration. |
 | Add brokers | Starts brokers on agent hosts you choose or in new Docker containers, waits for them, rebalances onto them. |
 | Replace broker | For a lost broker: the same id on an empty disk, on its host or another one (followers re-replicate), or a new id on another host with its replicas moved over and the old id unregistered. Refused for combined nodes. |
 | Add / remove controller | Grows or shrinks a dynamic quorum one voter at a time; a new controller runs on an agent host you choose. Combined nodes are not removed. |
-| Migrate quorum | Moves a static quorum to a dynamic one (`kraft.version` 1, Kafka 4.1+). Irreversible. |
+| Migrate quorum | Moves a static quorum to a dynamic one (`kraft.version` 1, Kafka 4.1+ on every node). Irreversible. |
 | Rolling restart | Restarts nodes one at a time: controllers and combined nodes first with the quorum leader last, then brokers. A combined node also waits for its replicas to be in sync. |
 | Rolling upgrade | Downloads the release on every node, then restarts them one at a time on it. Warns about known defects (KAFKA-20979 in 4.1.0 to 4.3.1) and checks Java 17+. |
 | Finalize upgrade | Raises `metadata.version` and other features. Irreversible. |
 | Scale node pool | Strimzi broker pools, see [clusters](clusters.md#strimzi). |
-| Create / delete cluster nodes | Creates the controllers, brokers and combined nodes of a cluster on agent hosts you choose ([agent clusters](clusters.md#agent-clusters)) or in Docker; deletes Docker lab clusters. |
+| Create / delete cluster nodes | Creates the controllers, brokers and combined nodes of a cluster on agent hosts you choose ([agent clusters](clusters.md#agent-clusters)) or in Docker, on Kafka 4.2.0 or later; deletes Docker lab clusters. |
+
+Which operations a cluster offers depends on its Kafka mode and the versions of its brokers
+([Kafka versions and modes](clusters.md#kafka-versions-and-modes)): ZooKeeper-based clusters
+offer rebalancing, partition moves and leader elections.
 
 The runbooks in [docs/runbooks](../runbooks/) show the same procedures with the Kafka CLI, and
 [test/e2e](../../test/e2e) runs every scenario against the lab.

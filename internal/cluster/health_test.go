@@ -15,6 +15,8 @@ import (
 func healthySnapshot(now time.Time) *kafka.Snapshot {
 	ts := now.UnixMilli()
 	return &kafka.Snapshot{
+		Mode:         kafka.ModeKRaft,
+		ControllerID: 102,
 		Brokers: []kafka.Broker{
 			{ID: 101, Alive: true, DiskTotalBytes: 100, DiskUsableBytes: 60},
 			{ID: 102, Alive: true, DiskTotalBytes: 100, DiskUsableBytes: 70},
@@ -113,7 +115,8 @@ func TestEvaluateCounters(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
 	h := Evaluate(healthySnapshot(now), now)
-	if h.Brokers != 3 || h.BrokersAlive != 3 || h.Topics != 1 || h.Partitions != 2 || h.Voters != 3 || h.QuorumLeader != 1 {
+	if h.Brokers != 3 || h.BrokersAlive != 3 || h.Topics != 1 || h.Partitions != 2 || h.Voters != 3 || h.QuorumLeader != 1 ||
+		h.Controller != 1 || h.Mode != kafka.ModeKRaft {
 		t.Errorf("counters %+v", h)
 	}
 	if h.DiskUsedPercentMax != 40 || h.MetadataVersion != "4.3-IV0" || h.KRaftVersion != 1 {
@@ -121,9 +124,73 @@ func TestEvaluateCounters(t *testing.T) {
 	}
 }
 
+func TestEvaluateZooKeeper(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	zookeeper := func() *kafka.Snapshot {
+		s := healthySnapshot(now)
+		s.Quorum, s.Features, s.Skipped, s.Mode, s.ControllerID = nil, nil, []string{kafka.PartQuorum}, kafka.ModeZooKeeper, 102
+		for i := range s.Brokers {
+			s.Brokers[i].Mode, s.Brokers[i].Version = kafka.ModeZooKeeper, "3.5"
+		}
+		return s
+	}
+	tests := []struct {
+		name       string
+		mutate     func(s *kafka.Snapshot)
+		status     string
+		codes      []string
+		controller int32
+	}{
+		{"the controller comes from Metadata", func(*kafka.Snapshot) {}, HealthOK, []string{}, 102},
+		{"no controller", func(s *kafka.Snapshot) { s.ControllerID = -1 }, HealthCritical, []string{"no_controller"}, -1},
+		{"migration without a described quorum", func(s *kafka.Snapshot) { s.Mode = kafka.ModeMigration }, HealthOK, []string{}, 102},
+		{"migration with the quorum of the KRaft controllers", func(s *kafka.Snapshot) {
+			s.Mode, s.Skipped = kafka.ModeMigration, nil
+			s.Quorum = &kafka.Quorum{LeaderID: 3000, Voters: []kafka.QuorumReplica{{NodeID: 3000, Role: "leader"}}}
+		}, HealthOK, []string{}, 3000},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := zookeeper()
+			tc.mutate(s)
+			h := Evaluate(s, now)
+			if h.Status != tc.status || !reflect.DeepEqual(codes(h), tc.codes) || h.Controller != tc.controller {
+				t.Errorf("status %s, issues %v, controller %d; want %s, %v, %d", h.Status, codes(h), h.Controller, tc.status, tc.codes, tc.controller)
+			}
+			if h.MetadataVersion != "" || !reflect.DeepEqual(h.Versions, []string{"3.5"}) {
+				t.Errorf("metadata.version %q, versions %v", h.MetadataVersion, h.Versions)
+			}
+		})
+	}
+}
+
+func TestEvaluateVersions(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	s := healthySnapshot(now)
+	s.Brokers[0].Version, s.Brokers[1].Version, s.Brokers[2].Version = "4.3.1", "4.4.0", "4.3.1"
+	s.MixedVersions = true
+	h := Evaluate(s, now)
+	if !reflect.DeepEqual(h.Versions, []string{"4.3.1", "4.4.0"}) || !h.MixedVersions || h.Status != HealthOK {
+		t.Errorf("versions %v, mixed %v, status %s", h.Versions, h.MixedVersions, h.Status)
+	}
+	if len(h.Issues) != 1 || h.Issues[0].Code != "mixed_versions" || h.Issues[0].Message != "the brokers run different Kafka versions: 4.3.1 (101, 103), 4.4.0 (102)" {
+		t.Errorf("issues %+v", h.Issues)
+	}
+
+	s = healthySnapshot(now)
+	s.Brokers[0].Version = "3.4"
+	if h := Evaluate(s, now); h.Status != HealthWarning || !reflect.DeepEqual(codes(h), []string{"unsupported_version"}) {
+		t.Errorf("Kafka 3.4: status %s, issues %v", h.Status, h.Issues)
+	}
+}
+
 func TestMetadataVersionName(t *testing.T) {
 	t.Parallel()
-	for level, want := range map[int16]string{7: "3.3-IV3", 21: "3.9-IV0", 30: "4.3-IV0", 33: "4.4-IV2", 99: "level 99"} {
+	for level, want := range map[int16]string{1: "3.0-IV1", 2: "3.1-IV0", 3: "3.2-IV0", 4: "3.3-IV0", 5: "3.3-IV1", 6: "3.3-IV2",
+		7: "3.3-IV3", 21: "3.9-IV0", 30: "4.3-IV0", 33: "4.4-IV2", 99: "level 99"} {
 		if got := MetadataVersionName(level); got != want {
 			t.Errorf("MetadataVersionName(%d) = %q, want %q", level, got, want)
 		}
@@ -138,42 +205,6 @@ func TestControllerServers(t *testing.T) {
 	}
 	if got := ControllerServers(&store.Cluster{}); got != nil {
 		t.Errorf("ControllerServers without settings = %v", got)
-	}
-}
-
-func TestCapabilitiesFor(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name   string
-		c      store.Cluster
-		static bool
-		check  func(Capabilities) bool
-	}{
-		{"external apache: data and placement, no node lifecycle", store.Cluster{Provider: store.ProviderExternal, Flavor: store.FlavorApache}, false,
-			func(c Capabilities) bool {
-				return c.Reassign && c.RemoveVoters && !c.ProvisionNodes && !c.RestartNodes && !c.AddControllers
-			}},
-		{"docker: everything", store.Cluster{Provider: store.ProviderDocker, Flavor: store.FlavorApache}, false,
-			func(c Capabilities) bool {
-				return c.ProvisionNodes && c.AddControllers && c.RestartNodes && c.UpgradeVersion && !c.MigrateQuorum
-			}},
-		{"agent with a static quorum: migrate, no controller changes", store.Cluster{Provider: store.ProviderAgent, Flavor: store.FlavorApache}, true,
-			func(c Capabilities) bool {
-				return c.MigrateQuorum && !c.AddControllers && !c.RemoveVoters && !c.ProvisionNodes
-			}},
-		{"msk: reassign but no quorum", store.Cluster{Provider: store.ProviderExternal, Flavor: store.FlavorMSK}, false,
-			func(c Capabilities) bool {
-				return c.Reassign && !c.DescribeQuorum && !c.ManageSCRAM && !c.FinalizeFeatures
-			}},
-		{"confluent cloud: data plane only", store.Cluster{Provider: store.ProviderExternal, Flavor: store.FlavorConfluentCloud}, false,
-			func(c Capabilities) bool { return c.ManageTopics && c.ManageACLs && !c.Reassign && !c.ElectLeaders }},
-		{"strimzi: node pools", store.Cluster{Provider: store.ProviderStrimzi, Flavor: store.FlavorApache}, false,
-			func(c Capabilities) bool { return c.ScaleNodePools && !c.ProvisionNodes && !c.ManageSCRAM }},
-	}
-	for _, tc := range tests {
-		if got := CapabilitiesFor(&tc.c, tc.static); !tc.check(got) {
-			t.Errorf("%s: %+v", tc.name, got)
-		}
 	}
 }
 

@@ -77,6 +77,15 @@ flowchart LR
 - On Kubernetes Brokerium works through Strimzi; on managed services (Amazon MSK,
   Confluent Cloud, Aiven) it offers what the provider allows.
 
+## Kafka versions
+
+Brokerium works with existing clusters from Apache Kafka 3.5.0, in KRaft or ZooKeeper mode,
+and creates new clusters from Kafka 4.2.0. It detects the mode and the version of every
+broker and offers what they support: ZooKeeper-based clusters get the dashboard, the data
+plane and partition placement, while controller, node and version management need KRaft;
+cordoning and draining brokers need Kafka 4.3. Details are in
+[Kafka versions and modes](docs/guide/clusters.md#kafka-versions-and-modes).
+
 ## Quick start
 
 **Kubernetes (Helm):**
