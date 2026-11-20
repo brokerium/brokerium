@@ -20,6 +20,11 @@ export function useServerInfo() {
   });
 }
 
+/** The Kafka release the server gives new clusters; undefined until the server answered. */
+export function useDefaultKafkaVersion(): string | undefined {
+  return useServerInfo().data?.defaultKafkaVersion;
+}
+
 /** The license and notice files built into the server. */
 export function useNotices() {
   return useQuery({

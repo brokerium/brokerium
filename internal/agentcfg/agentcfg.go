@@ -20,6 +20,7 @@ var (
 	labelRe    = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
 	numericRe  = regexp.MustCompile(`^[0-9]+$`)
 	rackRe     = regexp.MustCompile(`^[A-Za-z0-9._-]{0,64}$`)
+	dataDirRe  = regexp.MustCompile(`^/[A-Za-z0-9._/@:+-]*$`)
 )
 
 // Validate checks the properties and heap options of a WriteConfig command.
@@ -64,6 +65,15 @@ func ValidateHost(host string) error {
 func ValidateRack(rack string) error {
 	if !rackRe.MatchString(rack) {
 		return fmt.Errorf("rack %q: use at most 64 letters, digits, '.', '_' and '-'", rack)
+	}
+	return nil
+}
+
+// ValidateDataDir allows the Kafka data directories the install script accepts: absolute paths
+// of letters, digits and "._/@:+-". log.dirs separates directories with commas.
+func ValidateDataDir(dir string) error {
+	if !dataDirRe.MatchString(dir) {
+		return fmt.Errorf("data directory %q: use an absolute path of letters, digits and ._/@:+-", dir)
 	}
 	return nil
 }

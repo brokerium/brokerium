@@ -78,13 +78,14 @@ func TestServerInfo(t *testing.T) {
 	}{
 		{"Docker clusters on", edition.Community, docker.NewDetector(docker.ModeOn, "unix:///nonexistent/docker.sock"),
 			`{"version":"v0.3.1","commit":"abc1234","date":"2026-10-21T10:00:00Z","edition":"community",` +
-				`"providers":{"docker":{"available":true,"reason":""}}}`},
+				`"providers":{"docker":{"available":true,"reason":""}},"defaultKafkaVersion":"4.4.0"}`},
 		{"Docker clusters off", edition.Enterprise, docker.NewDetector(docker.ModeOff, "unix:///nonexistent/docker.sock"),
 			`{"version":"v0.3.1","commit":"abc1234","date":"2026-10-21T10:00:00Z","edition":"enterprise",` +
-				`"providers":{"docker":{"available":false,"reason":"Docker clusters are turned off on this server (BROKERIUM_DOCKER_PROVIDER=off)"}}}`},
+				`"providers":{"docker":{"available":false,"reason":"Docker clusters are turned off on this server (BROKERIUM_DOCKER_PROVIDER=off)"}},` +
+				`"defaultKafkaVersion":"4.4.0"}`},
 		{"no detector", edition.Community, nil,
 			`{"version":"v0.3.1","commit":"abc1234","date":"2026-10-21T10:00:00Z","edition":"community",` +
-				`"providers":{"docker":{"available":false,"reason":"Docker clusters are not set up on this server"}}}`},
+				`"providers":{"docker":{"available":false,"reason":"Docker clusters are not set up on this server"}},"defaultKafkaVersion":"4.4.0"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

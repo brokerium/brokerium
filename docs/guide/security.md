@@ -47,6 +47,9 @@ never returned by the API. Back up the key together with the database.
   server checks the same rules when cluster settings are saved and before it sends a command,
   so neither an operator nor a server can add lines to `server.properties`, the systemd unit or
   its environment file or pass other JVM options.
+- To find the Kafka process it runs and Kafka processes it does not run, the agent reads the
+  command lines of the processes on the host from `/proc`. It reports only the process id, start
+  time, Kafka version and user of Kafka brokers and controllers (main class `kafka.Kafka`).
 - On hosts the agent runs as the `brokerium-agent` account and Kafka as `kafka`; neither runs
   as root. The agent reaches Kafka in three ways:
   - sudo, with a rule in `/etc/sudoers.d/brokerium-agent` that allows `systemctl start`, `stop`
@@ -113,6 +116,23 @@ messages carry the authenticity instead ([ADR 0017](../adr/0017-agent-transport-
 - Nodes of the insecure transport have no certificate, and their secret neither expires nor
   rotates. Enrolling the node again with a new join token for it replaces the secret; enrolling
   with the other transport revokes the credentials of the old one.
+
+## Clusters that Brokerium creates
+
+Clusters that Brokerium creates on agent hosts or in Docker accept clients without
+authentication:
+
+- Every listener, for clients, between brokers and of the controllers, is `PLAINTEXT`: traffic
+  is neither encrypted nor authenticated.
+- Every client therefore connects as `User:ANONYMOUS`, which is a super user
+  (`super.users=User:ANONYMOUS`). Clients can do anything, from reading every topic to deleting
+  topics, and ACLs do not restrict them: the `StandardAuthorizer` stores and lists the ACLs you
+  create, but super users pass every check.
+
+Keep the hosts of such clusters on a network that only trusted clients reach, for example with
+firewall rules for ports 9092 and 9093. TLS and SASL listeners for created clusters are planned
+(see the [roadmap](../ROADMAP.md)). Clusters you register and nodes you adopt keep the listeners
+and the authorization of their own configuration.
 
 ## Docker clusters
 
